@@ -5,8 +5,7 @@
   提供 fold、zk_prove、zk_verify 等桩函数。
 - NIFS：按指南暴露 K/P/P_zk/V_zk 接口以便调用方集成。
 
-说明：
-本实现仅用于流程演示与可验证接口对接，不包含真实密码学安全性。
+仅用于流程演示与可验证接口对接
 """
 from typing import Optional
 
@@ -16,7 +15,7 @@ from utils import h_join
 class FoldingProof:
     """
     Nova风格折叠累加器（桩实现）。常大小：单个哈希字符串。
-    规则：
+
     - fold(p1, p2) = H("fold" || p1 || p2)
     - zk_prove(acc) = H("zk" || acc)
     - zk_verify(acc, pi) == (pi == H("zk" || acc))
@@ -43,7 +42,7 @@ class FoldingProof:
 
 class NIFS:
     """
-    折叠方案外观接口（遵循指南）：
+    接口：
       - K：初始化参数/累加器（这里返回初始 FoldingProof）
       - P：将上轮累加器与本轮语句进行折叠
       - P_zk：对最终累加器生成简洁证明（将其视为对累加器的 zk）

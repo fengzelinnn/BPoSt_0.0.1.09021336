@@ -1,15 +1,12 @@
 """
-区块链与区块数据结构（BPoSt原型）
+区块链与区块数据结构
 
-本模块定义：
 - Block：单个区块的头部字段与序列化哈希（含Bobtail相关字段）。
 - Blockchain：区块链容器，维护折叠证明累加器（FoldingProof）与区块列表。
 
 设计说明：
-- 为满足“完全公开可验证”的需求，Block.header_hash() 将所有需要共识/验证的字段
-  以确定性顺序拼接后哈希，避免歧义。
-- 折叠证明（folding）的累计哈希存于链级别的 acc；每次添加区块时 acc 与当轮折叠证明
-  进行 fold，形成跨轮次的常大小累积证明。
+Block.header_hash() 将所有需要共识/验证的字段以确定性顺序拼接后哈希，避免歧义。
+折叠证明的累计哈希存于链级别的 acc；每次添加区块时 acc 与当轮折叠证明进行 fold，形成跨轮次的常大小累积证明。
 """
 from dataclasses import dataclass
 from typing import Dict, List
@@ -21,10 +18,10 @@ from utils import h_join
 @dataclass
 class Block:
     """
-    区块头数据结构（原型）：
+    区块头数据结构：
     - 包含上一块哈希、随机种子（上一块哈希）、Leader 标识、折叠证明累计哈希预览、
       各节点存储状态树根、当轮证明语句哈希，以及 Bobtail 相关的前 k 名证明与分配信息。
-    注意：header_hash() 将字段以确定顺序拼接后哈希，保障可验证性与去歧义。
+    注意：header_hash() 将字段以确定顺序拼接后哈希。
     """
     height: int
     prev_hash: str
