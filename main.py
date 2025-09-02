@@ -1,6 +1,5 @@
 import random
 import time
-import asyncio
 
 from blockchain import Blockchain
 from client import Client, verify_final
@@ -8,6 +7,7 @@ from coordinator import RoundCoordinator
 from network import Network
 from server import ServerNode
 from sim import run_simulation, SimConfig
+from utils import log_msg, init_logging
 
 """
 Two entrypoints:
@@ -17,7 +17,7 @@ Two entrypoints:
 
 
 def demo():
-    print("Bootstrapping demo network...")
+    log_msg("INFO", "SYSTEM", None, "Bootstrapping demo network...")
     # Initialize client and file
     client = Client("alice", chunk_size=64)
     file_bytes = ("This is a demo file for dPDP + Bobtail + Folding Scheme. "
@@ -37,8 +37,8 @@ def demo():
     rounds = 3
     for r in range(1, rounds + 1):
         blk = coord.run_round(height=r, client=client)
-        print(
-            f"Round {r} -> Leader: {blk.leader_id}, AccHash: {blk.accum_proof_hash[:16]}..., BlockHash: {blk.header_hash()[:16]}...")
+        log_msg("INFO", "SYSTEM", None,
+                f"Round {r} -> Leader: {blk.leader_id}, AccHash: {blk.accum_proof_hash[:16]}..., BlockHash: {blk.header_hash()[:16]}...")
         time.sleep(0.1)
 
     # On-demand proof request by client against a random node
@@ -46,20 +46,23 @@ def demo():
     indices = coord.select_indices(num_chunks=len(chunks), seed=seed)
     node = random.choice(nodes)
     proof_hash, per_idx = client.request_proof(node, indices, round_salt=seed)
-    print(
-        f"On-demand proof from {node.node_id} for indices {indices}: {proof_hash[:16]}... (storage_root {node.storage.storage_root()[:16]}...)")
+    log_msg("INFO", "VERIFY", node.node_id,
+            f"On-demand proof for indices {indices}: {proof_hash[:16]}... (storage_root {node.storage.storage_root()[:16]}...)")
 
     # Final verification: client checks only the final folded proof accumulator against last block
     ok = verify_final(chain)
-    print(f"Final folded proof verification: {'SUCCESS' if ok else 'FAIL'}")
+    log_msg("INFO", "VERIFY", None, f"Final folded proof verification: {'SUCCESS' if ok else 'FAIL'}")
 
 
-async def run_async_simulation():
-    # Defaults already 100 users & 1000 nodes; keep as-is
+# SimPy-based simulation entry (synchronous)
+
+def run_simpy_simulation():
     cfg = SimConfig()
-    await run_simulation(cfg)
+    run_simulation(cfg)
 
 
 if __name__ == "__main__":
-    # By default run the concurrent simulation. Comment to run small demo.
-    asyncio.run(run_async_simulation())
+    # 初始化日志到文件（默认 bpst.log），如需同时在控制台输出可设置 console=True
+    init_logging(log_file="bpst.log", level="DEBUG", console=True)
+    # By default run the SimPy simulation. Comment to run small demo().
+    run_simpy_simulation()

@@ -13,6 +13,11 @@ class RoundCoordinator:
         self.chain = chain
         self.challenge_size = challenge_size
         self.bobtail_k = bobtail_k
+        self.env = None
+
+    def bind_env(self, env):
+        self.env = env
+        return self
 
     def select_indices(self, num_chunks: int, seed: str) -> List[int]:
         rng = random.Random(int(seed, 16))
@@ -104,4 +109,73 @@ class RoundCoordinator:
         # Append block and update chain accumulator
         self.chain.add_block(block, folded)
         log_msg("INFO", "SYSTEM", None, f"Round {height} -> BlockHash={block.header_hash()[:16]}... AccHash={block.accum_proof_hash[:16]}...")
+        return block
+
+    def run_round_proc(self, env, height: int, client: Client, compute_delay: float = 0.002):
+        """SimPy process for a consensus round: schedule per-node dpdp and mining with delays."""
+        prev_hash = self.chain.last_hash()
+        seed = prev_hash
+        log_msg("INFO", "SYSTEM", None, f"[t={env.now}] Round {height} begin seed={seed[:16]}... client={client.client_id}")
+        for n in self.network.nodes:
+            n.finalize_initial_commitments()
+        indices = self.select_indices(num_chunks=len(client.chunks), seed=seed)
+        log_msg("INFO", "SYSTEM", None, f"[t={env.now}] Challenge indices for file={client.file_id}: {indices}")
+        node_proofs: Dict[str, str] = {}
+        storage_roots: Dict[str, str] = {}
+        time_roots_by_node: Dict[str, Dict[str, str]] = {}
+        # sequentially simulate each node's dpdp compute; could be parallelized by spawning processes
+        for n in self.network.nodes:
+            res_event = yield env.process(n.dpdp_prove_proc(env, indices, round_salt=seed, file_id=client.file_id, compute_delay=compute_delay))
+            proof_hash, _ = res_event
+            node_proofs[n.node_id] = proof_hash
+            storage_roots[n.node_id] = n.storage.storage_root()
+            time_roots_by_node[n.node_id] = n.storage.export_time_roots()
+        from utils import h_join
+        stmt_parts = ["round", str(height), seed]
+        for nid in sorted(node_proofs.keys()):
+            stmt_parts.append(nid)
+            stmt_parts.append(node_proofs[nid])
+        round_stmt_hash = h_join(*stmt_parts)
+        folded = FoldingProof.from_statement(round_stmt_hash)
+        proof_sets = []
+        for n in self.network.nodes:
+            lots = max(1, n.storage.num_files())
+            max_nonce = min(256, 16 * lots)
+            ps = yield env.process(n.mine_bobtail_proc(env, seed=seed, max_nonce=max_nonce, compute_per_nonce=compute_delay/16.0))
+            proof_sets.append(ps)
+        k = max(1, min(self.bobtail_k, len(proof_sets)))
+        proof_sets.sort(key=lambda p: int(p["proof_value"]))
+        selected = proof_sets[:k]
+        avg = sum(int(p["proof_value"]) for p in selected) / k if k else 0
+        t_k = (1 << 255)
+        log_msg("INFO", "SYSTEM", None, f"[t={env.now}] Round {height} mined {len(proof_sets)} proofs; avg={int(avg)} target={t_k}")
+        leader_id = selected[0]["node_id"] if selected else (self.network.nodes[0].node_id if self.network.nodes else "")
+        included_trees = {}
+        node_by_id = {n.node_id: n for n in self.network.nodes}
+        for ps in selected:
+            nid = ps["node_id"]
+            leaves = node_by_id[nid].export_merkle_leaves() if nid in node_by_id else []
+            included_trees[nid] = leaves
+        weights = [1.0 / (int(p["proof_value"]) + 1.0) for p in selected] if selected else [1.0]
+        total_w = sum(weights)
+        splits = {}
+        for ps, w in zip(selected, weights):
+            splits[ps["node_id"]] = f"{(w/total_w):.6f}"
+        accum_if_appended = self.chain.acc.fold_with(folded).acc_hash
+        block = Block(
+            height=height,
+            prev_hash=prev_hash,
+            seed=seed,
+            leader_id=leader_id or "",
+            accum_proof_hash=accum_if_appended,
+            merkle_roots=storage_roots,
+            round_proof_stmt_hash=round_stmt_hash,
+            bobtail_k=k,
+            bobtail_target=str(t_k),
+            selected_k_proofs=selected,
+            included_post_trees=included_trees,
+            coinbase_splits=splits,
+        )
+        self.chain.add_block(block, folded)
+        log_msg("INFO", "SYSTEM", None, f"[t={env.now}] Round {height} -> BlockHash={block.header_hash()[:16]}... AccHash={block.accum_proof_hash[:16]}...")
         return block

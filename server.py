@@ -20,6 +20,12 @@ class ServerNode:
         self.opted_in = True
         # In this prototype, the node_id also acts as the reward address
         self.reward_address = f"addr:{node_id}"
+        # SimPy environment (optional binding)
+        self.env = None
+
+    def bind_env(self, env):
+        self.env = env
+        return self
 
     def receive_chunk(self, chunk: FileChunk):
         if not self.opted_in:
@@ -80,6 +86,16 @@ class ServerNode:
                 f"After update: time_root={self.storage.time_trees.get(file_id).root()[:12]}... sroot={self.storage.storage_root()[:12]}...")
         return proof_hash, per_index_commitments
 
+    # ---- SimPy process variants ----
+    def dpdp_prove_proc(self, env, indices: List[int], round_salt: str, file_id: str, compute_delay: float = 0.005):
+        """SimPy process wrapper around dpdp_prove with a simulated computation delay."""
+        log_msg("DEBUG", "VERIFY", self.node_id, f"[t={env.now}] dpdp_prove_proc begin for file={file_id}")
+        # simulate compute time
+        yield env.timeout(compute_delay)
+        proof_hash, per_idx = self.dpdp_prove(indices, round_salt, file_id)
+        log_msg("INFO", "VERIFY", self.node_id, f"[t={env.now}] dpdp_prove_proc end proof={proof_hash[:16]}...")
+        return proof_hash, per_idx
+
     def pow_samples(self, seed: str, num_samples: int = 64, k: int = 5) -> Tuple[int, List[Tuple[int, int]]]:
         """Deprecated in favor of Bobtail; kept for backward-compat in older demos."""
         samples = []
@@ -112,6 +128,15 @@ class ServerNode:
             "proof_value": str(best_v if best_v is not None else 0),
             "lots": str(max(1, self.storage.num_files())),
         }
+
+    def mine_bobtail_proc(self, env, seed: str, max_nonce: int = 512, compute_per_nonce: float = 0.0001):
+        """SimPy process wrapper around mine_bobtail; models time per nonce tried."""
+        log_msg("DEBUG", "SYSTEM", self.node_id, f"[t={env.now}] mine_bobtail_proc begin max_nonce={max_nonce}")
+        # simulate time proportional to work done
+        yield env.timeout(compute_per_nonce * max_nonce)
+        ps = self.mine_bobtail(seed=seed, max_nonce=max_nonce)
+        log_msg("INFO", "SYSTEM", self.node_id, f"[t={env.now}] mine_bobtail_proc end v={int(ps['proof_value']):x}")
+        return ps
 
     def export_merkle_leaves(self) -> List[str]:
         # For demo: export storage state tree leaves (i.e., time roots)

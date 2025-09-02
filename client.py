@@ -54,9 +54,14 @@ class Client:
         return chunks
 
     def gossip_upload(self, network: Network):
-        """将预处理后的分片通过网络广播给各存储节点。"""
+        """将预处理后的分片通过网络广播给各存储节点（瞬时/兼容路径）。"""
         for ch in self.chunks:
             network.gossip_upload(ch)
+
+    def gossip_upload_proc(self, env, network: Network):
+        """SimPy 进程：逐个分片通过网络广播，内部触发 Network.gossip_upload_proc 并等待传播延迟。"""
+        for ch in self.chunks:
+            yield env.process(network.gossip_upload_proc(ch))
 
     def request_proof(self, node: ServerNode, indices: List[int], round_salt: str) -> Tuple[str, Dict[int, str]]:
         """向指定节点发起按需证明请求，返回聚合证明哈希与索引-叶子映射。"""
