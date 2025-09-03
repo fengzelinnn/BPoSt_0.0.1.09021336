@@ -1,71 +1,41 @@
-import random
-import time
-
-from blockchain import Blockchain
-from client import Client, verify_final
-from coordinator import RoundCoordinator
-from network import Network
-from server import ServerNode
-from sim import run_simulation, SimConfig
-from utils import log_msg, init_logging
-
 """
-入口脚本
+BPoSt P2P模拟入口点
 
-- demo(): 小型顺序原型演示（单用户、少量节点、少轮次），便于快速检查流程；
-- run_simpy_simulation(): 默认运行的 SimPy 仿真（可配置用户与节点规模）。
+该脚本初始化并运行BPoSt协议的主要模拟。
+
+模拟环境是基于一个自定义的点对点（P2P）层构建的，
+该层使用Python原生线程和套接字实现，定义在 `threadnet.py` 中。
+
+要运行模拟，请直接执行此文件：
+
+    python main.py
+
+模拟将执行以下操作：
+1.  在单独的线程中启动可配置数量的自治P2P节点。
+2.  使用引导机制进行去中心化的对等节点发现。
+3.  模拟客户端（文件所有者）创建文件并将其通过gossip协议广播到网络。
+4.  运行一段固定的时间，在此期间节点将自主地进行挖矿、生产和交换区块，以达成共识。
+5.  最后，它将执行最终分析，以检查节点之间的链共识情况。
 """
 
-
-def demo():
-    """运行一个最小演示：上传文件 -> 多轮证明与出块 -> 按需证明 -> 最终验证。"""
-    log_msg("INFO", "SYSTEM", None, "Bootstrapping demo network...")
-    # 初始化客户端与文件
-    client = Client("alice", chunk_size=64)
-    file_bytes = ("This is a demo file for dPDP + Bobtail + Folding Scheme. "
-                  "We will chunk this data and simulate proofs over several rounds. ").encode()
-    chunks = client.dpdp_setup(file_bytes)
-
-    # 创建网络与存储节点
-    nodes = [ServerNode(f"node-{i}", store_prob=0.75) for i in range(4)]
-    network = Network(nodes)
-
-    # 广播上传
-    client.gossip_upload(network)
-
-    # 执行若干轮
-    chain = Blockchain()
-    coord = RoundCoordinator(network, chain, challenge_size=5, bobtail_k=3)
-    rounds = 3
-    for r in range(1, rounds + 1):
-        blk = coord.run_round(height=r, client=client)
-        log_msg("INFO", "SYSTEM", None,
-                f"Round {r} -> Leader: {blk.leader_id}, AccHash: {blk.accum_proof_hash[:16]}..., BlockHash: {blk.header_hash()[:16]}...")
-        time.sleep(0.1)
-
-    # 客户端按需向随机节点请求一次证明
-    seed = chain.last_hash()
-    indices = coord.select_indices(num_chunks=len(chunks), seed=seed)
-    node = random.choice(nodes)
-    proof_hash, per_idx = client.request_proof(node, indices, round_salt=seed)
-    log_msg("INFO", "VERIFY", node.node_id,
-            f"On-demand proof for indices {indices}: {proof_hash[:16]}... (storage_root {node.storage.storage_root()[:16]}...)")
-
-    # 最终验证：仅检查折叠累加器的简洁证明
-    ok = verify_final(chain)
-    log_msg("INFO", "VERIFY", None, f"Final folded proof verification: {'SUCCESS' if ok else 'FAIL'}")
-
-
-# SimPy-based simulation entry (synchronous)
-
-def run_simpy_simulation():
-    """运行默认仿真：使用 SimConfig 的参数在 SimPy 环境中执行。"""
-    cfg = SimConfig()
-    run_simulation(cfg)
-
+from threadnet import run_p2p_simulation, P2PSimConfig
+from utils import init_logging
 
 if __name__ == "__main__":
-    # 初始化日志到文件（默认 bpst.log），如需同时在控制台输出可设置 console=True
-    init_logging(log_file="bpst.log", level="DEBUG", console=True)
-    # 默认运行 SimPy 仿真；如需运行小型 demo()，请注释下一行并调用 demo()
-    run_simpy_simulation()
+    # 初始化日志记录，输出到文件（bpst.log）并可选择输出到控制台。
+    # 日志级别: DEBUG, INFO, WARN, ERROR, CRITICAL
+    init_logging(log_file="bpst.log", level="INFO", console=True)
+
+    # 创建一个模拟配置对象。
+    # 您可以修改这些参数来改变模拟的规模和持续时间。
+    config = P2PSimConfig(
+        num_nodes=10,          # 网络中的节点总数
+        num_clients=3,         # 上传文件的客户端数量
+        sim_duration_sec=60,   # 模拟运行的总时长（秒）
+        chunk_size=256,        # 文件分片大小（字节）
+        file_kb=128,           # 每个客户端上传的文件大小（KB）
+        base_port=59000        # 节点监听的起始端口号
+    )
+
+    # 运行主P2P模拟。
+    run_p2p_simulation(config)
