@@ -13,9 +13,10 @@ BPoSt P2P模拟入口点
 模拟将执行以下操作：
 1.  在单独的线程中启动可配置数量的自治P2P节点。
 2.  使用引导机制进行去中心化的对等节点发现。
-3.  模拟客户端（文件所有者）创建文件并将其通过gossip协议广播到网络。
-4.  运行一段固定的时间，在此期间节点将自主地进行挖矿、生产和交换区块，以达成共识。
-5.  最后，它将执行最终分析，以检查节点之间的链共识情况。
+3.  模拟用户（FileOwner）创建随机大小的文件，并指定随机数量的存储节点。
+4.  模拟器将文件块直接分发给被选中的节点，模拟竞争过程。
+5.  节点将自主地进行挖矿、生产和交换区块，以达成共识。
+6.  最后，执行最终分析，检查节点之间的链共识情况。
 """
 
 from threadnet import run_p2p_simulation, P2PSimConfig
@@ -24,17 +25,21 @@ from utils import init_logging
 if __name__ == "__main__":
     # 初始化日志记录，输出到文件（bpst.log）并可选择输出到控制台。
     # 日志级别: DEBUG, INFO, WARN, ERROR, CRITICAL
-    init_logging(log_file="bpst.log", level="INFO", console=True)
+    init_logging(log_file="bpst.log", level="DEBUG", console=True)
 
     # 创建一个模拟配置对象。
-    # 您可以修改这些参数来改变模拟的规模和持续时间。
+    # 您可以修改这些参数来改变模拟的规模和行为。
     config = P2PSimConfig(
-        num_nodes=10,          # 网络中的节点总数
-        num_clients=3,         # 上传文件的客户端数量
-        sim_duration_sec=60,   # 模拟运行的总时长（秒）
-        chunk_size=256,        # 文件分片大小（字节）
-        file_kb=128,           # 每个客户端上传的文件大小（KB）
-        base_port=59000        # 节点监听的起始端口号
+        num_nodes=15,               # 网络中的节点总数
+        num_file_owners=3,          # 发起存储请求的用户数量
+        sim_duration_sec=90,        # 文件分发后的共识模拟运行时长（秒）
+        chunk_size=1024,             # 文件分片大小（字节）
+        min_file_kb=16,             # 用户生成的最小文件大小（KB）
+        max_file_kb=24,            # 用户生成的最大文件大小（KB）
+        min_storage_nodes=4,        # 用户请求的最少存储节点数
+        max_storage_nodes=8,        # 用户请求的最多存储节点数
+        base_port=59000,            # 节点监听的起始端口号
+        bobtail_k=3                 # Bobtail共识需要的证明数量
     )
 
     # 运行主P2P模拟。
