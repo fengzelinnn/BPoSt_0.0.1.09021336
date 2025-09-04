@@ -364,7 +364,7 @@ def run_p2p_simulation(config: P2PSimConfig):
     log_msg("INFO", "SIMULATOR", "MAIN", f"已启动 {len(nodes)} 个P2P节点进程。等待网络稳定...")
     time.sleep(5)
 
-    file_owners = [FileOwner(f"O{i}", config.chunk_size) for i in range(config.num_file_owners)]
+    file_owners = [FileOwner(f"0{i}", config.chunk_size) for i in range(config.num_file_owners)]
     for owner in file_owners:
         num_nodes_required = min(random.randint(config.min_storage_nodes, config.max_storage_nodes), config.num_nodes)
 
@@ -410,7 +410,7 @@ def run_p2p_simulation(config: P2PSimConfig):
         else:
             log_msg("WARN", "SIMULATOR", "MAIN", f"文件 {owner.file_id} 的存储请求失败。竞标数量不足 ({len(bids)}/{num_nodes_required})。")
 
-        time.sleep(random.uniform(1.0, 2.0))
+        time.sleep(random.uniform(0.1, 0.2))
 
     log_msg("INFO", "SIMULATOR", "MAIN", f"所有文件分发完成。共识模拟将运行 {config.sim_duration_sec} 秒...")
     time.sleep(config.sim_duration_sec)
