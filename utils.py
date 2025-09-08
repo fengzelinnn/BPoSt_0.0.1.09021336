@@ -27,7 +27,7 @@ def h_join(*parts: str) -> str:
 _LOG_INITIALIZED = False
 _LOGGER = logging.getLogger("BPoSt")
 
-def init_logging(log_file: str = "bpst.log", level: str = "INFO", console: bool = True,
+def init_logging(log_file: str = "bpst.log", level: str = "DEBUG", console: bool = True,
                  max_bytes: int = 10 * 1024 * 1024, backup_count: int = 5):
     """
     初始化全局日志记录器。

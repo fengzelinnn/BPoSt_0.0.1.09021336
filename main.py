@@ -23,9 +23,8 @@ from threadnet import run_p2p_simulation, P2PSimConfig
 from utils import init_logging
 
 if __name__ == "__main__":
-    # 初始化日志记录，输出到文件（bpst.log）并可选择输出到控制台。
-    # 日志级别: DEBUG, INFO, WARN, ERROR, CRITICAL
-    init_logging(log_file="bpst.log", level="DEBUG", console=True)
+    # 日志记录将在每个子进程中首次需要时自动初始化，
+    # 以避免在主进程中创建不可序列化的日志处理程序。
 
     # 创建一个模拟配置对象。
     # 您可以修改这些参数来改变模拟的规模和行为。
@@ -38,7 +37,7 @@ if __name__ == "__main__":
         max_file_kb=24,            # 用户生成的最大文件大小（KB）
         min_storage_nodes=4,        # 用户请求的最少存储节点数
         max_storage_nodes=8,        # 用户请求的最多存储节点数
-        base_port=59000,            # 节点监听的起始端口号
+        base_port=41000,            # 节点监听的起始端口号
         bobtail_k=3                 # Bobtail共识需要的证明数量
     )
 
