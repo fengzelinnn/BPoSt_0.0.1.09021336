@@ -31,7 +31,7 @@ if __name__ == "__main__":
     config = P2PSimConfig(
         num_nodes=15,               # 网络中的节点总数
         num_file_owners=3,          # 发起存储请求的用户数量
-        sim_duration_sec=90,        # 文件分发后的共识模拟运行时长（秒）
+        sim_duration_sec=9000,        # 文件分发后的共识模拟运行时长（秒）
         chunk_size=1024,             # 文件分片大小（字节）
         min_file_kb=16,             # 用户生成的最小文件大小（KB）
         max_file_kb=24,            # 用户生成的最大文件大小（KB）

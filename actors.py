@@ -112,7 +112,7 @@ class StorageNode:
         commitment = h_join("commit", chunk.tag, sha256_hex(chunk.data))
         self.storage.add_chunk_commitment(chunk.file_id, chunk.index, commitment)
         self.used_space += self.chunk_size
-        log_msg("INFO", "STORE", self.node_id, f"已存储文件块 {chunk.file_id}[{chunk.index}]。当前使用: {self.used_space // 1024}/{self.max_storage // 1024} KB")
+        # log_msg("INFO", "STORE", self.node_id, f"已存储文件块 {chunk.file_id}[{chunk.index}]。当前使用: {self.used_space // 1024}/{self.max_storage // 1024} KB")
         return True
 
     def finalize_initial_commitments(self):
