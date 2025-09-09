@@ -56,8 +56,8 @@ class P2PSimConfig:
     chunk_size: int = 1024
     min_file_kb: int = 2
     max_file_kb: int = 4
-    min_storage_nodes: int = 3
-    max_storage_nodes: int = 7
+    min_storage_nodes: int = 7
+    max_storage_nodes: int = 15
     base_port: int = 59000
     bobtail_k: int = 2
     min_storage_kb: int = 512
@@ -86,42 +86,49 @@ class P2PNode(multiprocessing.Process):
         self.chain = Blockchain()
 
         self.bobtail_k = bobtail_k
+        self.prepare_margin = 2 # 缓冲机制：需要收集到 k + margin 个证明才发起预准备
         self.difficulty_threshold = int("fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16)
         
-        # -- 新的、更精细的共识状态变量 --
-        # 存储收到的“预准备”信号 {height: {sender_id: (proof_hash_1, ...)}} 
         self.preprepare_signals: Dict[int, Dict[str, Tuple[str, ...]]] = defaultdict(dict)
-        # 标记自己是否已发送“预准备”信号 {height: (my_proof_hash_1, ...)}
         self.sent_preprepare_signal_at: Dict[int, Tuple[str, ...]] = {}
-        # 用于检测预准备集合是否稳定的状态 {height: frozenset(signals.items())}
-        self.last_preprepare_state: Dict[int, Any] = {}
-        # 标记某个高度的选举是否已结束 {height}
         self.election_concluded_for: Set[int] = set()
+        self.accepting_new_storage: bool = True
 
         self._stop_event = stop_event
         self._server_socket: Optional[socket.socket] = None
-        
-        self.chain_lock: Optional[threading.Lock] = None
-        self.mining_thread: Optional[threading.Thread] = None
 
     def run(self):
-        self.chain_lock = threading.Lock()
         if not self._start_server(): return
         self._discover_peers()
-
-        self.mining_thread = threading.Thread(target=self._mining_loop, daemon=True)
-        self.mining_thread.start()
 
         log_msg("DEBUG", "NODE", self.node.node_id, f"进入主循环... (存储容量: {self.node.max_storage // 1024} KB)")
         
         last_report_time = time.time()
+        last_consensus_attempt = time.time()
+
         while not self._stop_event.is_set():
             try:
-                self._process_mempool()
-                if time.time() - last_report_time > 3.0:
+                # Give priority to processing a message if one is available.
+                if self.mempool:
+                    self._process_mempool()
+
+                now = time.time()
+                
+                # Attempt consensus periodically.
+                if now - last_consensus_attempt > random.uniform(1, 2):
+                    self._attempt_consensus()
+                    last_consensus_attempt = now
+
+                # Report status periodically.
+                if now - last_report_time > 3.0:
                     self._report_status()
-                    last_report_time = time.time()
-                time.sleep(0.1)
+                    last_report_time = now
+                
+                # If the mempool was empty, we can sleep to yield CPU.
+                # If it was not empty, we loop immediately to process the next message.
+                if not self.mempool:
+                    time.sleep(0.01)
+
             except Exception as e:
                 log_msg("ERROR", "NODE", self.node.node_id, f"主循环错误: {e}")
         
@@ -133,28 +140,18 @@ class P2PNode(multiprocessing.Process):
         self.report_queue.put(final_state)
         log_msg("DEBUG", "NODE", self.node.node_id, "进程已停止并报告了最终状态。")
 
-    def _mining_loop(self):
-        """专用于挖矿和共识检查的线程循环。"""
-        while not self._stop_event.is_set():
-            try:
-                self._attempt_consensus()
-                time.sleep(random.uniform(1, 2))
-            except Exception as e:
-                log_msg("ERROR", "MINING_THREAD", self.node.node_id, f"挖矿循环错误: {e}")
-
     def _report_status(self):
-        with self.chain_lock:
-            height = self.chain.height()
-            status = {
-                "type": "status_update",
-                "node_id": self.node.node_id,
-                "chain_height": height,
-                "chain_head": h_join(self.chain.last_hash()),
-                "peers": len(self.peers),
-                "mempool_size": len(self.mempool),
-                "proof_pool_size": len(self.proof_pool.get(height + 1, {})),
-                "is_mining": self.node.storage.num_files() > 0,
-            }
+        height = self.chain.height()
+        status = {
+            "type": "status_update",
+            "node_id": self.node.node_id,
+            "chain_height": height,
+            "chain_head": h_join(self.chain.last_hash()),
+            "peers": len(self.peers),
+            "mempool_size": len(self.mempool),
+            "proof_pool_size": len(self.proof_pool.get(height + 1, {})),
+            "is_mining": self.node.storage.num_files() > 0,
+        }
         self.report_queue.put(status)
 
     def _start_server(self) -> bool:
@@ -220,7 +217,7 @@ class P2PNode(multiprocessing.Process):
         
         if data.get("type") == "storage_offer":
             self._handle_storage_offer(data)
-        elif data.get("type") in ["bobtail_proof", "preprepare_signal", "new_block"]:
+        elif data.get("type") in ["bobtail_proof", "preprepare_sync", "new_block"]:
             self.mempool.append(data)
 
         self.gossip(data, originator=False)
@@ -231,6 +228,10 @@ class P2PNode(multiprocessing.Process):
         return {"ok": True, "status": "gossip_initiated"}
 
     def _handle_storage_offer(self, offer_data: dict):
+        if not self.accepting_new_storage:
+            log_msg("DEBUG", "NODE", self.node.node_id, "Ignoring storage offer, currently in consensus round.")
+            return
+
         if self.node.can_store(offer_data.get("total_size", 0)):
             bid_msg = {
                 "cmd": "storage_bid",
@@ -266,15 +267,38 @@ class P2PNode(multiprocessing.Process):
         if originator:
             message_data["gossip_id"] = f"{self.node.node_id}:{time.time_ns()}"
             self.seen_gossip_ids.add(message_data["gossip_id"])
-            log_msg("DEBUG", "GOSSIP", self.node.node_id, f"发起gossip广播: {message_data.get('type')}")
+            # log_msg("DEBUG", "GOSSIP", self.node.node_id, f"发起gossip广播: {message_data.get('type')}")
 
         if not self.peers: return
-        # 修改为向所有对等节点广播，确保共识消息的完全同步
         for addr in self.peers.values():
             if addr == self.addr: continue
             _send_json_line(addr, {"cmd": "gossip", "data": message_data})
 
     def _process_mempool(self):
+        # --- High-priority pass for new blocks ---
+        next_height = self.chain.height() + 1
+        block_msg = None
+        for msg in self.mempool:
+            if msg.get("type") == "new_block" and msg.get("height") == next_height:
+                block_msg = msg
+                break
+        
+        if block_msg:
+            self.mempool.remove(block_msg)
+            new_block = Block.from_dict(block_msg.get("block"))
+            if new_block.prev_hash == self.chain.last_hash():
+                self.chain.add_block(new_block)
+                log_msg("INFO", "BLOCKCHAIN", self.node.node_id, f"接受了来自 {new_block.leader_id} 的区块 {new_block.height}")
+                if not self.accepting_new_storage:
+                    self.accepting_new_storage = True
+                    log_msg("INFO", "CONSENSUS", self.node.node_id, f"Height {new_block.height}: New block accepted. Resuming storage bids.")
+                
+                for d in [self.proof_pool, self.preprepare_signals, self.sent_preprepare_signal_at]:
+                    if next_height in d: del d[next_height]
+                self.election_concluded_for.add(next_height)
+            return
+
+        # --- Regular pass for other messages ---
         try:
             msg = self.mempool.popleft()
         except IndexError:
@@ -282,63 +306,59 @@ class P2PNode(multiprocessing.Process):
 
         msg_type = msg.get("type")
         height = msg.get("height")
-        if height is None or height < self.chain.height() + 1: return
 
-        with self.chain_lock:
-            if msg_type == "bobtail_proof":
-                # 一旦发送了预准备信号，就不再接受新的单个证明
-                if height in self.sent_preprepare_signal_at: return
-                proof = BobtailProof(**msg.get("proof"))
-                if proof.node_id not in self.proof_pool[height]:
-                    self.proof_pool[height][proof.node_id] = proof
-            
-            elif msg_type == "preprepare_signal":
-                sender_id, proof_hashes = msg.get("sender_id"), tuple(msg.get("proof_hashes", []))
-                if sender_id and proof_hashes:
-                    self.preprepare_signals[height][sender_id] = proof_hashes
+        if height is None or height < self.chain.height() + 1:
+            return
+        
+        if height in self.election_concluded_for:
+            return
 
-            elif msg_type == "new_block":
-                new_block = Block.from_dict(msg.get("block"))
-                if new_block.prev_hash == self.chain.last_hash() and new_block.height == self.chain.height() + 1:
-                    self.chain.add_block(new_block)
-                    log_msg("INFO", "BLOCKCHAIN", self.node.node_id, f"接受了来自 {new_block.leader_id} 的区块 {new_block.height}")
-                    # 清理该高度的所有共识状态
-                    for d in [self.proof_pool, self.preprepare_signals, self.sent_preprepare_signal_at, self.last_preprepare_state]:
-                        if height in d: del d[height]
-                    self.election_concluded_for.add(height)
+        if msg_type == "bobtail_proof":
+            proof = BobtailProof(**msg.get("proof"))
+            if proof.node_id not in self.proof_pool[height]:
+                self.proof_pool[height][proof.node_id] = proof
+        
+        elif msg_type == "preprepare_sync":
+            received_signals = msg.get("signals", {})
+            current_signals_for_height = self.preprepare_signals[height]
+            updated = False
+            for sender_id, proof_hashes_list in received_signals.items():
+                proof_hashes_tuple = tuple(proof_hashes_list)
+                if sender_id not in current_signals_for_height:
+                    current_signals_for_height[sender_id] = proof_hashes_tuple
+                    updated = True
+            if updated:
+                log_msg("DEBUG", "CONSENSUS", self.node.node_id, f"高度 {height} 的信号池已更新，现在有 {len(current_signals_for_height)} 个信号。")
 
     def _attempt_consensus(self):
         if self.node.storage.num_files() == 0: return
 
-        with self.chain_lock:
-            height = self.chain.height() + 1
-            # 如果选举已结束或正在进行，则无需挖矿
-            if height in self.election_concluded_for or height in self.sent_preprepare_signal_at:
-                pass
-            # 否则，进行挖矿
-            elif self.node.node_id not in self.proof_pool.get(height, {}):
-                seed = self.chain.last_hash()
-                proofs = self.node.mine_bobtail(seed=seed, max_nonce=10000)
-                if proofs:
-                    my_proof = proofs[0]
+        height = self.chain.height() + 1
+        if height in self.election_concluded_for: return
+        
+        # Perform the potentially slow mining operation without blocking the whole process
+        if self.node.node_id not in self.proof_pool.get(height, {}):
+            seed = self.chain.last_hash()
+            proofs = self.node.mine_bobtail(seed=seed, max_nonce=10000)
+            if proofs:
+                my_proof = proofs[0]
+                # Since we are single-threaded now, we can directly add the proof
+                # and then gossip. No need for a separate thread for gossiping.
+                if self.node.node_id not in self.proof_pool.get(height, {}):
                     self.proof_pool[height][self.node.node_id] = my_proof
                     log_msg("DEBUG", "CONSENSUS", self.node.node_id, f"为高度 {height} 挖出了一个证明")
                     gossip_msg = {"type": "bobtail_proof", "height": height, "proof": my_proof.to_dict()}
-                    # 在锁外进行gossip
-                    threading.Thread(target=self.gossip, args=(gossip_msg,)).start()
+                    self.gossip(gossip_msg)
 
-        # 无论是否挖矿，都尝试推进共识
-        with self.chain_lock:
-            self._try_elect_leader(self.chain.height() + 1)
+        self._try_elect_leader(height)
 
     def _try_elect_leader(self, height: int):
-        # 此方法应在获取chain_lock后调用
-        if height in self.election_concluded_for: return
+        if height in self.election_concluded_for:
+            return
 
-        # --- 阶段 1: 收集证明 -> 发送“预准备”信号 --- 
         if height not in self.sent_preprepare_signal_at:
             candidate_proofs = list(self.proof_pool.get(height, {}).values())
-            if len(candidate_proofs) >= self.bobtail_k:
+            if len(candidate_proofs) >= self.bobtail_k + self.prepare_margin:
                 candidate_proofs.sort(key=lambda p: p.proof_hash)
                 selected_proofs = candidate_proofs[:self.bobtail_k]
                 avg_hash_val = sum(int(p.proof_hash, 16) for p in selected_proofs) // self.bobtail_k
@@ -347,40 +367,36 @@ class P2PNode(multiprocessing.Process):
                     my_proof_set = tuple(sorted([p.proof_hash for p in selected_proofs]))
                     self.sent_preprepare_signal_at[height] = my_proof_set
                     self.preprepare_signals[height][self.node.node_id] = my_proof_set
-                    log_msg("INFO", "CONSENSUS", self.node.node_id, f"为高度 {height} 达成预备条件，广播预准备信号")
-                    gossip_msg = {"type": "preprepare_signal", "height": height, "sender_id": self.node.node_id, "proof_hashes": my_proof_set}
-                    threading.Thread(target=self.gossip, args=(gossip_msg,)).start()
-            return # 无论是否发送成功，都返回并等待下一轮检查
+                    if self.accepting_new_storage:
+                        self.accepting_new_storage = False
+                        log_msg("INFO", "CONSENSUS", self.node.node_id, f"为高度 {height} 达成预备条件，创建自己的提案并暂停接受新存储。")
+                    else:
+                        log_msg("INFO", "CONSENSUS", self.node.node_id, f"为高度 {height} 达成预备条件，创建自己的提案。")
 
-        # --- 阶段 2: 收集“预准备”信号 -> 等待集合稳定 ---
-        current_signals = self.preprepare_signals.get(height, {})
-        # 使用frozenset来创建一个可哈希的、无序的项视图，用于比较状态
-        current_state = frozenset(current_signals.items())
-        last_state = self.last_preprepare_state.get(height)
+        current_signals_for_height = self.preprepare_signals.get(height, {})
+        if current_signals_for_height:
+            sync_gossip_msg = {
+                "type": "preprepare_sync",
+                "height": height,
+                "sender_id": self.node.node_id,
+                "signals": current_signals_for_height
+            }
+            self.gossip(sync_gossip_msg)
 
-        # 如果状态没有变化，并且我们已经收到了一些信号，就认为集合是稳定的
-        is_stable = (current_state == last_state and len(current_state) > 0)
-        self.last_preprepare_state[height] = current_state
-        
-        if not is_stable:
-            return # 集合尚未稳定，等待更多信号
-
-        # --- 阶段 3: 集合已稳定 -> 计票并选举 --- 
-        log_msg("DEBUG", "CONSENSUS", self.node.node_id, f"高度 {height} 的预准备集合已稳定，开始计票")
-        
         votes = defaultdict(list)
-        for sender_id, proof_hashes_tuple in current_signals.items():
+        for sender_id, proof_hashes_tuple in current_signals_for_height.items():
             votes[proof_hashes_tuple].append(sender_id)
 
         for proof_hashes_tuple, voters in votes.items():
-            # 如果某个证明集获得了足够多的票数
             if len(voters) >= self.bobtail_k:
-                all_proofs = self.proof_pool.get(height, {})
-                # 检查我们本地是否拥有所有获胜所需的证明
-                if not all(h in all_proofs for h in proof_hashes_tuple):
-                    continue # 如果缺少证明，则跳过，等待gossip同步
+                log_msg("INFO", "CONSENSUS", self.node.node_id, f"高度 {height} 的共识达成 (提案有 {len(voters)} 票)，开始选举领导者。")
+                
+                all_known_proof_hashes = {p.proof_hash for p in self.proof_pool.get(height, {}).values()}
+                if not set(proof_hashes_tuple).issubset(all_known_proof_hashes):
+                    log_msg("WARN", "CONSENSUS", self.node.node_id, f"缺少获胜集合中的证明，等待同步...")
+                    continue
 
-                winning_proofs = [p for p in all_proofs.values() if p.proof_hash in proof_hashes_tuple]
+                winning_proofs = [p for p in self.proof_pool.get(height, {}).values() if p.proof_hash in proof_hashes_tuple]
                 if len(winning_proofs) < self.bobtail_k: continue
 
                 winning_proofs.sort(key=lambda p: p.proof_hash)
@@ -400,12 +416,11 @@ class P2PNode(multiprocessing.Process):
                         accum_proof_hash="placeholder", merkle_roots={}, round_proof_stmt_hash="placeholder",
                         coinbase_splits={p.address: "1" for p in winning_proofs}
                     )
-                    gossip_msg = {"type": "new_block", "block": new_block.to_dict()}
-                    threading.Thread(target=self.gossip, args=(gossip_msg,)).start()
+                    gossip_msg = {"type": "new_block", "height": height, "block": new_block.to_dict()}
+                    self.gossip(gossip_msg)
                 
-                # 标记此高度选举已完成，防止重复工作
                 self.election_concluded_for.add(height)
-                return # 选举完成，退出函数
+                return
 
 class UserNode(multiprocessing.Process):
     """
