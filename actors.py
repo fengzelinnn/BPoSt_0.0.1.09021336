@@ -146,7 +146,7 @@ class StorageNode:
         pk = PublicKey.from_dict(metadata['public_key'])
         beta = pk.beta
         m = metadata['num_chunks']
-        a = int(m**0.5) + 1
+        a = 1
 
         challenge_seed = (seed + proof.file_id).encode()
         i_base = hash_to_scalar(challenge_seed) % (m // a)
