@@ -27,6 +27,8 @@ def _json_sanitize(obj):
         return obj
     if isinstance(obj, bytes):
         return obj.hex()
+    if hasattr(obj, 'to_dict'):
+        return _json_sanitize(obj.to_dict())
     if is_dataclass(obj):
         return _json_sanitize(asdict(obj))
     if isinstance(obj, dict):
@@ -86,7 +88,7 @@ class P2PNode(multiprocessing.Process):
         self.chain = Blockchain()
 
         self.bobtail_k = bobtail_k
-        self.prepare_margin = 0 # 缓冲机制：需要收集到 k + margin 个证明才发起预准备
+        self.prepare_margin = 0
         self.difficulty_threshold = int("f" * 64, 16)
         
         self.preprepare_signals: Dict[int, Dict[str, Tuple[str, ...]]] = defaultdict(dict)
@@ -108,24 +110,19 @@ class P2PNode(multiprocessing.Process):
 
         while not self._stop_event.is_set():
             try:
-                # Give priority to processing a message if one is available.
                 if self.mempool:
                     self._process_mempool()
 
                 now = time.time()
                 
-                # Attempt consensus periodically.
                 if now - last_consensus_attempt > random.uniform(1, 2):
                     self._attempt_consensus()
                     last_consensus_attempt = now
 
-                # Report status periodically.
                 if now - last_report_time > 3.0:
                     self._report_status()
                     last_report_time = now
                 
-                # If the mempool was empty, we can sleep to yield CPU.
-                # If it was not empty, we loop immediately to process the next message.
                 if not self.mempool:
                     time.sleep(0.01)
 
@@ -242,7 +239,8 @@ class P2PNode(multiprocessing.Process):
 
     def _handle_chunk_distribute(self, data: dict) -> dict:
         chunk = FileChunk.from_dict(data.get("chunk"))
-        return {"ok": self.node.receive_chunk(chunk)}
+        metadata = data.get("metadata")
+        return {"ok": self.node.receive_chunk(chunk, metadata)}
 
     def _handle_finalize_storage(self, data: dict) -> dict:
         self.node.finalize_initial_commitments()
@@ -263,7 +261,6 @@ class P2PNode(multiprocessing.Process):
         if originator:
             message_data["gossip_id"] = f"{self.node.node_id}:{time.time_ns()}"
             self.seen_gossip_ids.add(message_data["gossip_id"])
-            # log_msg("DEBUG", "GOSSIP", self.node.node_id, f"发起gossip广播: {message_data.get('type')}")
 
         if not self.peers: return
         for addr in self.peers.values():
@@ -271,7 +268,6 @@ class P2PNode(multiprocessing.Process):
             _send_json_line(addr, {"cmd": "gossip", "data": message_data})
 
     def _process_mempool(self):
-        # --- High-priority pass for new blocks ---
         next_height = self.chain.height() + 1
         block_msg = None
         for msg in self.mempool:
@@ -291,7 +287,6 @@ class P2PNode(multiprocessing.Process):
                 self.election_concluded_for.add(next_height)
             return
 
-        # --- Regular pass for other messages ---
         try:
             msg = self.mempool.popleft()
         except IndexError:
@@ -307,7 +302,7 @@ class P2PNode(multiprocessing.Process):
             return
 
         if msg_type == "bobtail_proof":
-            proof = BobtailProof(**msg.get("proof"))
+            proof = BobtailProof.from_dict(msg.get("proof"))
             if proof.node_id not in self.proof_pool[height]:
                 self.proof_pool[height][proof.node_id] = proof
         
@@ -329,14 +324,11 @@ class P2PNode(multiprocessing.Process):
         height = self.chain.height() + 1
         if height in self.election_concluded_for: return
         
-        # Perform the potentially slow mining operation without blocking the whole process
         if self.node.node_id not in self.proof_pool.get(height, {}):
             seed = self.chain.last_hash()
-            proofs = self.node.mine_bobtail(seed=seed, max_nonce=10000)
+            proofs = self.node.mine_bobtail(seed=seed, max_nonce=100000)
             if proofs:
                 my_proof = proofs[0]
-                # Since we are single-threaded now, we can directly add the proof
-                # and then gossip. No need for a separate thread for gossiping.
                 if self.node.node_id not in self.proof_pool.get(height, {}):
                     self.proof_pool[height][self.node.node_id] = my_proof
                     log_msg("DEBUG", "CONSENSUS", self.node.node_id, f"为高度 {height} 挖出了一个证明")
@@ -392,7 +384,30 @@ class P2PNode(multiprocessing.Process):
                 leader_id = winning_proofs[0].node_id
 
                 if self.node.node_id == leader_id:
-                    log_msg("SUCCESS", "CONSENSUS", self.node.node_id, f"被选举为高度 {height} 的领导者！正在创建区块...")
+                    log_msg("SUCCESS", "CONSENSUS", self.node.node_id, f"被选举为高度 {height} 的领导者！正在验证证明并创建区块...")
+                    
+                    # ** dPDP 证明验证 **
+                    all_proofs_valid = True
+                    seed = self.chain.last_hash()
+                    for proof in winning_proofs:
+                        metadata = self.node.file_metadata.get(proof.file_id)
+                        if not metadata:
+                            log_msg("WARN", "LEADER", self.node.node_id, f"缺少文件 {proof.file_id} 的元数据，无法验证证明。")
+                            all_proofs_valid = False
+                            break
+                        
+                        is_valid = StorageNode.verify_dpop_proof(proof, metadata, seed)
+                        if not is_valid:
+                            log_msg("CRITICAL", "LEADER", self.node.node_id, f"来自节点 {proof.node_id} 的dPDP证明无效！")
+                            all_proofs_valid = False
+                            break
+                        log_msg("DEBUG", "LEADER", self.node.node_id, f"来自节点 {proof.node_id} 的dPDP证明有效。")
+
+                    if not all_proofs_valid:
+                        log_msg("ERROR", "LEADER", self.node.node_id, f"由于dPDP证明无效，放弃创建区块 {height}。")
+                        self.election_concluded_for.add(height)
+                        return
+
                     new_block = Block(
                         height=height,
                         prev_hash=self.chain.last_hash(),
@@ -485,7 +500,7 @@ class UserNode(multiprocessing.Process):
 
     def _try_store_file(self):
         num_nodes_required = min(random.randint(self.config.min_storage_nodes, self.config.max_storage_nodes), self.config.num_nodes)
-        chunks, _ = self.owner.prepare_storage_request(
+        chunks, _, public_metadata = self.owner.prepare_storage_request(
             min_size_bytes=self.config.min_file_kb * 1024,
             max_size_bytes=self.config.max_file_kb * 1024,
             num_nodes=num_nodes_required
@@ -503,7 +518,8 @@ class UserNode(multiprocessing.Process):
             "request_id": request_id,
             "file_id": self.owner.file_id,
             "total_size": total_size,
-            "reply_addr": self.addr
+            "reply_addr": self.addr,
+            "metadata": public_metadata
         }
         
         _send_json_line(self.bootstrap_addr, {"cmd": "inject_gossip", "data": offer_msg})
@@ -519,7 +535,7 @@ class UserNode(multiprocessing.Process):
 
             for chunk in chunks:
                 for addr in winning_addrs:
-                    _send_json_line(addr, {"cmd": "chunk_distribute", "data": {"chunk": chunk.to_dict()}})
+                    _send_json_line(addr, {"cmd": "chunk_distribute", "data": {"chunk": chunk, "metadata": public_metadata}})
 
             for addr in winning_addrs:
                 _send_json_line(addr, {"cmd": "finalize_storage", "data": {"file_id": self.owner.file_id}})
@@ -583,8 +599,7 @@ def run_p2p_simulation(config: P2PSimConfig):
     log_msg("INFO", "SIMULATOR", "MAIN", f"已启动 {len(p2p_nodes)} 个存储节点和 {len(user_nodes)} 个用户节点。")
     log_msg("INFO", "SIMULATOR", "MAIN", f"共识和存储模拟将运行 {config.sim_duration_sec} 秒...")
     
-    reporter_stop_event = threading.Event()
-    # ... (状态报告线程保持不变) ...
+    # ... (状态报告和最终分析逻辑保持不变) ...
 
     try:
         time.sleep(config.sim_duration_sec)
@@ -597,5 +612,4 @@ def run_p2p_simulation(config: P2PSimConfig):
     for proc in all_procs:
         proc.join(timeout=5)
 
-    # ... (最终分析逻辑保持不变) ...
     log_msg("INFO", "SIMULATOR", "MAIN", "模拟结束。")

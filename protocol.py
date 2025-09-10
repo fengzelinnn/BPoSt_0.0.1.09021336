@@ -1,6 +1,20 @@
+"""
+BPoSt协议定义
+
+该模块整合了BPoSt（基于区块链的存储时间证明）共识协议的所有核心数据结构和协议特定逻辑。
+
+它作为协议定义的唯一真实来源，包括：
+- 区块、分片和证明的数据结构。
+- 状态管理结构，如默克尔树和多维状态树。
+- 用于dPDP的密码学逻辑。
+
+通过集中化这些定义，我们提高了模块化和可读性，明确了协议的“语言”与使用它的“参与者”之间的区别。
+"""
+import random
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Tuple
 
+from crypto import G1Element, Scalar
 from merkle import MerkleTree
 from utils import h_join, sha256_hex
 
@@ -26,13 +40,11 @@ class Block:
             d['accum_proof_hash'] = d['accum_proof_hash'].hex()
         if d.get('merkle_roots'):
             d['merkle_roots'] = {k: (v.hex() if isinstance(v, bytes) else v) for k, v in d['merkle_roots'].items()}
-        # 清洗 selected_k_proofs 中可能出现的 bytes
         if d.get('selected_k_proofs'):
             cleaned = []
             for item in d['selected_k_proofs']:
                 cleaned.append({k: (v.hex() if isinstance(v, bytes) else v) for k, v in item.items()})
             d['selected_k_proofs'] = cleaned
-        # 清洗 coinbase_splits
         if d.get('coinbase_splits'):
             d['coinbase_splits'] = {k: (v.hex() if isinstance(v, bytes) else v) for k, v in d['coinbase_splits'].items()}
         return d
@@ -63,63 +75,103 @@ class Block:
                 parts.extend(["proof", p.get("node_id", ""), p.get("proof_hash", "")])
         return h_join(*parts)
 
-"""
-BPoSt协议定义
+@dataclass
+class PublicKey:
+    """dPDP公钥，包含BLS12-381曲线的公共参数。"""
+    beta: G1Element  # beta = g^alpha
 
-该模块整合了BPoSt（基于区块链的存储时间证明）共识协议的所有核心数据结构和协议特定逻辑。
+    def to_dict(self) -> dict:
+        """将公钥序列化为字典。"""
+        return {'beta': repr(self.beta)}
 
-它作为协议定义的唯一真实来源，包括：
-- 区块、分片和证明的数据结构。
-- 状态管理结构，如默克尔树和多维状态树。
-- 用于dPDP和IVC折叠的密码学占位逻辑。
-
-通过集中化这些定义，我们提高了模块化和可读性，明确了协议的“语言”与使用它的“参与者”之间的区别。
-"""
-import random
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Tuple
-
-from merkle import MerkleTree
-from utils import h_join, sha256_hex
+    @classmethod
+    def from_dict(cls, data: dict) -> 'PublicKey':
+        """从字典反序列化公钥。"""
+        beta_repr = data['beta']
+        try:
+            parts = beta_repr.split('(')[1].split(')')[0].split(',')
+            beta = G1Element(int(parts[0]), int(parts[1]))
+        except (IndexError, ValueError):
+            parts = beta_repr.split('(')[1].split(')')[0].split(',')
+            beta = G1Element(int(parts[0]), int(parts[1].strip()))
+        return cls(beta=beta)
 
 @dataclass
 class FileChunk:
-    """一个文件分片，由客户端准备并附带dPDP标签。"""
+    """一个文件分片，由客户端准备并附带dPDP签名。"""
     index: int
     data: bytes
-    tag: str
-    file_id: str = "default"
+    signature: G1Element  # sigma_i = (H(i) * u^b_i)^alpha
+    file_id: str
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        d['data'] = self.data.hex()
-        return d
+        """序列化为字典，将密码学元素转换为字符串表示。"""
+        return {
+            'index': self.index,
+            'data': self.data.hex(),
+            'signature': repr(self.signature),
+            'file_id': self.file_id,
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> 'FileChunk':
-        data['data'] = bytes.fromhex(data['data'])
-        return cls(**data)
+        """从字典反序列化，从字符串表示恢复密码学元素。"""
+        sig_repr = data['signature']
+        try:
+            parts = sig_repr.split('(')[1].split(')')[0].split(',')
+            signature = G1Element(int(parts[0]), int(parts[1]))
+        except (IndexError, ValueError):
+            parts = sig_repr.split('(')[1].split(')')[0].split(',')
+            signature = G1Element(int(parts[0]), int(parts[1].strip()))
+
+        return cls(
+            index=data['index'],
+            data=bytes.fromhex(data['data']),
+            signature=signature,
+            file_id=data['file_id']
+        )
 
 @dataclass
 class BobtailProof:
-    """单次Bobtail PoW挖矿尝试的结果。"""
+    """单次Bobtail PoW挖矿尝试的结果，现在包含一个dPDP证明。"""
     node_id: str
     address: str
     root: str
     nonce: str
     proof_hash: str
     lots: str
-    file_roots: Dict[str, str] = field(default_factory=dict) # 节点所有文件的时间树根 {file_id: root_hash}
-    
+    file_roots: Dict[str, str] = field(default_factory=dict)
+
+    # dPDP proof components
+    file_id: str           # 证明针对的文件ID
+    miu: Scalar            # 聚合的块内容: miu = sum(v_i * b_i)
+    sigma: G1Element       # 聚合的签名: sigma = product(sigma_i ^ v_i)
+
     def to_dict(self) -> dict:
         d = asdict(self)
-        if isinstance(d.get('root'), bytes):
-            d['root'] = d['root'].hex()
-        if isinstance(d.get('proof_hash'), bytes):
-            d['proof_hash'] = d['proof_hash'].hex()
+        if isinstance(d.get('root'), bytes): d['root'] = d['root'].hex()
+        if isinstance(d.get('proof_hash'), bytes): d['proof_hash'] = d['proof_hash'].hex()
         if d.get('file_roots'):
             d['file_roots'] = {k: (v.hex() if isinstance(v, bytes) else v) for k, v in d['file_roots'].items()}
+        
+        d['miu'] = self.miu.value
+        d['sigma'] = repr(self.sigma)
         return d
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'BobtailProof':
+        """从字典反序列化，从字符串表示恢复密码学元素。"""
+        data_copy = data.copy()
+        miu = Scalar(data_copy.pop('miu'))
+        sigma_repr = data_copy.pop('sigma')
+        try:
+            parts = sigma_repr.split('(')[1].split(')')[0].split(',')
+            sigma = G1Element(int(parts[0]), int(parts[1]))
+        except (IndexError, ValueError):
+            parts = sigma_repr.split('(')[1].split(')')[0].split(',')
+            sigma = G1Element(int(parts[0]), int(parts[1].strip()))
+
+        return cls(miu=miu, sigma=sigma, **data_copy)
 
 @dataclass
 class TimeStateTree:
@@ -168,28 +220,6 @@ class ServerStorage:
 
     def num_files(self) -> int:
         return len(self.time_trees)
-
-@dataclass
-class DPDPParams:
-    g: str
-    u: str
-    pk_beta: str
-    sk_alpha: str
-
-@dataclass
-class DPDPTags:
-    tags: Dict[int, str]
-
-class dPDP:
-    @staticmethod
-    def KeyGen(security: int = 256) -> DPDPParams:
-        sk_alpha = h_join("alpha", str(security), str(random.random()))
-        return DPDPParams(g=h_join("g", str(security)), u=h_join("u", str(security)), pk_beta=h_join("beta", sk_alpha), sk_alpha=sk_alpha)
-
-    @staticmethod
-    def TagFile(params: DPDPParams, file_chunks: List[bytes]) -> DPDPTags:
-        tags = {i: h_join("tag", str(i), sha256_hex(b), params.pk_beta) for i, b in enumerate(file_chunks)}
-        return DPDPTags(tags=tags)
 
 @dataclass
 class FoldingProof:
