@@ -20,7 +20,9 @@ from protocol import (
     dPDP,
     DPDPParams,
     DPDPTags,
-    BobtailProof
+    DPDPProof, # Import the new proof structure
+    BobtailProof,
+    curve_order # Import for generating challenge coefficients
 )
 from utils import h_join, sha256_hex, log_msg
 
@@ -37,9 +39,13 @@ class FileOwner:
         """
         self.owner_id = owner_id
         self.chunk_size = chunk_size
-        self.params: DPDPParams = dPDP.KeyGen()  # 生成dPDP的公私钥参数
+        self.params: DPDPParams = dPDP.KeyGen()  # Generates real BLS keys now
         self.tags: DPDPTags = DPDPTags(tags={})
         self.file_id: str = f"file_{owner_id}_{random.randint(0, 1_000_000)}"
+
+    def get_dpdp_params(self) -> DPDPParams:
+        """返回dPDP参数，以便验证者可以验证证明。"""
+        return self.params
 
     def create_file(self, size_bytes: int) -> bytes:
         """创建一个具有指定大小的随机字节文件。"""
@@ -55,6 +61,7 @@ class FileOwner:
         返回一个FileChunk对象列表，准备好被广播到网络。
         """
         raw_chunks = self.split_file(file_bytes)
+        # TagFile now generates real BLS-based tags
         self.tags = dPDP.TagFile(self.params, raw_chunks)
         chunks = [
             FileChunk(index=i, data=b, tag=self.tags.tags[i], file_id=self.file_id)
@@ -73,7 +80,7 @@ class FileOwner:
         log_msg("INFO", "OWNER", self.owner_id, f"创建了大小为 {file_size} 字节的随机文件 {self.file_id}")
 
         chunks = self.dpdp_setup(file_bytes)
-        log_msg("INFO", "OWNER", self.owner_id, f"为文件 {self.file_id} 生成了 {len(chunks)} 个数据块和标签")
+        log_msg("INFO", "OWNER", self.owner_id, f"为文件 {self.file_id} 生成了 {len(chunks)} 个数据块和dPDP标签")
 
         return chunks, num_nodes
 
@@ -97,19 +104,19 @@ class StorageNode:
         self.reward_address = f"addr:{node_id}"
         self.max_storage = max_storage
         self.used_space = 0
+        # New storage for raw data and tags, required for proof generation
+        self.files: Dict[str, Dict[int, Tuple[bytes, str]]] = {}
         self.state_lock = threading.Lock() # 确保状态修改的原子性
 
     def __getstate__(self):
         """自定义Pickle行为，以允许在多进程中使用。"""
         state = self.__dict__.copy()
-        # 移除不可序列化的锁对象
         del state['state_lock']
         return state
 
     def __setstate__(self, state):
         """在反序列化后，重新创建锁对象。"""
         self.__dict__.update(state)
-        # 在新进程中创建一个新的锁
         self.state_lock = threading.Lock()
 
     def can_store(self, size: int) -> bool:
@@ -125,6 +132,10 @@ class StorageNode:
                 log_msg("WARN", "STORE", self.node_id, f"拒绝存储文件块 {chunk.file_id}[{chunk.index}]：存储空间不足。")
                 return False
 
+            # Store the raw data and tag for dPDP proofs
+            self.files.setdefault(chunk.file_id, {})[chunk.index] = (chunk.data, chunk.tag)
+
+            # The commitment for the PoSt TimeStateTree remains the same
             commitment = h_join("commit", chunk.tag, sha256_hex(chunk.data))
             self.storage.add_chunk_commitment(chunk.file_id, chunk.index, commitment)
             self.used_space += self.chunk_size
@@ -136,34 +147,42 @@ class StorageNode:
             self.storage.build_state()
             log_msg("INFO", "COMMIT", self.node_id, f"已为接收的文件块构建状态树")
 
-    def dpdp_prove(self, indices: List[int], round_salt: str, file_id: str) -> Tuple[str, Dict[int, str]]:
+    def dpdp_prove(self, indices: List[int], round_salt: str, file_id: str) -> Tuple[DPDPProof, List[Tuple[int, int]]]:
         """
-        为指定文件的一组挑战索引生成dPDP聚合证明。
+        为指定的挑战生成dPDP聚合证明，并更新PoSt状态树。
+        返回真实的dPDP证明和用于验证的挑战。
         """
         with self.state_lock:
-            time_root = self.storage.time_trees[file_id].root() if file_id in self.storage.time_trees else h_join('empty')
-            storage_root = self.storage.storage_root()
+            if file_id not in self.files:
+                raise ValueError(f"文件 {file_id} 未找到，无法生成证明。")
 
-            parts = ["node", self.node_id, "salt", round_salt, "sroot", storage_root, "f", file_id, time_root]
-            per_index_commitments: Dict[int, str] = {}
+            # 1. 生成完整的dPDP挑战（包括随机系数）
+            challenge = [(i, random.randint(1, curve_order - 1)) for i in indices]
 
-            tst_leaves = self.storage.time_trees[file_id].leaves if file_id in self.storage.time_trees else {}
+            # 2. 准备dPDP.GenProof所需的数据
+            # GenProof needs a dictionary of chunks and a DPDPTags object
+            challenged_chunks = {i: self.files[file_id][i][0] for i, _ in challenge if i in self.files[file_id]}
+            tag_dict = {idx: tag for idx, (_, tag) in self.files[file_id].items()}
+            tags = DPDPTags(tags=tag_dict)
 
-            for idx in indices:
-                commit = tst_leaves.get(idx, h_join("missing", str(idx)))
-                per_index_commitments[idx] = commit
-                parts.append(h_join("idx", str(idx), commit))
+            # 3. 调用真实的dPDP证明生成
+            proof = dPDP.GenProof(tags, challenged_chunks, challenge)
+            log_msg("DEBUG", "dPDP", self.node_id, f"为文件 {file_id} 生成了dPDP证明")
 
-            proof_hash = h_join(*parts)
+            # 4. (PoSt) 更新TimeStateTree，使用新生成的真实证明的哈希
+            proof_hash_for_post = sha256_hex(proof.sigma.encode() + str(proof.mu).encode())
+            tst_leaves = self.storage.time_trees.get(file_id, None)
+            if tst_leaves:
+                for idx in indices:
+                    prev_leaf = tst_leaves.leaves.get(idx, h_join("missing", str(idx)))
+                    new_leaf = h_join("tleaf", prev_leaf, proof_hash_for_post, round_salt)
+                    self.storage.add_chunk_commitment(file_id, idx, new_leaf)
+                
+                self.storage.build_state()
+                log_msg("DEBUG", "PoSt", self.node_id, f"使用证明哈希 {proof_hash_for_post[:16]} 更新了文件 {file_id} 的时间状态...")
 
-            for idx in indices:
-                prev_leaf = tst_leaves.get(idx, h_join("missing", str(idx)))
-                new_leaf = h_join("tleaf", prev_leaf, proof_hash, round_salt)
-                self.storage.add_chunk_commitment(file_id, idx, new_leaf)
-
-            self.storage.build_state()
-            log_msg("DEBUG", "VERIFY", self.node_id, f"为文件 {file_id} 生成了证明 {proof_hash[:16]}...")
-            return proof_hash, per_index_commitments
+            # 5. 返回真实的证明和挑战，以供验证者使用
+            return proof, challenge
 
     def mine_bobtail(self, seed: str, max_nonce: int = 8192) -> List[BobtailProof]:
         """

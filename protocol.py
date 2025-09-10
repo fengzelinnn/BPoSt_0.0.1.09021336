@@ -4,6 +4,38 @@ from typing import Dict, List, Optional, Tuple
 from merkle import MerkleTree
 from utils import h_join, sha256_hex
 
+# New imports for dPDP
+import random
+from py_ecc.bls import G1 as G1_IDENTITY, G2 as G2_IDENTITY
+from py_ecc.bls.g2_primitives import (
+    G1, G2,
+    pairing,
+    add,
+    multiply,
+    is_inf,
+    serialize_G1, deserialize_G1,
+    serialize_G2, deserialize_G2,
+)
+from py_ecc.bls.hash import hash_to_G1 as _hash_to_G1
+from py_ecc.bls.keys import privtopub
+from py_ecc.optimized_bls12_381 import curve_order
+
+# Domain separation tag for H1, as recommended by cryptographic best practices.
+H1_DST = b'BPoSt-H1-DST-v1.0'
+
+def hash_to_G1(message: bytes):
+    """Wrapper for hash_to_G1 to provide a consistent domain separation."""
+    return _hash_to_G1(message, H1_DST)
+
+def chunk_to_int(chunk: bytes) -> int:
+    """
+    Converts a file chunk to an integer modulo the curve order.
+    We hash the chunk to get a uniformly distributed integer that fits within the field.
+    """
+    # Use SHA256 for a 256-bit hash, then convert to integer.
+    h = sha256_hex(chunk)
+    return int(h, 16)
+
 @dataclass
 class Block:
     """区块链中区块的头部和主体结构。"""
@@ -26,13 +58,11 @@ class Block:
             d['accum_proof_hash'] = d['accum_proof_hash'].hex()
         if d.get('merkle_roots'):
             d['merkle_roots'] = {k: (v.hex() if isinstance(v, bytes) else v) for k, v in d['merkle_roots'].items()}
-        # 清洗 selected_k_proofs 中可能出现的 bytes
         if d.get('selected_k_proofs'):
             cleaned = []
             for item in d['selected_k_proofs']:
                 cleaned.append({k: (v.hex() if isinstance(v, bytes) else v) for k, v in item.items()})
             d['selected_k_proofs'] = cleaned
-        # 清洗 coinbase_splits
         if d.get('coinbase_splits'):
             d['coinbase_splits'] = {k: (v.hex() if isinstance(v, bytes) else v) for k, v in d['coinbase_splits'].items()}
         return d
@@ -75,19 +105,13 @@ BPoSt协议定义
 
 通过集中化这些定义，我们提高了模块化和可读性，明确了协议的“语言”与使用它的“参与者”之间的区别。
 """
-import random
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Tuple
-
-from merkle import MerkleTree
-from utils import h_join, sha256_hex
 
 @dataclass
 class FileChunk:
     """一个文件分片，由客户端准备并附带dPDP标签。"""
     index: int
     data: bytes
-    tag: str
+    tag: str  # This will now be a hex-encoded BLS signature on G1
     file_id: str = "default"
 
     def to_dict(self) -> dict:
@@ -109,7 +133,7 @@ class BobtailProof:
     nonce: str
     proof_hash: str
     lots: str
-    file_roots: Dict[str, str] = field(default_factory=dict) # 节点所有文件的时间树根 {file_id: root_hash}
+    file_roots: Dict[str, str] = field(default_factory=dict)
     
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -169,27 +193,125 @@ class ServerStorage:
     def num_files(self) -> int:
         return len(self.time_trees)
 
+# --- dPDP Implementation --- #
+
 @dataclass
 class DPDPParams:
-    g: str
-    u: str
-    pk_beta: str
-    sk_alpha: str
+    """dPDP public parameters and owner's secret key."""
+    g: str         # G2 generator (serialized hex)
+    u: str         # G1 generator (serialized hex)
+    pk_beta: str   # Public key (G2 point, serialized hex)
+    sk_alpha: int  # Secret key (integer)
 
 @dataclass
 class DPDPTags:
-    tags: Dict[int, str]
+    """dPDP tags for all chunks of a file."""
+    tags: Dict[int, str]  # { chunk_index: tag_hex }
+
+@dataclass
+class DPDPProof:
+    """A dPDP proof for a given challenge."""
+    mu: int      # Aggregated data chunks
+    sigma: str   # Aggregated signature (G1 point, serialized hex)
 
 class dPDP:
+    """Implementation of the dPDP scheme based on BLS signatures."""
+
     @staticmethod
     def KeyGen(security: int = 256) -> DPDPParams:
-        sk_alpha = h_join("alpha", str(security), str(random.random()))
-        return DPDPParams(g=h_join("g", str(security)), u=h_join("u", str(security)), pk_beta=h_join("beta", sk_alpha), sk_alpha=sk_alpha)
+        """Generates dPDP parameters and keys."""
+        sk_alpha = random.randint(1, curve_order - 1)
+        pk_beta = privtopub(sk_alpha)
+        
+        g = G2
+        u = G1
+
+        return DPDPParams(
+            g=serialize_G2(g).hex(),
+            u=serialize_G1(u).hex(),
+            pk_beta=serialize_G2(pk_beta).hex(),
+            sk_alpha=sk_alpha
+        )
 
     @staticmethod
     def TagFile(params: DPDPParams, file_chunks: List[bytes]) -> DPDPTags:
-        tags = {i: h_join("tag", str(i), sha256_hex(b), params.pk_beta) for i, b in enumerate(file_chunks)}
+        """Generates a dPDP tag for each file chunk."""
+        u_point = deserialize_G1(bytes.fromhex(params.u))
+        tags = {}
+        for i, chunk in enumerate(file_chunks):
+            b_i = chunk_to_int(chunk)
+            h_i = hash_to_G1(str(i).encode())
+
+            # sigma_i = alpha * (h_i + b_i * u)
+            term1 = h_i
+            term2 = multiply(u_point, b_i)
+            base_point = add(term1, term2)
+            sigma_i = multiply(base_point, params.sk_alpha)
+            
+            tags[i] = serialize_G1(sigma_i).hex()
+        
         return DPDPTags(tags=tags)
+
+    @staticmethod
+    def GenProof(tags: DPDPTags, file_chunks: Dict[int, bytes], challenge: List[Tuple[int, int]]) -> DPDPProof:
+        """Generates a dPDP proof for a challenge."""
+        agg_mu = 0
+        agg_sigma = G1_IDENTITY
+
+        for i, v_i in challenge:
+            if i not in file_chunks or i not in tags.tags:
+                raise ValueError(f"Index {i} not found in provided chunks/tags for proof generation")
+            
+            b_i = chunk_to_int(file_chunks[i])
+            sigma_i = deserialize_G1(bytes.fromhex(tags.tags[i]))
+
+            # mu = mu + v_i * b_i
+            agg_mu = (agg_mu + v_i * b_i) % curve_order
+
+            # sigma = sigma + v_i * sigma_i
+            agg_sigma = add(agg_sigma, multiply(sigma_i, v_i))
+
+        return DPDPProof(
+            mu=agg_mu,
+            sigma=serialize_G1(agg_sigma).hex()
+        )
+
+    @staticmethod
+    def CheckProof(params: DPDPParams, proof: DPDPProof, challenge: List[Tuple[int, int]]) -> bool:
+        """Verifies a dPDP proof."""
+        # Deserialize all public components
+        g = deserialize_G2(bytes.fromhex(params.g))
+        u = deserialize_G1(bytes.fromhex(params.u))
+        pk_beta = deserialize_G2(bytes.fromhex(params.pk_beta))
+        sigma = deserialize_G1(bytes.fromhex(proof.sigma))
+
+        if is_inf(sigma):
+            return not challenge
+
+        # LHS = pairing(sigma, g)
+        # The py_ecc pairing primitive is pairing(G2_point, G1_point)
+        lhs = pairing(g, sigma)
+
+        # RHS = pairing(beta, agg_h + mu * u)
+        # 1. Calculate agg_h = sum(v_i * h_i)
+        agg_h = G1_IDENTITY
+        for i, v_i in challenge:
+            h_i = hash_to_G1(str(i).encode())
+            agg_h = add(agg_h, multiply(h_i, v_i))
+        
+        # 2. Calculate mu * u
+        mu_u = multiply(u, proof.mu)
+
+        # 3. Build G1 point for RHS pairing
+        rhs_g1_point = add(agg_h, mu_u)
+
+        # 4. Calculate RHS pairing
+        rhs = pairing(pk_beta, rhs_g1_point)
+
+        # 5. Compare results
+        return lhs == rhs
+
+# --- End of dPDP Implementation --- #
 
 @dataclass
 class FoldingProof:

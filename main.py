@@ -32,9 +32,9 @@ if __name__ == "__main__":
         num_nodes=15,               # 网络中的节点总数
         num_file_owners=3,          # 发起存储请求的用户数量
         sim_duration_sec=9000,        # 文件分发后的共识模拟运行时长（秒）
-        chunk_size=1024,             # 文件分片大小（字节）
-        min_file_kb=16,             # 用户生成的最小文件大小（KB）
-        max_file_kb=24,            # 用户生成的最大文件大小（KB）
+        chunk_size=16,             # 文件分片大小（字节）
+        min_file_kb=1,             # 用户生成的最小文件大小（KB）
+        max_file_kb=2,            # 用户生成的最大文件大小（KB）
         min_storage_nodes=4,        # 用户请求的最少存储节点数
         max_storage_nodes=8,        # 用户请求的最多存储节点数
         base_port=41000,            # 节点监听的起始端口号
