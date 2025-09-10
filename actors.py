@@ -11,6 +11,7 @@ BPoSt协议中的参与者（Actors）
   生成证明和参与共识的核心逻辑。
 """
 import random
+import threading
 from typing import List, Tuple, Dict
 
 from protocol import (
@@ -96,6 +97,20 @@ class StorageNode:
         self.reward_address = f"addr:{node_id}"
         self.max_storage = max_storage
         self.used_space = 0
+        self.state_lock = threading.Lock() # 确保状态修改的原子性
+
+    def __getstate__(self):
+        """自定义Pickle行为，以允许在多进程中使用。"""
+        state = self.__dict__.copy()
+        # 移除不可序列化的锁对象
+        del state['state_lock']
+        return state
+
+    def __setstate__(self, state):
+        """在反序列化后，重新创建锁对象。"""
+        self.__dict__.update(state)
+        # 在新进程中创建一个新的锁
+        self.state_lock = threading.Lock()
 
     def can_store(self, size: int) -> bool:
         """检查节点是否有足够的空间来存储指定大小的数据。"""
@@ -105,77 +120,80 @@ class StorageNode:
         """
         接收并存储一个文件分片，前提是有足够的可用空间。
         """
-        if not self.can_store(self.chunk_size):
-            log_msg("WARN", "STORE", self.node_id, f"拒绝存储文件块 {chunk.file_id}[{chunk.index}]：存储空间不足。")
-            return False
+        with self.state_lock:
+            if not self.can_store(self.chunk_size):
+                log_msg("WARN", "STORE", self.node_id, f"拒绝存储文件块 {chunk.file_id}[{chunk.index}]：存储空间不足。")
+                return False
 
-        commitment = h_join("commit", chunk.tag, sha256_hex(chunk.data))
-        self.storage.add_chunk_commitment(chunk.file_id, chunk.index, commitment)
-        self.used_space += self.chunk_size
-        # log_msg("INFO", "STORE", self.node_id, f"已存储文件块 {chunk.file_id}[{chunk.index}]。当前使用: {self.used_space // 1024}/{self.max_storage // 1024} KB")
-        return True
+            commitment = h_join("commit", chunk.tag, sha256_hex(chunk.data))
+            self.storage.add_chunk_commitment(chunk.file_id, chunk.index, commitment)
+            self.used_space += self.chunk_size
+            return True
 
     def finalize_initial_commitments(self):
         """在接收完一批分片后，构建或更新状态树。"""
-        self.storage.build_state()
-        log_msg("INFO", "COMMIT", self.node_id, f"已为接收的文件块构建状态树")
+        with self.state_lock:
+            self.storage.build_state()
+            log_msg("INFO", "COMMIT", self.node_id, f"已为接收的文件块构建状态树")
 
     def dpdp_prove(self, indices: List[int], round_salt: str, file_id: str) -> Tuple[str, Dict[int, str]]:
         """
         为指定文件的一组挑战索引生成dPDP聚合证明。
         """
-        time_root = self.storage.time_trees[file_id].root() if file_id in self.storage.time_trees else h_join('empty')
-        storage_root = self.storage.storage_root()
+        with self.state_lock:
+            time_root = self.storage.time_trees[file_id].root() if file_id in self.storage.time_trees else h_join('empty')
+            storage_root = self.storage.storage_root()
 
-        parts = ["node", self.node_id, "salt", round_salt, "sroot", storage_root, "f", file_id, time_root]
-        per_index_commitments: Dict[int, str] = {}
+            parts = ["node", self.node_id, "salt", round_salt, "sroot", storage_root, "f", file_id, time_root]
+            per_index_commitments: Dict[int, str] = {}
 
-        tst_leaves = self.storage.time_trees[file_id].leaves if file_id in self.storage.time_trees else {}
+            tst_leaves = self.storage.time_trees[file_id].leaves if file_id in self.storage.time_trees else {}
 
-        for idx in indices:
-            commit = tst_leaves.get(idx, h_join("missing", str(idx)))
-            per_index_commitments[idx] = commit
-            parts.append(h_join("idx", str(idx), commit))
+            for idx in indices:
+                commit = tst_leaves.get(idx, h_join("missing", str(idx)))
+                per_index_commitments[idx] = commit
+                parts.append(h_join("idx", str(idx), commit))
 
-        proof_hash = h_join(*parts)
+            proof_hash = h_join(*parts)
 
-        for idx in indices:
-            prev_leaf = tst_leaves.get(idx, h_join("missing", str(idx)))
-            new_leaf = h_join("tleaf", prev_leaf, proof_hash, round_salt)
-            self.storage.add_chunk_commitment(file_id, idx, new_leaf)
+            for idx in indices:
+                prev_leaf = tst_leaves.get(idx, h_join("missing", str(idx)))
+                new_leaf = h_join("tleaf", prev_leaf, proof_hash, round_salt)
+                self.storage.add_chunk_commitment(file_id, idx, new_leaf)
 
-        self.storage.build_state()
-        log_msg("DEBUG", "VERIFY", self.node_id, f"为文件 {file_id} 生成了证明 {proof_hash[:16]}...")
-        return proof_hash, per_index_commitments
+            self.storage.build_state()
+            log_msg("DEBUG", "VERIFY", self.node_id, f"为文件 {file_id} 生成了证明 {proof_hash[:16]}...")
+            return proof_hash, per_index_commitments
 
     def mine_bobtail(self, seed: str, max_nonce: int = 8192) -> List[BobtailProof]:
         """
         执行Bobtail PoW（工作量证明）挖矿。
         """
-        root = self.storage.storage_root()
-        if isinstance(root, bytes):
-            root = root.hex()
+        with self.state_lock:
+            root = self.storage.storage_root()
+            if isinstance(root, bytes):
+                root = root.hex()
 
-        file_roots = self.storage.storage_tree.file_roots if self.storage.storage_tree else {}
+            file_roots = self.storage.storage_tree.file_roots if self.storage.storage_tree else {}
 
-        best_hash = ""
-        best_nonce = -1
+            best_hash = ""
+            best_nonce = -1
 
-        for nonce in range(max_nonce):
-            h = sha256_hex(f"bobtail|{seed}|{root}|{self.node_id}|{nonce}".encode())
-            if best_hash == "" or h < best_hash:
-                best_hash = h
-                best_nonce = nonce
+            for nonce in range(max_nonce):
+                h = sha256_hex(f"bobtail|{seed}|{root}|{self.node_id}|{nonce}".encode())
+                if best_hash == "" or h < best_hash:
+                    best_hash = h
+                    best_nonce = nonce
 
-        if best_nonce == -1: return []
+            if best_nonce == -1: return []
 
-        proof = BobtailProof(
-            node_id=self.node_id,
-            address=self.reward_address,
-            root=root,
-            file_roots=file_roots,
-            nonce=str(best_nonce),
-            proof_hash=best_hash,
-            lots=str(max(1, self.storage.num_files())),
-        )
-        return [proof]
+            proof = BobtailProof(
+                node_id=self.node_id,
+                address=self.reward_address,
+                root=root,
+                file_roots=file_roots,
+                nonce=str(best_nonce),
+                proof_hash=best_hash,
+                lots=str(max(1, self.storage.num_files())),
+            )
+            return [proof]

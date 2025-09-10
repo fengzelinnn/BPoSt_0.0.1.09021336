@@ -52,7 +52,7 @@ class P2PSimConfig:
     """P2P模拟的配置参数"""
     num_nodes: int = 20
     num_file_owners: int = 3
-    sim_duration_sec: int = 600
+    sim_duration_sec: int = 6000
     chunk_size: int = 1024
     min_file_kb: int = 2
     max_file_kb: int = 4
@@ -86,8 +86,8 @@ class P2PNode(multiprocessing.Process):
         self.chain = Blockchain()
 
         self.bobtail_k = bobtail_k
-        self.prepare_margin = 2 # 缓冲机制：需要收集到 k + margin 个证明才发起预准备
-        self.difficulty_threshold = int("fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16)
+        self.prepare_margin = 0 # 缓冲机制：需要收集到 k + margin 个证明才发起预准备
+        self.difficulty_threshold = int("f" * 64, 16)
         
         self.preprepare_signals: Dict[int, Dict[str, Tuple[str, ...]]] = defaultdict(dict)
         self.sent_preprepare_signal_at: Dict[int, Tuple[str, ...]] = {}
@@ -228,10 +228,6 @@ class P2PNode(multiprocessing.Process):
         return {"ok": True, "status": "gossip_initiated"}
 
     def _handle_storage_offer(self, offer_data: dict):
-        if not self.accepting_new_storage:
-            log_msg("DEBUG", "NODE", self.node.node_id, "Ignoring storage offer, currently in consensus round.")
-            return
-
         if self.node.can_store(offer_data.get("total_size", 0)):
             bid_msg = {
                 "cmd": "storage_bid",
@@ -289,9 +285,6 @@ class P2PNode(multiprocessing.Process):
             if new_block.prev_hash == self.chain.last_hash():
                 self.chain.add_block(new_block)
                 log_msg("INFO", "BLOCKCHAIN", self.node.node_id, f"接受了来自 {new_block.leader_id} 的区块 {new_block.height}")
-                if not self.accepting_new_storage:
-                    self.accepting_new_storage = True
-                    log_msg("INFO", "CONSENSUS", self.node.node_id, f"Height {new_block.height}: New block accepted. Resuming storage bids.")
                 
                 for d in [self.proof_pool, self.preprepare_signals, self.sent_preprepare_signal_at]:
                     if next_height in d: del d[next_height]
@@ -367,11 +360,7 @@ class P2PNode(multiprocessing.Process):
                     my_proof_set = tuple(sorted([p.proof_hash for p in selected_proofs]))
                     self.sent_preprepare_signal_at[height] = my_proof_set
                     self.preprepare_signals[height][self.node.node_id] = my_proof_set
-                    if self.accepting_new_storage:
-                        self.accepting_new_storage = False
-                        log_msg("INFO", "CONSENSUS", self.node.node_id, f"为高度 {height} 达成预备条件，创建自己的提案并暂停接受新存储。")
-                    else:
-                        log_msg("INFO", "CONSENSUS", self.node.node_id, f"为高度 {height} 达成预备条件，创建自己的提案。")
+                    log_msg("INFO", "CONSENSUS", self.node.node_id, f"为高度 {height} 达成预备条件，创建自己的提案。")
 
         current_signals_for_height = self.preprepare_signals.get(height, {})
         if current_signals_for_height:
