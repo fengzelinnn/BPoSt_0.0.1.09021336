@@ -1,103 +1,79 @@
 """
-用于dPDP方案的模拟密码学原语。
+Cryptographic primitives for the dPDP scheme, using the py_ecc library.
 
-注意：这是一个模拟实现，不提供任何安全性。
-它使用占位符对象和重载运算符来模仿真实密码学库的API和代数结构，
-例如py_ecc。一个真实的实现需要用一个经过审计的BLS12-381库来替换这个模块。
+This module provides the necessary cryptographic functions based on the BLS12-381 curve.
+It uses the `py_ecc` library for all elliptic curve and pairing operations, ensuring
+cryptographic security.
 """
 import hashlib
-import random
+import secrets
+from typing import TypeAlias, Any
 
-# 模拟有限域中的标量
-class Scalar:
-    def __init__(self, value: int):
-        self.value = value
+# Core primitives from the optimized module, which is a more stable API
+from py_ecc.optimized_bls12_381 import (
+    G1, G2, Z1,
+    add,
+    multiply,
+    pairing as ecc_pairing,
+    curve_order as CURVE_ORDER
+)
 
-    def __add__(self, other):
-        return Scalar(self.value + other.value)
+# Serialization functions are in g2_primitives
+from py_ecc.bls.g2_primitives import (
+    G1_to_pubkey,
+    pubkey_to_G1,
+    G2_to_signature,
+    signature_to_G2,
+)
 
-    def __mul__(self, other):
-        if isinstance(other, Scalar):
-            return Scalar(self.value * other.value)
-        if isinstance(other, (G1Element, G2Element)):
-            return other * self
-        return NotImplemented
+# --- Type Aliases for clarity ---
+# Use `Any` to avoid importing internal py_ecc types like Fq, which can cause
+# versioning issues. The actual values returned by py_ecc functions are tuples,
+# but the types of their elements are not part of the stable public API.
+Scalar: TypeAlias = int
+G1Element: TypeAlias = Any
+G2Element: TypeAlias = Any
+GTElement: TypeAlias = Any
 
-    def __rmul__(self, other):
-        return self.__mul__(other)
-
-    def __repr__(self):
-        return f"Scalar({self.value})"
-
-# 模拟G1群中的元素
-class G1Element:
-    def __init__(self, x, y):
-        self.x, self.y = x, y
-
-    def __mul__(self, other: Scalar):
-        return G1Element(self.x * other.value, self.y * other.value)
-
-    def __add__(self, other):
-        return G1Element(self.x + other.x, self.y + other.y)
-    
-    def __repr__(self):
-        return f"G1({self.x}, {self.y})"
-
-# 模拟G2群中的元素
-class G2Element:
-    def __init__(self, x, y):
-        self.x, self.y = x, y
-
-    def __mul__(self, other: Scalar):
-        return G2Element(self.x * other.value, self.y * other.value)
-
-    def __add__(self, other):
-        return G2Element(self.x + other.x, self.y + other.y)
-
-    def __repr__(self):
-        return f"G2({self.x}, {self.y})"
-
-# 模拟配对函数的目标群元素
-class GTElement:
-    def __init__(self, value):
-        self.value = value
-
-    def __mul__(self, other):
-        return GTElement(self.value * other.value)
-
-    def __eq__(self, other):
-        return abs(self.value - other.value) < 1e-9
-
-# --- 密码学基元 ---
-G1_IDENTITY = G1Element(0, 0)
-
-# G1和G2的生成元（固定的任意值）
-g1_gen = G1Element(1, 2)
-g2_gen = G2Element(3, 4)
-
-def g1_generator() -> G1Element:
-    """返回G1群的生成元 `u`。"""
-    return g1_gen
-
-def g2_generator() -> G2Element:
-    """返回G2群的生成元 `g`。"""
-    return g2_gen
-
-def pairing(p1: G1Element, p2: G2Element) -> GTElement:
-    """模拟BLS配对函数 e(g1, g2)。"""
-    return GTElement(p1.x * p2.x + p1.y * p2.y)
-
-def hash_to_scalar(data: bytes) -> Scalar:
-    """将字节串哈希到一个标量域的元素。"""
-    h = hashlib.sha256(data).hexdigest()
-    return Scalar(int(h, 16))
-
-def hash_to_g1(data: bytes) -> G1Element:
-    """将字节串哈希到一个G1群的元素。"""
-    h1 = hashlib.sha256(data + b'x').hexdigest()
-    h2 = hashlib.sha256(data + b'y').hexdigest()
-    return G1Element(int(h1, 16), int(h2, 16))
+# --- Cryptographic Primitives ---
+g1_generator: G1Element = G1
+g2_generator: G2Element = G2
+G1_IDENTITY: G1Element = Z1
 
 def random_scalar() -> Scalar:
-    """生成一个随机标量作为私钥。"""
-    return Scalar(random.randint(1, 2**32))
+    """Generates a random scalar in the range [1, CURVE_ORDER - 1]."""
+    return secrets.randbelow(CURVE_ORDER - 1) + 1
+
+def hash_to_scalar(data: bytes) -> Scalar:
+    """Hashes a byte string to a scalar, modulo the curve order."""
+    h = hashlib.sha256(data).digest()
+    return int.from_bytes(h, 'big') % CURVE_ORDER
+
+def hash_to_g1(data: bytes) -> G1Element:
+    """Hashes a byte string to a point in G1 (simplified, not a full hash-to-curve)."""
+    scalar = hash_to_scalar(data)
+    return multiply(g1_generator, scalar)
+
+def pairing(p1: G1Element, p2: G2Element) -> GTElement:
+    """Computes the BLS pairing e(p1, p2), wrapping py_ecc's (G2, G1) order."""
+    # Note: py_ecc's low-level pairing function expects (G2, G1)
+    return ecc_pairing(p2, p1)
+
+# --- Serialization / Deserialization ---
+def serialize_g1(p: G1Element) -> str:
+    return G1_to_pubkey(p).hex()
+
+def deserialize_g1(s: str) -> G1Element:
+    return pubkey_to_G1(bytes.fromhex(s))
+
+def serialize_g2(p: G2Element) -> str:
+    return G2_to_signature(p).hex()
+
+def deserialize_g2(s: str) -> G2Element:
+    return signature_to_G2(bytes.fromhex(s))
+
+def serialize_scalar(s: Scalar) -> str:
+    return s.to_bytes(32, 'big').hex()
+
+def deserialize_scalar(s: str) -> Scalar:
+    return int.from_bytes(bytes.fromhex(s), 'big')

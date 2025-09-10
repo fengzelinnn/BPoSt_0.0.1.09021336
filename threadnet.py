@@ -147,7 +147,7 @@ class P2PNode(multiprocessing.Process):
             "peers": len(self.peers),
             "mempool_size": len(self.mempool),
             "proof_pool_size": len(self.proof_pool.get(height + 1, {})),
-            "is_mining": self.node.storage.num_files() > 0,
+            "is_mining": self.node.num_files() > 0,
         }
         self.report_queue.put(status)
 
@@ -319,7 +319,7 @@ class P2PNode(multiprocessing.Process):
                 log_msg("DEBUG", "CONSENSUS", self.node.node_id, f"高度 {height} 的信号池已更新，现在有 {len(current_signals_for_height)} 个信号。")
 
     def _attempt_consensus(self):
-        if self.node.storage.num_files() == 0: return
+        if self.node.num_files() == 0: return
 
         height = self.chain.height() + 1
         if height in self.election_concluded_for: return

@@ -1,26 +1,22 @@
 """
 BPoSt协议中的参与者（Actors）
 
-该模块定义了BPoSt协议中的主要参与者（或角色）。
-这些类封装了网络中参与者的行为。
-
-- FileOwner: 代表文件所有者（用户）。其主要职责是准备要存储的文件，
-  指定存储需求，并对文件进行预处理（分块和生成dPDP标签）。
-
-- StorageNode: 代表存储节点。它处理存储分片、维护状态树、
-  生成证明和参与共识的核心逻辑。
+该模块定义了BPoSt协议中的主要参与者（或角色），并实现了dPDP方案的核心密码学逻辑。
 """
 import random
 import threading
 from typing import List, Tuple, Dict
 
+from crypto import (
+    G1Element, G2Element, Scalar,
+    g1_generator, g2_generator, G1_IDENTITY,
+    random_scalar, hash_to_scalar, hash_to_g1,
+    add, multiply, pairing, CURVE_ORDER
+)
 from protocol import (
     FileChunk,
-    ServerStorage,
-    dPDP,
-    DPDPParams,
-    DPDPTags,
-    BobtailProof
+    BobtailProof,
+    PublicKey
 )
 from utils import h_join, sha256_hex, log_msg
 
@@ -29,153 +25,157 @@ class FileOwner:
     """文件所有者：代表一个寻求在网络上存储文件的用户。"""
 
     def __init__(self, owner_id: str, chunk_size: int):
-        """
-        初始化文件所有者。
-
-        :param owner_id: 用户的唯一标识符。
-        :param chunk_size: 文件分片的大小（字节）。
-        """
         self.owner_id = owner_id
         self.chunk_size = chunk_size
-        self.params: DPDPParams = dPDP.KeyGen()  # 生成dPDP的公私钥参数
-        self.tags: DPDPTags = DPDPTags(tags={})
         self.file_id: str = f"file_{owner_id}_{random.randint(0, 1_000_000)}"
+        
+        self.sk_alpha: Scalar = random_scalar()
+        self.pk_beta: G2Element = multiply(g2_generator, self.sk_alpha)
+        self.public_key = PublicKey(beta=self.pk_beta)
 
     def create_file(self, size_bytes: int) -> bytes:
-        """创建一个具有指定大小的随机字节文件。"""
         return random.randbytes(size_bytes)
 
     def split_file(self, data: bytes) -> List[bytes]:
-        """按 chunk_size 将文件字节流切分为块列表。"""
         return [data[i:i + self.chunk_size] for i in range(0, len(data), self.chunk_size)]
 
-    def dpdp_setup(self, file_bytes: bytes) -> List[FileChunk]:
-        """
-        执行dPDP预处理：切分文件并为每个分片生成标签。
-        返回一个FileChunk对象列表，准备好被广播到网络。
-        """
+    def sign_file(self, file_bytes: bytes) -> Tuple[List[FileChunk], Dict]:
         raw_chunks = self.split_file(file_bytes)
-        self.tags = dPDP.TagFile(self.params, raw_chunks)
-        chunks = [
-            FileChunk(index=i, data=b, tag=self.tags.tags[i], file_id=self.file_id)
-            for i, b in enumerate(raw_chunks)
-        ]
-        return chunks
+        num_chunks = len(raw_chunks)
+        log_msg("DEBUG", "OWNER", self.owner_id, f"为 {self.file_id} 的 {num_chunks} 个块生成签名...")
+
+        u = g1_generator
+        chunks = []
+        for i, b_data in enumerate(raw_chunks):
+            b_i = int.from_bytes(b_data, 'big')
+            h_i = hash_to_g1(str(i).encode())
+            u_pow_b = multiply(u, b_i)
+            term = add(h_i, u_pow_b)
+            signature = multiply(term, self.sk_alpha)
+            chunks.append(FileChunk(index=i, data=b_data, signature=signature, file_id=self.file_id))
+
+        metadata = {
+            "public_key": self.public_key.to_dict(),
+            "num_chunks": num_chunks,
+        }
+        return chunks, metadata
 
     def prepare_storage_request(
         self, min_size_bytes: int, max_size_bytes: int, num_nodes: int
-    ) -> Tuple[List[FileChunk], int]:
-        """
-        创建一个随机大小的文件，准备存储，并返回数据块和所需的存储节点数。
-        """
+    ) -> Tuple[List[FileChunk], int, Dict]:
         file_size = random.randint(min_size_bytes, max_size_bytes)
         file_bytes = self.create_file(file_size)
-        log_msg("INFO", "OWNER", self.owner_id, f"创建了大小为 {file_size} 字节的随机文件 {self.file_id}")
-
-        chunks = self.dpdp_setup(file_bytes)
-        log_msg("INFO", "OWNER", self.owner_id, f"为文件 {self.file_id} 生成了 {len(chunks)} 个数据块和标签")
-
-        return chunks, num_nodes
+        chunks, metadata = self.sign_file(file_bytes)
+        log_msg("INFO", "OWNER", self.owner_id, f"为文件 {self.file_id} 生成了 {len(chunks)} 个数据块和签名")
+        return chunks, num_nodes, metadata
 
 
 class StorageNode:
     """
     存储节点：存储、证明和挖矿的核心逻辑。
-    该类被P2PNode封装，以赋予其网络自治能力。
     """
     def __init__(self, node_id: str, chunk_size: int, max_storage: int):
-        """
-        初始化存储节点。
-
-        :param node_id: 节点的唯一标识符。
-        :param chunk_size: 文件分片的大小（字节）。
-        :param max_storage: 节点可用的最大存储空间（字节）。
-        """
         self.node_id = node_id
         self.chunk_size = chunk_size
-        self.storage = ServerStorage()
         self.reward_address = f"addr:{node_id}"
         self.max_storage = max_storage
         self.used_space = 0
-        self.state_lock = threading.Lock() # 确保状态修改的原子性
+        self.state_lock = threading.Lock()
+        self.chunks: Dict[str, Dict[int, FileChunk]] = {}
+        self.file_metadata: Dict[str, Dict] = {}
 
     def __getstate__(self):
-        """自定义Pickle行为，以允许在多进程中使用。"""
+        """在序列化（pickling）时，排除不可序列化的锁。"""
         state = self.__dict__.copy()
-        # 移除不可序列化的锁对象
         del state['state_lock']
         return state
 
     def __setstate__(self, state):
-        """在反序列化后，重新创建锁对象。"""
+        """在反序列化（unpickling）后，重新创建锁。"""
         self.__dict__.update(state)
-        # 在新进程中创建一个新的锁
         self.state_lock = threading.Lock()
 
+    def num_files(self) -> int:
+        """返回此节点正在存储的文件数量。"""
+        with self.state_lock:
+            return len(self.chunks)
+
     def can_store(self, size: int) -> bool:
-        """检查节点是否有足够的空间来存储指定大小的数据。"""
         return self.used_space + size <= self.max_storage
 
-    def receive_chunk(self, chunk: FileChunk) -> bool:
-        """
-        接收并存储一个文件分片，前提是有足够的可用空间。
-        """
+    def receive_chunk(self, chunk: FileChunk, metadata: Dict) -> bool:
         with self.state_lock:
             if not self.can_store(self.chunk_size):
-                log_msg("WARN", "STORE", self.node_id, f"拒绝存储文件块 {chunk.file_id}[{chunk.index}]：存储空间不足。")
                 return False
-
-            commitment = h_join("commit", chunk.tag, sha256_hex(chunk.data))
-            self.storage.add_chunk_commitment(chunk.file_id, chunk.index, commitment)
+            file_id = chunk.file_id
+            if file_id not in self.chunks:
+                self.chunks[file_id] = {}
+                self.file_metadata[file_id] = metadata
+            self.chunks[file_id][chunk.index] = chunk
             self.used_space += self.chunk_size
             return True
 
     def finalize_initial_commitments(self):
-        """在接收完一批分片后，构建或更新状态树。"""
-        with self.state_lock:
-            self.storage.build_state()
-            log_msg("INFO", "COMMIT", self.node_id, f"已为接收的文件块构建状态树")
+        pass
 
-    def dpdp_prove(self, indices: List[int], round_salt: str, file_id: str) -> Tuple[str, Dict[int, str]]:
-        """
-        为指定文件的一组挑战索引生成dPDP聚合证明。
-        """
-        with self.state_lock:
-            time_root = self.storage.time_trees[file_id].root() if file_id in self.storage.time_trees else h_join('empty')
-            storage_root = self.storage.storage_root()
+    def generate_dpop_proof(self, file_id: str, seed: str) -> Tuple[Scalar, G1Element]:
+        metadata = self.file_metadata[file_id]
+        m = metadata['num_chunks']
+        a = int(m**0.5) + 1
+        challenge_seed = (seed + file_id).encode()
+        i_base = hash_to_scalar(challenge_seed) % (m // a)
+        chal_indices = [(i_base + j * (m // a)) for j in range(a)]
+        chal_vs = [hash_to_scalar((str(i) + seed).encode()) for i in chal_indices]
+        
+        miu = 0
+        aggregated_sigma = G1_IDENTITY
+        stored_chunks = self.chunks[file_id]
 
-            parts = ["node", self.node_id, "salt", round_salt, "sroot", storage_root, "f", file_id, time_root]
-            per_index_commitments: Dict[int, str] = {}
+        for i, v_i in zip(chal_indices, chal_vs):
+            if i in stored_chunks:
+                chunk = stored_chunks[i]
+                b_i = int.from_bytes(chunk.data, 'big')
+                sigma_i = chunk.signature
+                miu = (miu + v_i * b_i) % CURVE_ORDER
+                term = multiply(sigma_i, v_i)
+                aggregated_sigma = add(aggregated_sigma, term)
+        return miu, aggregated_sigma
 
-            tst_leaves = self.storage.time_trees[file_id].leaves if file_id in self.storage.time_trees else {}
+    @staticmethod
+    def verify_dpop_proof(proof: BobtailProof, metadata: Dict, seed: str) -> bool:
+        pk = PublicKey.from_dict(metadata['public_key'])
+        beta = pk.beta
+        m = metadata['num_chunks']
+        a = int(m**0.5) + 1
 
-            for idx in indices:
-                commit = tst_leaves.get(idx, h_join("missing", str(idx)))
-                per_index_commitments[idx] = commit
-                parts.append(h_join("idx", str(idx), commit))
+        challenge_seed = (seed + proof.file_id).encode()
+        i_base = hash_to_scalar(challenge_seed) % (m // a)
+        chal_indices = [(i_base + j * (m // a)) for j in range(a)]
+        chal_vs = [hash_to_scalar((str(i) + seed).encode()) for i in chal_indices]
 
-            proof_hash = h_join(*parts)
+        prod_h_v = G1_IDENTITY
+        for i, v_i in zip(chal_indices, chal_vs):
+            h_i = hash_to_g1(str(i).encode())
+            term = multiply(h_i, v_i)
+            prod_h_v = add(prod_h_v, term)
+        
+        u = g1_generator
+        u_pow_miu = multiply(u, proof.miu)
+        right_base = add(prod_h_v, u_pow_miu)
 
-            for idx in indices:
-                prev_leaf = tst_leaves.get(idx, h_join("missing", str(idx)))
-                new_leaf = h_join("tleaf", prev_leaf, proof_hash, round_salt)
-                self.storage.add_chunk_commitment(file_id, idx, new_leaf)
+        g = g2_generator
+        left = pairing(proof.sigma, g)
+        right = pairing(right_base, beta)
 
-            self.storage.build_state()
-            log_msg("DEBUG", "VERIFY", self.node_id, f"为文件 {file_id} 生成了证明 {proof_hash[:16]}...")
-            return proof_hash, per_index_commitments
+        return left == right
 
     def mine_bobtail(self, seed: str, max_nonce: int = 8192) -> List[BobtailProof]:
-        """
-        执行Bobtail PoW（工作量证明）挖矿。
-        """
         with self.state_lock:
-            root = self.storage.storage_root()
-            if isinstance(root, bytes):
-                root = root.hex()
+            if not self.chunks: return []
+            file_id_to_prove = random.choice(list(self.chunks.keys()))
+            miu, sigma = self.generate_dpop_proof(file_id_to_prove, seed)
 
-            file_roots = self.storage.storage_tree.file_roots if self.storage.storage_tree else {}
-
+            root = sha256_hex(f"state_root_placeholder_for_{self.node_id}".encode())
             best_hash = ""
             best_nonce = -1
 
@@ -191,9 +191,12 @@ class StorageNode:
                 node_id=self.node_id,
                 address=self.reward_address,
                 root=root,
-                file_roots=file_roots,
                 nonce=str(best_nonce),
                 proof_hash=best_hash,
-                lots=str(max(1, self.storage.num_files())),
+                lots=str(max(1, len(self.chunks))),
+                file_id=file_id_to_prove,
+                miu=miu,
+                sigma=sigma,
+                file_roots={}
             )
             return [proof]
