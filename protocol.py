@@ -6,9 +6,8 @@ from utils import h_join, sha256_hex
 
 # New imports for dPDP
 import random
-from py_ecc.bls import G1 as G1_IDENTITY, G2 as G2_IDENTITY
 from py_ecc.bls.g2_primitives import (
-    G1, G2,
+    G1_to_pubkey, G2_to_signature,
     pairing,
     add,
     multiply,
@@ -16,6 +15,10 @@ from py_ecc.bls.g2_primitives import (
     serialize_G1, deserialize_G1,
     serialize_G2, deserialize_G2,
 )
+
+# 从正确的导入中创建别名
+G1_IDENTITY = G1_to_pubkey
+G2_IDENTITY = G2_to_signature
 from py_ecc.bls.hash import hash_to_G1 as _hash_to_G1
 from py_ecc.bls.keys import privtopub
 from py_ecc.optimized_bls12_381 import curve_order
