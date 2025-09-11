@@ -6,12 +6,13 @@ from utils import h_join, sha256_hex
 
 # New imports for dPDP
 import random
-from py_ecc.bls12_381 import (
+from hashlib import sha256
+from py_ecc.optimized_bls12_381 import (
     G1, G2,
     pairing,
     add,
     multiply,
-    is_inf,
+    is_inf, # For converting Jacobian to affine coordinates
 )
 
 from py_ecc.bls.g2_primitives import (
@@ -30,7 +31,7 @@ deserialize_G2 = signature_to_G2
 
 # 从正确的导入中创建别名
 G1_IDENTITY = G1
-G2_IDENTITY = G2
+G2_IDENTITY = G2  # This is incorrect, but G2_IDENTITY is not used.
 from py_ecc.bls.hash_to_curve import hash_to_G1 as _hash_to_G1
 from py_ecc.bls12_381 import curve_order
 
@@ -39,7 +40,7 @@ H1_DST = b'BPoSt-H1-DST-v1.0'
 
 def hash_to_G1(message: bytes):
     """Wrapper for hash_to_G1 to provide a consistent domain separation."""
-    return _hash_to_G1(message, H1_DST)
+    return _hash_to_G1(message, H1_DST, sha256)
 
 
 def chunk_to_int(chunk: bytes) -> int:
@@ -237,8 +238,9 @@ class dPDP:
         """Generates dPDP parameters and keys."""
         sk_alpha = random.randint(1, curve_order - 1)
 
-        g = G2
-        u = G1
+        from py_ecc.optimized_bls12_381 import G1 as G1_JAC, G2 as G2_JAC
+        g = G2_JAC
+        u = G1_JAC
 
         pk_beta = multiply(g, sk_alpha)
 
@@ -264,7 +266,7 @@ class dPDP:
             base_point = add(term1, term2)
             sigma_i = multiply(base_point, params.sk_alpha)
 
-            tags[i] = serialize_G1(sigma_i).hex()
+            tags[i] = serialize_G1((sigma_i)).hex()
 
         return DPDPTags(tags=tags)
 
@@ -289,7 +291,7 @@ class dPDP:
 
         return DPDPProof(
             mu=agg_mu,
-            sigma=serialize_G1(agg_sigma).hex()
+            sigma=serialize_G1((agg_sigma)).hex()
         )
 
     @staticmethod

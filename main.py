@@ -30,7 +30,7 @@ if __name__ == "__main__":
     # 您可以修改这些参数来改变模拟的规模和行为。
     config = P2PSimConfig(
         num_nodes=15,               # 网络中的节点总数
-        num_file_owners=3,          # 发起存储请求的用户数量
+        num_file_owners=5,          # 发起存储请求的用户数量
         sim_duration_sec=9000,        # 文件分发后的共识模拟运行时长（秒）
         chunk_size=16,             # 文件分片大小（字节）
         min_file_kb=1,             # 用户生成的最小文件大小（KB）

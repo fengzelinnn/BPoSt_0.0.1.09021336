@@ -51,7 +51,7 @@ def _send_json_line(addr, payload: dict) -> Optional[dict]:
 class P2PSimConfig:
     """P2P模拟的配置参数"""
     num_nodes: int = 15
-    num_file_owners: int = 3
+    num_file_owners: int = 5
     sim_duration_sec: int = 90
     chunk_size: int = 1024
     min_file_kb: int = 16
@@ -62,7 +62,7 @@ class P2PSimConfig:
     bobtail_k: int = 3
     min_storage_kb: int = 512
     max_storage_kb: int = 2048
-    bid_wait_sec: int = 10
+    bid_wait_sec: int = 20
 
 class P2PNode(multiprocessing.Process):
     """
