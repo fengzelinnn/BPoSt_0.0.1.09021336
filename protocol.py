@@ -6,22 +6,33 @@ from utils import h_join, sha256_hex
 
 # New imports for dPDP
 import random
-from py_ecc.bls.g2_primitives import (
-    G1_to_pubkey, G2_to_signature,
+from py_ecc.bls12_381 import (
+    G1, G2,
     pairing,
     add,
     multiply,
     is_inf,
-    serialize_G1, deserialize_G1,
-    serialize_G2, deserialize_G2,
 )
 
+from py_ecc.bls.g2_primitives import (
+    G1_to_pubkey,
+    pubkey_to_G1,
+    G2_to_signature,
+    signature_to_G2,
+)
+
+# 为了最小化代码改动，我们创建别名
+serialize_G1 = G1_to_pubkey
+deserialize_G1 = pubkey_to_G1
+serialize_G2 = G2_to_signature
+deserialize_G2 = signature_to_G2
+
+
 # 从正确的导入中创建别名
-G1_IDENTITY = G1_to_pubkey
-G2_IDENTITY = G2_to_signature
-from py_ecc.bls.hash import hash_to_G1 as _hash_to_G1
-from py_ecc.bls.keys import privtopub
-from py_ecc.optimized_bls12_381 import curve_order
+G1_IDENTITY = G1
+G2_IDENTITY = G2
+from py_ecc.bls.hash_to_curve import hash_to_G1 as _hash_to_G1
+from py_ecc.bls12_381 import curve_order
 
 # Domain separation tag for H1, as recommended by cryptographic best practices.
 H1_DST = b'BPoSt-H1-DST-v1.0'
@@ -29,6 +40,7 @@ H1_DST = b'BPoSt-H1-DST-v1.0'
 def hash_to_G1(message: bytes):
     """Wrapper for hash_to_G1 to provide a consistent domain separation."""
     return _hash_to_G1(message, H1_DST)
+
 
 def chunk_to_int(chunk: bytes) -> int:
     """
@@ -84,7 +96,7 @@ class Block:
         if self.merkle_roots:
             for nid in sorted(self.merkle_roots.keys()):
                 parts.extend(["root", nid, self.merkle_roots[nid]])
-        
+
         if self.time_tree_roots:
             for nid in sorted(self.time_tree_roots.keys()):
                 parts.append(f"tt_roots_for_{nid}")
@@ -137,7 +149,7 @@ class BobtailProof:
     proof_hash: str
     lots: str
     file_roots: Dict[str, str] = field(default_factory=dict)
-    
+
     def to_dict(self) -> dict:
         d = asdict(self)
         if isinstance(d.get('root'), bytes):
@@ -224,10 +236,11 @@ class dPDP:
     def KeyGen(security: int = 256) -> DPDPParams:
         """Generates dPDP parameters and keys."""
         sk_alpha = random.randint(1, curve_order - 1)
-        pk_beta = privtopub(sk_alpha)
-        
+
         g = G2
         u = G1
+
+        pk_beta = multiply(g, sk_alpha)
 
         return DPDPParams(
             g=serialize_G2(g).hex(),
@@ -250,9 +263,9 @@ class dPDP:
             term2 = multiply(u_point, b_i)
             base_point = add(term1, term2)
             sigma_i = multiply(base_point, params.sk_alpha)
-            
+
             tags[i] = serialize_G1(sigma_i).hex()
-        
+
         return DPDPTags(tags=tags)
 
     @staticmethod
@@ -264,7 +277,7 @@ class dPDP:
         for i, v_i in challenge:
             if i not in file_chunks or i not in tags.tags:
                 raise ValueError(f"Index {i} not found in provided chunks/tags for proof generation")
-            
+
             b_i = chunk_to_int(file_chunks[i])
             sigma_i = deserialize_G1(bytes.fromhex(tags.tags[i]))
 
@@ -301,7 +314,7 @@ class dPDP:
         for i, v_i in challenge:
             h_i = hash_to_G1(str(i).encode())
             agg_h = add(agg_h, multiply(h_i, v_i))
-        
+
         # 2. Calculate mu * u
         mu_u = multiply(u, proof.mu)
 
