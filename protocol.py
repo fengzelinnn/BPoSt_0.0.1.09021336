@@ -13,6 +13,8 @@ from py_ecc.optimized_bls12_381 import (
     add,
     multiply,
     is_inf, # For converting Jacobian to affine coordinates
+    FQ2,
+    FQ,
 )
 
 from py_ecc.bls.g2_primitives import (
@@ -127,7 +129,7 @@ class FileChunk:
     """一个文件分片，由客户端准备并附带dPDP标签。"""
     index: int
     data: bytes
-    tag: str  # This will now be a hex-encoded BLS signature on G1
+    tag: tuple[FQ, FQ, FQ]  # This will now be a hex-encoded BLS signature on G1
     file_id: str = "default"
 
     def to_dict(self) -> dict:
@@ -214,21 +216,21 @@ class ServerStorage:
 @dataclass
 class DPDPParams:
     """dPDP public parameters and owner's secret key."""
-    g: str         # G2 generator (serialized hex)
-    u: str         # G1 generator (serialized hex)
-    pk_beta: str   # Public key (G2 point, serialized hex)
+    g: tuple[FQ2, FQ2, FQ2]         # G2 generator (serialized hex)
+    u: tuple[FQ, FQ, FQ]         # G1 generator (serialized hex)
+    pk_beta: tuple[FQ2, FQ2, FQ2]   # Public key (G2 point, serialized hex)
     sk_alpha: int  # Secret key (integer)
 
 @dataclass
 class DPDPTags:
     """dPDP tags for all chunks of a file."""
-    tags: Dict[int, str]  # { chunk_index: tag_hex }
+    tags: list[tuple[FQ, FQ, FQ]]   # { chunk_index: tag_hex }
 
 @dataclass
 class DPDPProof:
     """A dPDP proof for a given challenge."""
     mu: int      # Aggregated data chunks
-    sigma: str   # Aggregated signature (G1 point, serialized hex)
+    sigma: tuple[FQ, FQ, FQ]   # Aggregated signature (G1 point, serialized hex)
 
 class dPDP:
     """Implementation of the dPDP scheme based on BLS signatures."""
@@ -245,28 +247,27 @@ class dPDP:
         pk_beta = multiply(g, sk_alpha)
 
         return DPDPParams(
-            g=serialize_G2(g).hex(),
-            u=serialize_G1(u).hex(),
-            pk_beta=serialize_G2(pk_beta).hex(),
+            g=g,
+            u=u,
+            pk_beta=pk_beta,
             sk_alpha=sk_alpha
         )
 
     @staticmethod
     def TagFile(params: DPDPParams, file_chunks: List[bytes]) -> DPDPTags:
         """Generates a dPDP tag for each file chunk."""
-        u_point = deserialize_G1(bytes.fromhex(params.u))
-        tags = {}
+        tags: List[Tuple[FQ, FQ, FQ]] = []
         for i, chunk in enumerate(file_chunks):
             b_i = chunk_to_int(chunk)
             h_i = hash_to_G1(str(i).encode())
 
             # sigma_i = alpha * (h_i + b_i * u)
             term1 = h_i
-            term2 = multiply(u_point, b_i)
+            term2 = multiply(params.u, b_i)
             base_point = add(term1, term2)
             sigma_i = multiply(base_point, params.sk_alpha)
 
-            tags[i] = serialize_G1((sigma_i)).hex()
+            tags.append(sigma_i)
 
         return DPDPTags(tags=tags)
 
@@ -281,7 +282,7 @@ class dPDP:
                 raise ValueError(f"Index {i} not found in provided chunks/tags for proof generation")
 
             b_i = chunk_to_int(file_chunks[i])
-            sigma_i = deserialize_G1(bytes.fromhex(tags.tags[i]))
+            sigma_i = tags.tags[i]
 
             # mu = mu + v_i * b_i
             agg_mu = (agg_mu + v_i * b_i) % curve_order
@@ -291,17 +292,17 @@ class dPDP:
 
         return DPDPProof(
             mu=agg_mu,
-            sigma=serialize_G1((agg_sigma)).hex()
+            sigma=agg_sigma
         )
 
     @staticmethod
     def CheckProof(params: DPDPParams, proof: DPDPProof, challenge: List[Tuple[int, int]]) -> bool:
         """Verifies a dPDP proof."""
         # Deserialize all public components
-        g = deserialize_G2(bytes.fromhex(params.g))
-        u = deserialize_G1(bytes.fromhex(params.u))
-        pk_beta = deserialize_G2(bytes.fromhex(params.pk_beta))
-        sigma = deserialize_G1(bytes.fromhex(proof.sigma))
+        g = params.g
+        u = params.u
+        pk_beta = params.pk_beta
+        sigma = proof.sigma
 
         if is_inf(sigma):
             return not challenge

@@ -22,7 +22,9 @@ from protocol import (
     DPDPTags,
     DPDPProof, # Import the new proof structure
     BobtailProof,
-    curve_order # Import for generating challenge coefficients
+    curve_order, # Import for generating challenge coefficients
+    FQ,
+    serialize_G1
 )
 from utils import h_join, sha256_hex, log_msg
 
@@ -40,7 +42,7 @@ class FileOwner:
         self.owner_id = owner_id
         self.chunk_size = chunk_size
         self.params: DPDPParams = dPDP.KeyGen()  # Generates real BLS keys now
-        self.tags: DPDPTags = DPDPTags(tags={})
+        self.tags: DPDPTags = DPDPTags(tags=[])
         self.file_id: str = f"file_{owner_id}_{random.randint(0, 1_000_000)}"
 
     def get_dpdp_params(self) -> DPDPParams:
@@ -105,7 +107,7 @@ class StorageNode:
         self.max_storage = max_storage
         self.used_space = 0
         # New storage for raw data and tags, required for proof generation
-        self.files: Dict[str, Dict[int, Tuple[bytes, str]]] = {}
+        self.files: Dict[str, Dict[int, Tuple[bytes, Tuple[FQ, FQ, FQ]]]] = {}
         self.state_lock = threading.Lock() # 确保状态修改的原子性
 
     def __getstate__(self):
@@ -136,7 +138,7 @@ class StorageNode:
             self.files.setdefault(chunk.file_id, {})[chunk.index] = (chunk.data, chunk.tag)
 
             # The commitment for the PoSt TimeStateTree remains the same
-            commitment = h_join("commit", chunk.tag, sha256_hex(chunk.data))
+            commitment = h_join("commit", str(chunk.tag), sha256_hex(chunk.data))
             self.storage.add_chunk_commitment(chunk.file_id, chunk.index, commitment)
             self.used_space += self.chunk_size
             return True
@@ -162,15 +164,15 @@ class StorageNode:
             # 2. 准备dPDP.GenProof所需的数据
             # GenProof needs a dictionary of chunks and a DPDPTags object
             challenged_chunks = {i: self.files[file_id][i][0] for i, _ in challenge if i in self.files[file_id]}
-            tag_dict = {idx: tag for idx, (_, tag) in self.files[file_id].items()}
-            tags = DPDPTags(tags=tag_dict)
+            all_tags_sorted = [tag for idx, (_, tag) in sorted(self.files[file_id].items())]
+            tags = DPDPTags(tags=all_tags_sorted)
 
             # 3. 调用真实的dPDP证明生成
             proof = dPDP.GenProof(tags, challenged_chunks, challenge)
             log_msg("DEBUG", "dPDP", self.node_id, f"为文件 {file_id} 生成了dPDP证明")
 
             # 4. (PoSt) 更新TimeStateTree，使用新生成的真实证明的哈希
-            proof_hash_for_post = sha256_hex(proof.sigma.encode() + str(proof.mu).encode())
+            proof_hash_for_post = sha256_hex(serialize_G1(proof.sigma) + str(proof.mu).encode())
             tst_leaves = self.storage.time_trees.get(file_id, None)
             if tst_leaves:
                 for idx in indices:

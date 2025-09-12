@@ -58,7 +58,7 @@ class P2PSimConfig:
     max_file_kb: int = 24
     min_storage_nodes: int = 4
     max_storage_nodes: int = 8
-    base_port: int = 41000
+    base_port: int = 62000
     bobtail_k: int = 3
     min_storage_kb: int = 512
     max_storage_kb: int = 2048
@@ -122,7 +122,7 @@ class P2PNode(multiprocessing.Process):
                     last_report_time = now
                 
                 if not self.mempool:
-                    time.sleep(0.01)
+                    time.sleep(1)
 
             except Exception as e:
                 log_msg("ERROR", "NODE", self.node.node_id, f"主循环错误: {e}")
@@ -579,7 +579,9 @@ class UserNode(multiprocessing.Process):
                 challenge_data = response.get("challenge")
                 
                 proof = DPDPProof(**proof_data)
-                challenge = [tuple(c) for c in challenge_data]
+                challenge: List[tuple[int, int]] = []
+                for c in challenge_data:
+                    challenge.append((c[0], c[1]))
                 params = self.owner.get_dpdp_params()
 
                 is_valid = dPDP.CheckProof(params, proof, challenge)
@@ -588,6 +590,10 @@ class UserNode(multiprocessing.Process):
                     log_msg("SUCCESS", "dPDP_VERIFY", self.owner.owner_id, f"节点 {target_addr} 对文件 {file_id} 的dPDP证明验证成功！")
                 else:
                     log_msg("CRITICAL", "dPDP_VERIFY", self.owner.owner_id, f"节点 {target_addr} 对文件 {file_id} 的dPDP证明验证失败！")
+                    print(params.g, params.u, params.sk_alpha, params.pk_beta)
+                    print(proof.mu, proof.sigma)
+                    print(challenge)
+
             except Exception as e:
                 log_msg("ERROR", "dPDP_VERIFY", self.owner.owner_id, f"解析或验证来自 {target_addr} 的证明时出错: {e}")
         else:
