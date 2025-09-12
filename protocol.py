@@ -278,7 +278,7 @@ class dPDP:
         agg_sigma = G1_IDENTITY
 
         for i, v_i in challenge:
-            if i not in file_chunks or i not in tags.tags:
+            if i >= len(tags.tags):
                 raise ValueError(f"Index {i} not found in provided chunks/tags for proof generation")
 
             b_i = chunk_to_int(file_chunks[i])
