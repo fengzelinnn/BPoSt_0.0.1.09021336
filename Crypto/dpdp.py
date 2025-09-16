@@ -9,7 +9,7 @@ from py_ecc.optimized_bls12_381 import (
     add,
     multiply,
     is_inf,
-    Z1,
+    Z1
 )
 from py_ecc.bls12_381 import curve_order
 from py_ecc.bls.hash_to_curve import hash_to_G1 as _hash_to_G1
