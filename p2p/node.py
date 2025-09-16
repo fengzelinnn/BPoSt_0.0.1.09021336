@@ -70,6 +70,9 @@ class Node(multiprocessing.Process):
         self.election_concluded_for: Set[int] = set()
         self.accepting_new_storage: bool = True
 
+        # 收集每个高度的tst更新与挑战集合：{height: {node_id: {"file_roots": {...}, "challenges": {file_id: [(i,v), ...]}}}}
+        self.round_tst_updates: Dict[int, Dict[str, Dict[str, Any]]] = defaultdict(dict)
+
         self._stop_event = stop_event
         self._server_socket: Optional[socket.socket] = None
 
@@ -142,7 +145,8 @@ class Node(multiprocessing.Process):
                 msg = json.loads(line)
                 cmd, data = msg.get("cmd"), msg.get("data", {})
                 response = self._dispatch_command(cmd, data)
-                conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
+                safe_res = _json_sanitize(response)
+                conn.sendall((json.dumps(safe_res) + "\n").encode("utf-8"))
             except (json.JSONDecodeError, IOError): pass
 
     def _dispatch_command(self, cmd: str, data: dict) -> dict:
@@ -176,6 +180,16 @@ class Node(multiprocessing.Process):
             self._handle_storage_offer(data)
         elif data.get("type") in ["bobtail_proof", "preprepare_sync", "new_block"]:
             self.mempool.append(data)
+        elif data.get("type") == "tst_update":
+            height = data.get("height")
+            node_id = data.get("node_id")
+            file_roots = data.get("file_roots", {})
+            challenges = data.get("challenges", {})
+            if height is not None and node_id:
+                self.round_tst_updates[height][node_id] = {
+                    "file_roots": file_roots,
+                    "challenges": challenges,
+                }
         self.gossip(data, originator=False)
         return {"ok": True, "status": "已接受"}
 
@@ -211,9 +225,19 @@ class Node(multiprocessing.Process):
         if not file_id or not indices:
             return {"ok": False, "error": "缺少参数"}
         try:
+            # 使用当前链头（若不存在则构造简化上下文）作为挑战上下文
+            last_block = self.chain.blocks[-1] if self.chain.blocks else None
+            if last_block is None:
+                prev_hash = self.chain.last_hash()
+                timestamp = int(time.time())
+                block_ctx = type("BlockLike", (), {"prev_hash": prev_hash, "timestamp": timestamp})()
+            else:
+                block_ctx = last_block
+
             chunks, tags = self.storage_manager.get_file_data_for_proof(file_id)
-            proof, challenge = self.prover.prove(file_id, indices, chunks, tags)
-            self.storage_manager.update_state_after_proof(file_id, indices, proof, round_salt)
+            proof, challenge, contributions = self.prover.prove(file_id, indices, chunks, tags, block_ctx)
+            # 使用未聚合贡献更新时间状态
+            self.storage_manager.update_state_after_contributions(file_id, contributions, round_salt)
             log_msg("INFO", "dPDP_PROVE", self.node_id, f"为文件 {file_id} 生成了dPDP证明。")
             return {"ok": True, "proof": asdict(proof), "challenge": challenge}
         except Exception as e:
@@ -249,6 +273,11 @@ class Node(multiprocessing.Process):
             if new_block.prev_hash == self.chain.last_hash():
                 self.chain.add_block(new_block)
                 log_msg("INFO", "BLOCKCHAIN", self.node_id, f"接受了来自 {new_block.leader_id} 的区块 {new_block.height}")
+                # 接受新区块后：自动发起本轮dPDP挑战并更新状态树
+                try:
+                    self._perform_dpdp_round(new_block)
+                except Exception as e:
+                    log_msg("ERROR", "dPDP_ROUND", self.node_id, f"自动挑战过程出错: {e}")
                 for d in [self.proof_pool, self.preprepare_signals, self.sent_preprepare_signal_at]:
                     if next_height in d: del d[next_height]
                 self.election_concluded_for.add(next_height)
@@ -335,10 +364,18 @@ class Node(multiprocessing.Process):
                     proof_hashes = [p.proof_hash for p in winning_proofs]
                     proofs_merkle_root, proofs_merkle_tree = build_merkle_tree(proof_hashes)
 
+                    # 收集上一高度的tst更新与挑战，限于优胜者集合
+                    prev_height = height - 1
+                    updates_for_prev = self.round_tst_updates.get(prev_height, {})
+                    winners_ids = [p.node_id for p in winning_proofs]
+                    winners_roots = {nid: updates_for_prev.get(nid, {}).get("file_roots", {}) for nid in winners_ids}
+                    dpdp_chals_for_winners = {nid: updates_for_prev.get(nid, {}).get("challenges", {}) for nid in winners_ids}
+
                     block_body = BlockBody(
                         selected_k_proofs=[{"node_id": p.node_id, "proof_hash": p.proof_hash} for p in winning_proofs],
                         coinbase_splits={p.address: "1" for p in winning_proofs},
-                        proofs_merkle_tree=proofs_merkle_tree
+                        proofs_merkle_tree=proofs_merkle_tree,
+                        dpdp_challenges=dpdp_chals_for_winners,
                     )
 
                     new_block = Block(
@@ -347,14 +384,46 @@ class Node(multiprocessing.Process):
                         seed=self.chain.last_hash(),
                         leader_id=leader_id,
                         body=block_body,
-                        time_tree_roots={p.node_id: p.file_roots for p in winning_proofs},
+                        time_tree_roots=winners_roots,
                         bobtail_k=self.bobtail_k,
                         bobtail_target=hex(self.difficulty_threshold),
                         accum_proof_hash="placeholder",
                         merkle_roots={"proofs_merkle_root": proofs_merkle_root},
                         round_proof_stmt_hash="placeholder",
+                        timestamp=time.time_ns(),
                     )
                     gossip_msg = {"type": "new_block", "height": height, "block": new_block.to_dict()}
                     self.gossip(gossip_msg)
                 self.election_concluded_for.add(height)
                 return
+
+    def _perform_dpdp_round(self, accepted_block: Block):
+        """
+        在接受新区块后，基于该区块上下文对本节点存储的每个文件发起公开挑战并更新状态树，
+        然后广播本轮的文件状态树根与挑战集合。
+        """
+        if self.storage_manager.get_num_files() == 0:
+            return
+        round_salt = str(time.time_ns())
+        challenges_by_file: Dict[str, List[Tuple[int, int]]] = {}
+        for fid in self.storage_manager.list_file_ids():
+            chunks, tags = self.storage_manager.get_file_data_for_proof(fid)
+            proof, challenge, contributions = self.prover.prove(fid, [], chunks, tags, accepted_block)
+            # 使用未聚合贡献更新状态树
+            self.storage_manager.update_state_after_contributions(fid, contributions, round_salt)
+            challenges_by_file[fid] = challenge
+        # 广播本轮的状态树根与挑战集合
+        roots = self.storage_manager.get_file_roots()
+        msg = {
+            "type": "tst_update",
+            "height": accepted_block.height,
+            "node_id": self.node_id,
+            "file_roots": roots,
+            "challenges": challenges_by_file,
+        }
+        self.gossip(msg, originator=True)
+        # 自身也缓存
+        self.round_tst_updates[accepted_block.height][self.node_id] = {
+            "file_roots": roots,
+            "challenges": challenges_by_file,
+        }

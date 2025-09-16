@@ -165,7 +165,7 @@ class UserNode(multiprocessing.Process):
                 proof = DPDPProof(**proof_data)
                 challenge: List[tuple[int, int]] = [tuple(c) for c in challenge_data]
                 params = self.owner.get_dpdp_params()
-                is_valid = dPDP.CheckProof(params, proof, challenge)
+                is_valid = dPDP.check_proof(params, proof, challenge)
                 if is_valid:
                     log_msg("SUCCESS", "dPDP_VERIFY", self.owner.owner_id, f"节点 {target_addr} 对文件 {file_id} 的dPDP证明验证成功！")
                 else:

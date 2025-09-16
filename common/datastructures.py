@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Tuple
 
-from py_ecc.optimized_bls12_381 import FQ
+from py_ecc.fields import optimized_bls12_381_FQ2, optimized_bls12_381_FQ
+from utils import h_join
 
 
 @dataclass
@@ -10,6 +11,8 @@ class BlockBody:
     selected_k_proofs: List[Dict[str, str]] = field(default_factory=list)
     coinbase_splits: Dict[str, str] = field(default_factory=dict)
     proofs_merkle_tree: Dict = field(default_factory=dict)
+    # 公开挑战集合：{node_id: {file_id: [(i, v_i), ...]}}
+    dpdp_challenges: Dict[str, Dict[str, List[Tuple[int, int]]]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -33,6 +36,7 @@ class Block:
     time_tree_roots: Dict[str, Dict[str, str]] = field(default_factory=dict)
     bobtail_k: int = 0
     bobtail_target: str = "0"
+    timestamp: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -44,8 +48,19 @@ class Block:
 
     def header_hash(self) -> str:
         """计算并返回区块头的哈希值。"""
-        # 为避免循环依赖，实际哈希逻辑在工具函数中实现。
-        pass
+        # 将关键信息（含时间戳）纳入头哈希，确保确定性
+        merkle_parts = [f"{k}:{v}" for k, v in sorted(self.merkle_roots.items())] if self.merkle_roots else []
+        return h_join(
+            "block",
+            str(self.height),
+            self.prev_hash or "",
+            self.seed or "",
+            self.leader_id or "",
+            str(self.bobtail_k),
+            self.bobtail_target or "0",
+            str(self.timestamp),
+            *merkle_parts,
+        )
 
 
 @dataclass
@@ -53,7 +68,7 @@ class FileChunk:
     """一个文件分片，由客户端准备并附带dPDP标签。"""
     index: int
     data: bytes
-    tag: tuple[FQ, FQ, FQ]
+    tag: tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]
     file_id: str = "default"
 
     def to_dict(self) -> dict:
@@ -91,9 +106,9 @@ class BobtailProof:
 @dataclass
 class DPDPParams:
     """dPDP公共参数和所有者的私钥。"""
-    g: tuple
-    u: tuple
-    pk_beta: tuple
+    g: tuple[optimized_bls12_381_FQ2, optimized_bls12_381_FQ2, optimized_bls12_381_FQ2]
+    u: tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]
+    pk_beta: tuple[optimized_bls12_381_FQ2, optimized_bls12_381_FQ2, optimized_bls12_381_FQ2]
     sk_alpha: int
 
     def to_dict(self) -> dict:
@@ -107,7 +122,7 @@ class DPDPParams:
 @dataclass
 class DPDPTags:
     """一个文件的所有分片的dPDP标签。"""
-    tags: list[tuple]
+    tags: list[tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]]
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -116,12 +131,11 @@ class DPDPTags:
     def from_dict(cls, data: dict) -> 'DPDPTags':
         return cls(**data)
 
-
 @dataclass
 class DPDPProof:
     """针对给定挑战的dPDP证明。"""
     mu: int
-    sigma: tuple
+    sigma: tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -68,19 +68,27 @@ class StorageManager:
         with self.state_lock:
             return self.storage.num_files()
             
+    def list_file_ids(self) -> List[str]:
+        with self.state_lock:
+            return list(self.files.keys())
+
     def get_file_data_for_proof(self, file_id: str) -> Tuple[Dict[int, bytes], DPDPTags]:
         with self.state_lock:
             if file_id not in self.files:
                 raise ValueError(f"文件 {file_id} 未找到，无法获取证明数据。")
-            
+
             file_data = self.files[file_id]
             chunks = {idx: data for idx, (data, tag) in file_data.items()}
             all_tags_sorted = [tag for idx, (_, tag) in sorted(file_data.items())]
             tags = DPDPTags(tags=all_tags_sorted)
-            
+
             return chunks, tags
 
     def update_state_after_proof(self, file_id: str, indices: List[int], proof: DPDPProof, round_salt: str):
+        """
+        兼容旧路径：使用聚合证明哈希更新叶子。
+        新流程请使用 update_state_after_contributions。
+        """
         with self.state_lock:
             proof_hash_for_post = sha256_hex(G1_to_pubkey(proof.sigma) + str(proof.mu).encode())
             tst_leaves = self.storage.time_trees.get(file_id, None)
@@ -89,6 +97,23 @@ class StorageManager:
                     prev_leaf = tst_leaves.leaves.get(idx, h_join("missing", str(idx)))
                     new_leaf = h_join("tleaf", prev_leaf, proof_hash_for_post, round_salt)
                     self.storage.add_chunk_commitment(file_id, idx, new_leaf)
-                
+
                 self.storage.build_state()
                 log_msg("DEBUG", "PoSt", self.node_id, f"使用证明哈希 {proof_hash_for_post[:16]} 更新了文件 {file_id} 的时间状态...")
+
+    def update_state_after_contributions(self, file_id: str, contributions: List[Tuple[int, int, tuple]], round_salt: str):
+        """
+        使用未聚合的(mu_i, sigma_i)对逐叶子附加更新状态树。
+        contributions: 列表[(idx, mu_i:int, sigma_i:G1点元组)]
+        """
+        with self.state_lock:
+            tst = self.storage.time_trees.get(file_id, None)
+            if not tst:
+                return
+            for idx, mu_i, sigma_i in contributions:
+                prev_leaf = tst.leaves.get(idx, h_join("missing", str(idx)))
+                sigma_bytes = G1_to_pubkey(sigma_i)
+                new_leaf = h_join("tleaf", prev_leaf, "mu", str(mu_i), "sigma", sigma_bytes.hex(), round_salt)
+                self.storage.add_chunk_commitment(file_id, idx, new_leaf)
+            self.storage.build_state()
+            log_msg("DEBUG", "PoSt", self.node_id, f"使用未聚合对更新了文件 {file_id} 的时间状态（{len(contributions)} 个分片）。")

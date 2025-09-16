@@ -14,7 +14,7 @@ class FileOwner:
         """
         self.owner_id = owner_id
         self.chunk_size = chunk_size
-        self.params: DPDPParams = dPDP.KeyGen()
+        self.params: DPDPParams = dPDP.key_gen()
         self.tags: DPDPTags = DPDPTags(tags=[])
         self.file_id: str = f"file_{owner_id}_{random.randint(0, 1_000_000)}"
 
@@ -36,12 +36,15 @@ class FileOwner:
         返回一个FileChunk对象列表，准备好被广播到网络。
         """
         raw_chunks = self.split_file(file_bytes)
-        self.tags = dPDP.TagFile(self.params, raw_chunks)
+        self.tags = dPDP.tag_file(self.params, raw_chunks)
         chunks = [
             FileChunk(index=i, data=b, tag=self.tags.tags[i], file_id=self.file_id)
             for i, b in enumerate(raw_chunks)
         ]
         return chunks
+
+    def get_file_num_chunks(self) -> int:
+        return len(self.tags.tags)
 
     def prepare_storage_request(
         self, min_size_bytes: int, max_size_bytes: int, num_nodes: int

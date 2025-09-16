@@ -2,15 +2,16 @@ import random
 from hashlib import sha256
 from typing import List, Dict, Tuple
 
+from py_ecc.fields import optimized_bls12_381_FQ
 from py_ecc.optimized_bls12_381 import (
     G1, G2,
     pairing,
     add,
     multiply,
     is_inf,
+    Z1,
     FQ,
 )
-from py_ecc.bls.g2_primitives import G1_to_pubkey
 from py_ecc.bls12_381 import curve_order
 from py_ecc.bls.hash_to_curve import hash_to_G1 as _hash_to_G1
 
@@ -18,11 +19,11 @@ from common.datastructures import DPDPParams, DPDPTags, DPDPProof
 from utils import sha256_hex
 from merkle import MerkleTree
 
-G1_IDENTITY = G1
+G1_IDENTITY = Z1
 
 H1_DST = b'BPoSt-H1-DST-v1.0'
 
-def hash_to_G1(message: bytes):
+def hash_to_G1(message: bytes) -> Tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]:
     """hash_to_G1 的封装, 提供一致的域分隔."""
     return _hash_to_G1(message, H1_DST, sha256)
 
@@ -37,7 +38,7 @@ class dPDP:
     """基于 BLS 签名的 dPDP 方案实现."""
 
     @staticmethod
-    def KeyGen(security: int = 256) -> DPDPParams:
+    def key_gen(security: int = 256) -> DPDPParams:
         """生成 dPDP 参数和密钥."""
         sk_alpha = random.randint(1, curve_order - 1)
         g = G2
@@ -51,35 +52,73 @@ class dPDP:
         )
 
     @staticmethod
-    def TagFile(params: DPDPParams, file_chunks: List[bytes]) -> DPDPTags:
+    def tag_file(params: DPDPParams, file_chunks: List[bytes]) -> DPDPTags:
         """为每个文件块生成 dPDP 标签."""
-        tags: List[Tuple[FQ, FQ, FQ]] = []
+        tags: List[Tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]] = []
         for i, chunk in enumerate(file_chunks):
             b_i = chunk_to_int(chunk)
+            b_i %= curve_order
             h_i = hash_to_G1(str(i).encode())
             term1 = h_i
-            term2 = multiply(params.u, b_i)
+            term2 = multiply(params.u, int(b_i))
             base_point = add(term1, term2)
-            sigma_i = multiply(base_point, params.sk_alpha)
+            sigma_i = multiply(base_point, int(params.sk_alpha))
             tags.append(sigma_i)
         return DPDPTags(tags=tags)
+    
+    @staticmethod
+    def gen_chal(prev_hash: str, timestamp: int, tags: DPDPTags, m: int | None = None) -> List[Tuple[int, int]]:
+        """
+        依据(prev_hash, timestamp)确定性生成公开挑战集合。
+        返回[(i, v_i)]，其中 i∈[0,n)，v_i∈Z_r。
+        """
+        n = len(tags.tags)
+        if n == 0:
+            return []
+        count = m if m is not None else max(1, (timestamp % n) or 1)
+        chal: List[Tuple[int, int]] = []
+        for j in range(count):
+            seed = f"{prev_hash}:{timestamp}:{j}".encode()
+            i = int(sha256(seed).hexdigest(), 16) % n
+            v_i = int(sha256(b"chal|" + seed).hexdigest(), 16) % curve_order
+            chal.append((i, v_i))
+        return chal
 
     @staticmethod
-    def GenProof(tags: DPDPTags, file_chunks: Dict[int, bytes], challenge: List[Tuple[int, int]]) -> DPDPProof:
-        """为挑战生成 dPDP 证明."""
+    def gen_contributions(tags: DPDPTags, file_chunks: Dict[int, bytes], challenge: List[Tuple[int, int]]) -> List[Tuple[int, int, Tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]]]:
+        """
+        生成未聚合的分片贡献 (i, mu_i, sigma_i) 列表，其中
+        mu_i = v_i * b_i (mod r), sigma_i = v_i * tag_i。
+        """
+        contributions: List[Tuple[int, int, Tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]]] = []
+        for i, v_i in challenge:
+            if i >= len(tags.tags) or i not in file_chunks:
+                raise ValueError(f"索引 {i} 在提供的块/标签中未找到，无法生成贡献")
+            b_i = chunk_to_int(file_chunks[i]) % curve_order
+            sigma_i = tuple(int(x) for x in tags.tags[i])
+            sigma_i = tuple(optimized_bls12_381_FQ(x) for x in sigma_i)
+            mu_i = (v_i * b_i) % curve_order
+            sigma_i_scaled = multiply(sigma_i, v_i)
+            contributions.append((i, mu_i, sigma_i_scaled))
+        return contributions
+
+    @staticmethod
+    def gen_proof(tags: DPDPTags, file_chunks: Dict[int, bytes], challenge: List[Tuple[int, int]]) -> DPDPProof:
+        """为挑战生成 dPDP 聚合证明。"""
         agg_mu = 0
         agg_sigma = G1_IDENTITY
         for i, v_i in challenge:
             if i >= len(tags.tags):
                 raise ValueError(f"索引 {i} 在提供的块/标签中未找到，无法生成证明")
             b_i = chunk_to_int(file_chunks[i])
-            sigma_i = tags.tags[i]
-            agg_mu = (agg_mu + v_i * b_i) % curve_order
-            agg_sigma = add(agg_sigma, multiply(sigma_i, v_i))
+            sigma_i = tuple(int(x) for x in tags.tags[i])
+            sigma_i = tuple(optimized_bls12_381_FQ(x) for x in sigma_i)
+            agg_mu = (agg_mu + (v_i * (b_i % curve_order))) % curve_order
+            agg_sigma = add(agg_sigma, multiply(sigma_i, int(v_i)))
         return DPDPProof(mu=agg_mu, sigma=agg_sigma)
 
     @staticmethod
-    def CheckProof(params: DPDPParams, proof: DPDPProof, challenge: List[Tuple[int, int]]) -> bool:
+    def check_proof(params: DPDPParams, proof: DPDPProof, challenge: List[Tuple[int, int]]) -> bool:
         """验证 dPDP 证明."""
         if is_inf(proof.sigma):
             return not challenge
@@ -87,8 +126,10 @@ class dPDP:
         agg_h = G1_IDENTITY
         for i, v_i in challenge:
             h_i = hash_to_G1(str(i).encode())
-            agg_h = add(agg_h, multiply(h_i, v_i))
-        mu_u = multiply(params.u, proof.mu)
+            agg_h = add(agg_h, multiply(h_i, int(v_i)))
+        u = tuple(int(x) for x in params.u)
+        u = tuple(optimized_bls12_381_FQ(x) for x in u)
+        mu_u = multiply(u, int(proof.mu))
         rhs_g1_point = add(agg_h, mu_u)
         rhs = pairing(params.pk_beta, rhs_g1_point)
         return lhs == rhs
@@ -109,13 +150,6 @@ class dPDP:
         2. 从已验证的数据块中重新计算聚合哈希 ('mu')。
         3. 检查重新计算的 'mu' 是否与 dPDP 证明中的 'mu' 匹配。
         4. 执行最终的 dPDP 密码学检查。
-
-        :param params: dPDP 参数。
-        :param proof: 来自证明者的 DPDPProof 对象。
-        :param challenge: 已发出的挑战。
-        :param challenged_data: 映射挑战索引到 (数据块字节, Merkle 证明路径) 的字典。
-        :param merkle_root: 文件块的公共 Merkle 根。
-        :return: 如果整个证明有效，则返回 True，否则返回 False。
         """
         # 步骤 1 & 2: 验证 Merkle 证明并重新计算 mu
         recomputed_mu = 0
@@ -141,4 +175,4 @@ class dPDP:
             return False  # 聚合数据块哈希 ('mu') 无效
 
         # 步骤 4: 执行最终的密码学检查
-        return dPDP.CheckProof(params, proof, challenge)
+        return dPDP.check_proof(params, proof, challenge)
