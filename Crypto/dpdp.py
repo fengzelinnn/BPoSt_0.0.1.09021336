@@ -120,9 +120,11 @@ class dPDP:
     @staticmethod
     def check_proof(params: DPDPParams, proof: DPDPProof, challenge: List[Tuple[int, int]]) -> bool:
         """验证 dPDP 证明."""
-        if is_inf(proof.sigma):
+        sigma = tuple(int(x) for x in proof.sigma)
+        sigma = tuple(optimized_bls12_381_FQ(x) for x in sigma)
+        if is_inf(sigma):
             return not challenge
-        lhs = pairing(params.g, proof.sigma)
+        lhs = pairing(params.g, sigma)
         agg_h = G1_IDENTITY
         for i, v_i in challenge:
             h_i = hash_to_G1(str(i).encode())

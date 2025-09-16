@@ -8,12 +8,15 @@ from collections import deque, defaultdict
 from dataclasses import asdict
 from typing import Dict, List, Tuple, Optional, Any, Set
 
+from Crypto.dpdp import dPDP
 from consensus.blockchain import Blockchain
-from common.datastructures import Block, BlockBody, FileChunk, BobtailProof, DPDPProof
+from common.datastructures import Block, BlockBody, FileChunk, BobtailProof, DPDPProof, DPDPParams
 from roles.prover import Prover
 from roles.miner import Miner
 from storage.manager import StorageManager
-from utils import log_msg, h_join, build_merkle_tree
+from utils import log_msg, build_merkle_tree
+from py_ecc.bls.g2_primitives import signature_to_G2
+from py_ecc.optimized_bls12_381 import G1, G2
 
 def _json_sanitize(obj):
     if obj is None or isinstance(obj, (int, float, str, bool)):
@@ -185,10 +188,12 @@ class Node(multiprocessing.Process):
             node_id = data.get("node_id")
             file_roots = data.get("file_roots", {})
             challenges = data.get("challenges", {})
+            dpdp_proofs = data.get("dpdp_proofs", {})
             if height is not None and node_id:
                 self.round_tst_updates[height][node_id] = {
                     "file_roots": file_roots,
                     "challenges": challenges,
+                    "dpdp_proofs": dpdp_proofs,
                 }
         self.gossip(data, originator=False)
         return {"ok": True, "status": "已接受"}
@@ -212,7 +217,15 @@ class Node(multiprocessing.Process):
 
     def _handle_chunk_distribute(self, data: dict) -> dict:
         chunk = FileChunk.from_dict(data.get("chunk"))
-        return {"ok": self.storage_manager.receive_chunk(chunk)}
+        ok = self.storage_manager.receive_chunk(chunk)
+        # 可选存入所有者的 pk_beta（G2 压缩十六进制）
+        owner_pk_beta_hex = data.get("owner_pk_beta")
+        if owner_pk_beta_hex:
+            try:
+                self.storage_manager.set_file_pk_beta(chunk.file_id, owner_pk_beta_hex)
+            except Exception as _:
+                pass
+        return {"ok": ok}
 
     def _handle_finalize_storage(self, data: dict) -> dict:
         self.storage_manager.finalize_commitments()
@@ -370,6 +383,33 @@ class Node(multiprocessing.Process):
                     winners_ids = [p.node_id for p in winning_proofs]
                     winners_roots = {nid: updates_for_prev.get(nid, {}).get("file_roots", {}) for nid in winners_ids}
                     dpdp_chals_for_winners = {nid: updates_for_prev.get(nid, {}).get("challenges", {}) for nid in winners_ids}
+                    dpdp_proofs_for_winners = {nid: updates_for_prev.get(nid, {}).get("dpdp_proofs", {}) for nid in winners_ids}
+
+                    # 新规则：在组装区块前验证每个胜者节点就其每个文件提交的 dPDP 证明
+                    for nid in winners_ids:
+                        file_roots = winners_roots.get(nid, {}) or {}
+                        proofs_map = dpdp_proofs_for_winners.get(nid, {}) or {}
+                        for fid in file_roots.keys():
+                            pkg = proofs_map.get(fid)
+                            if not pkg:
+                                log_msg("ERROR", "CONSENSUS", self.node_id, f"缺少节点 {nid} 文件 {fid} 的 dPDP 证明包，放弃本次出块。")
+                                return
+                            try:
+                                proof = DPDPProof(**pkg.get("proof", {}))
+                                challenge = [tuple(c) for c in pkg.get("challenge", [])]
+                                pk_hex = pkg.get("pk_beta", "")
+                                if not pk_hex:
+                                    log_msg("ERROR", "CONSENSUS", self.node_id, f"节点 {nid} 文件 {fid} 缺少 pk_beta，放弃本次出块。")
+                                    return
+                                pk_point = signature_to_G2(bytes.fromhex(pk_hex))
+                                params = DPDPParams(g=G2, u=G1, pk_beta=pk_point, sk_alpha=0)
+                                if not dPDP.check_proof(params, proof, challenge):
+                                    log_msg("CRITICAL", "CONSENSUS", self.node_id, f"dPDP 证明验证失败：节点 {nid} 文件 {fid}，放弃本次出块。")
+                                    return
+                                else: log_msg("DEBUG", "CONSENSUS", self.node_id, f"dPDP 证明验证成功：节点 {nid} 文件 {fid}。")
+                            except Exception as e:
+                                log_msg("ERROR", "CONSENSUS", self.node_id, f"dPDP 验证异常：节点 {nid} 文件 {fid}，错误: {e}，放弃本次出块。")
+                                return
 
                     block_body = BlockBody(
                         selected_k_proofs=[{"node_id": p.node_id, "proof_hash": p.proof_hash} for p in winning_proofs],
@@ -414,16 +454,32 @@ class Node(multiprocessing.Process):
             challenges_by_file[fid] = challenge
         # 广播本轮的状态树根与挑战集合
         roots = self.storage_manager.get_file_roots()
+
+        # 组装每个文件的 dPDP 证明包：proof、challenge、pk_beta
+        dpdp_proofs_by_file: Dict[str, Dict] = {}
+        for fid in self.storage_manager.list_file_ids():
+            pk_hex = self.storage_manager.get_file_pk_beta(fid) or ""
+            # 这里复用上面生成的 proof/challenge；若未在循环中缓存，则重新计算
+            chunks, tags = self.storage_manager.get_file_data_for_proof(fid)
+            proof, challenge, _ = self.prover.prove(fid, [], chunks, tags, accepted_block)
+            dpdp_proofs_by_file[fid] = {
+                "proof": proof.to_dict(),
+                "challenge": challenge,
+                "pk_beta": pk_hex,
+            }
+
         msg = {
             "type": "tst_update",
             "height": accepted_block.height,
             "node_id": self.node_id,
             "file_roots": roots,
             "challenges": challenges_by_file,
+            "dpdp_proofs": dpdp_proofs_by_file,
         }
         self.gossip(msg, originator=True)
         # 自身也缓存
         self.round_tst_updates[accepted_block.height][self.node_id] = {
             "file_roots": roots,
             "challenges": challenges_by_file,
+            "dpdp_proofs": dpdp_proofs_by_file,
         }

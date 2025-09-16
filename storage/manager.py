@@ -1,5 +1,5 @@
 import threading
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Optional
 
 from py_ecc.optimized_bls12_381 import FQ
 from py_ecc.bls.g2_primitives import G1_to_pubkey
@@ -16,9 +16,11 @@ class StorageManager:
         self.node_id = node_id
         self.chunk_size = chunk_size
         self.max_storage = max_storage
-        
+
         self.storage = ServerStorage()
         self.files: Dict[str, Dict[int, Tuple[bytes, Tuple[FQ, FQ, FQ]]]] = {}
+        # 每个文件对应的所有者公钥 pk_beta（BLS G2 压缩字节的十六进制字符串）
+        self.file_pk_beta: Dict[str, str] = {}
         self.used_space = 0
         self.state_lock = threading.Lock()
 
@@ -83,6 +85,21 @@ class StorageManager:
             tags = DPDPTags(tags=all_tags_sorted)
 
             return chunks, tags
+
+    def set_file_pk_beta(self, file_id: str, pk_beta_hex: str) -> None:
+        """
+        保存文件对应所有者的 BLS 公钥 pk_beta（G2 压缩字节十六进制）。
+        """
+        with self.state_lock:
+            if pk_beta_hex:
+                self.file_pk_beta[file_id] = pk_beta_hex
+
+    def get_file_pk_beta(self, file_id: str) -> Optional[str]:
+        """
+        获取文件对应的 pk_beta（G2 压缩字节十六进制），若不存在返回 None。
+        """
+        with self.state_lock:
+            return self.file_pk_beta.get(file_id)
 
     def update_state_after_proof(self, file_id: str, indices: List[int], proof: DPDPProof, round_salt: str):
         """

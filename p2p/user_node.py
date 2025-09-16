@@ -6,6 +6,8 @@ import time
 import random
 from collections import defaultdict
 from typing import Dict, List, Set, Optional, Tuple
+from py_ecc.bls.g2_primitives import G2_to_signature
+from py_ecc.bls.g2_primitives import G2_to_signature
 
 from config import P2PSimConfig
 from common.datastructures import DPDPProof
@@ -127,9 +129,15 @@ class UserNode(multiprocessing.Process):
                 "num_chunks": len(chunks)
             }
 
+            # 提供所有者的 BLS 公钥 pk_beta（G2 压缩字节十六进制），供后续 dPDP 验证使用
+            owner_pk_beta_hex = G2_to_signature(self.owner.get_dpdp_params().pk_beta).hex()
+
             for chunk in chunks:
                 for addr in winning_addrs:
-                    _send_json_line(addr, {"cmd": "chunk_distribute", "data": {"chunk": chunk.to_dict()}})
+                    _send_json_line(addr, {"cmd": "chunk_distribute", "data": {
+                        "chunk": chunk.to_dict(),
+                        "owner_pk_beta": owner_pk_beta_hex
+                    }})
 
             for addr in winning_addrs:
                 _send_json_line(addr, {"cmd": "finalize_storage", "data": {"file_id": self.owner.file_id}})
