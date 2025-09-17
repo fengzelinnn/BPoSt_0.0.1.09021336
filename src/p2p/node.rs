@@ -500,7 +500,7 @@ impl Node {
                                         });
                                         let addr =
                                             SocketAddr::new(host.parse().unwrap(), port as u16);
-                                        let _ = send_json_line(addr, &payload);
+                                        let _ = send_json_line_without_response(addr, &payload);
                                     }
                                 }
                             }
@@ -557,12 +557,10 @@ impl Node {
             self.seen_gossip_ids.insert(gid);
         }
         for addr in self.peers.values() {
-            if let Some(resp) = send_json_line(
+            let _ = send_json_line_without_response(
                 *addr,
-                &serde_json::json!({"cmd": "gossip", "data": message}),
-            ) {
-                let _ = resp;
-            }
+                &serde_json::json!({"cmd": "gossip", "data": message.clone()}),
+            );
         }
     }
 
@@ -1018,6 +1016,14 @@ fn parse_announce(data: &Value) -> Option<(String, SocketAddr)> {
     let host = data.get("host")?.as_str()?;
     let port = data.get("port")?.as_u64()? as u16;
     Some((node_id, SocketAddr::new(host.parse().ok()?, port)))
+}
+
+pub fn send_json_line_without_response(addr: SocketAddr, payload: &Value) -> bool {
+    let payload_clone = payload.clone();
+    thread::spawn(move || {
+        let _ = send_json_line(addr, &payload_clone);
+    });
+    true
 }
 
 pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
