@@ -262,7 +262,7 @@ impl Node {
                     }
                     let entry = serde_json::json!([v.ip().to_string(), v.port()]);
                     peers_obj.insert(k.clone(), entry);
-              }
+                }
 
                 let mut extra = HashMap::new();
                 extra.insert(String::from("peers"), Value::Object(peers_obj));

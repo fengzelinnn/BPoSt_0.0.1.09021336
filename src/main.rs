@@ -1,7 +1,24 @@
 use bpst::config::P2PSimConfig;
-use bpst::simulation::run_p2p_simulation;
+use bpst::simulation::{
+    run_node_process_from_args, run_p2p_simulation, run_user_process_from_args,
+};
 
 fn main() {
+    let mut args = std::env::args();
+    let _exe = args.next();
+    if let Some(subcommand) = args.next() {
+        match subcommand.as_str() {
+            "node" => {
+                run_node_process_from_args(args);
+                return;
+            }
+            "user" => {
+                run_user_process_from_args(args);
+                return;
+            }
+            _ => {}
+        }
+    }
     let config = P2PSimConfig {
         num_nodes: 15,
         num_file_owners: 7,
