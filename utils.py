@@ -1,34 +1,121 @@
 """
 通用工具函数模块
 
-提供项目中普遍使用的辅助函数，主要包括：
-- 哈希计算:
-  - sha256_hex: 计算数据的SHA-256哈希并返回十六进制字符串。
-  - h_join: 用于确定性地组合和哈希多个字符串部分。
-- 日志记录:
-  - init_logging: 初始化全局日志系统。
-  - log_msg: 提供结构化的日志记录接口。
+本模块已将所有哈希操作迁移为 SNARK 友好的哈希：
+- 基于 BN254 曲线（与本项目的密码学后端一致）的 MiMC-7 置换与简单 sponge。
+- sha256_hex: 名称保持兼容，但内部改为返回 MiMC-7 sponge 的 32 字节字段元素十六进制字符串。
+- h_join: 采用 MiMC-7 sponge（带域分离）对多段字符串进行确定性组合哈希。
+- 其余接口（Merkle 构建与日志）维持不变，但都会使用上述 SNARK 友好的哈希。
 """
 import hashlib
 import logging
 from logging.handlers import RotatingFileHandler
+from functools import lru_cache
 from typing import List, Dict
 
+from crypto import CURVE_ORDER as FIELD_PRIME  # 使用 BN254 曲线阶作为字段素数
 
-def sha256_hex(data: bytes) -> str:
-    """计算SHA-256哈希并返回十六进制字符串。"""
-    return hashlib.sha256(data).hexdigest()
+
+# ---------------------------- SNARK 友好哈希（MiMC-7 over BN254） ----------------------------
+
+@lru_cache(maxsize=None)
+def _mimc_constants(rounds: int = 91) -> List[int]:
+    """
+    生成 MiMC-7 的轮常量，确定性（从固定种子派生），对 BN254 的字段取模。
+    """
+    consts: List[int] = []
+    seed = b"MIMC7_BN254_CONST"
+    for i in range(rounds):
+        # 简单的确定性常量派生：迭代哈希再取模
+        seed = hashlib.sha256(seed + i.to_bytes(4, "big")).digest()
+        consts.append(int.from_bytes(seed, "big") % FIELD_PRIME)
+    return consts
+
+
+def _mimc7_permute(x: int, k: int = 0) -> int:
+    """
+    单次 MiMC-7 置换（固定 91 轮），最后一轮后加 key。
+    变体：每轮使用 x <- (x + k + c_i)^7 (mod p)，最终 x <- x + k (mod p)。
+    """
+    p = FIELD_PRIME
+    x = x % p
+    k = k % p
+    C = _mimc_constants()
+    # 前 rounds-1 轮
+    for i in range(len(C) - 1):
+        t = (x + k + C[i]) % p
+        x = pow(t, 7, p)
+    # 最后一轮再加 key
+    t = (x + k + C[-1]) % p
+    x = pow(t, 7, p)
+    x = (x + k) % p
+    return x
+
+
+def _bytes_to_field_elems(data: bytes, chunk_size: int = 31) -> List[int]:
+    """
+    将任意字节流分块映射到 BN254 字段元素列表（31字节一块，确保 < p）。
+    空输入映射为 [0]。
+    """
+    if not data:
+        return [0]
+    elems: List[int] = []
+    for i in range(0, len(data), chunk_size):
+        chunk = data[i:i + chunk_size]
+        elems.append(int.from_bytes(chunk, "big") % FIELD_PRIME)
+    return elems
+
+
+def hash_to_field(data: bytes) -> int:
+    """
+    将任意字节流哈希为一个字段元素（MiMC-7 sponge）。
+    """
+    state = 0
+    for m in _bytes_to_field_elems(data):
+        state = _mimc7_permute((state + m) % FIELD_PRIME, 0)
+    return state % FIELD_PRIME
+
+
+def snark_hash_bytes(data: bytes) -> bytes:
+    """
+    SNARK 友好哈希（MiMC-7 sponge）输出 32 字节大端表示的字段元素。
+    """
+    h = hash_to_field(data)
+    return int(h).to_bytes(32, "big")
+
+
+def snark_hash_hex(data: bytes) -> str:
+    """
+    SNARK 友好哈希十六进制（小写），长度固定为 64（32 字节）。
+    """
+    return snark_hash_bytes(data).hex()
 
 
 def h_join(*parts: str) -> str:
-    """将所有字符串参数用'|'连接后进行哈希，用于创建统一且可复现的承诺。"""
-    return sha256_hex("|".join(parts).encode())
+    """
+    使用 MiMC-7 sponge 对多段字符串进行有序组合哈希。
+    提供域分离（HJOINv1），确保不同用途的哈希域分离。
+    """
+    # 域分离种子
+    state = hash_to_field(b"HJOINv1")
+    for part in parts:
+        piece = hash_to_field(part.encode())
+        state = _mimc7_permute((state + piece) % FIELD_PRIME, 0)
+    return int(state).to_bytes(32, "big").hex()
+
+
+def sha256_hex(data: bytes) -> str:
+    """
+    兼容接口：名称保留，但内部已迁移为 SNARK 友好的 MiMC-7 sponge。
+    返回 32 字节的字段元素十六进制字符串。
+    """
+    return snark_hash_hex(data)
 
 
 def build_merkle_root(leaf_hashes: List[str]) -> str:
     """
     从一个叶子哈希列表构建并返回Merkle树的根哈希。
-    如果列表为空，则返回一个固定的空哈希。
+    如果列表为空，则返回一个固定的空哈希（MiMC-7 哈希的空输入）。
     """
     if not leaf_hashes:
         return sha256_hex(b'')
@@ -43,7 +130,7 @@ def build_merkle_root(leaf_hashes: List[str]) -> str:
     next_level = []
     for i in range(0, len(leaf_hashes), 2):
         # 将配对的哈希排序以确保一致性
-        pair = sorted([leaf_hashes[i], leaf_hashes[i+1]])
+        pair = sorted([leaf_hashes[i], leaf_hashes[i + 1]])
         combined_hash = h_join(pair[0], pair[1])
         next_level.append(combined_hash)
 
@@ -62,7 +149,7 @@ def build_merkle_tree(leaf_hashes: List[str]) -> (str, Dict[str, List[str]]):
     if len(leaf_hashes) == 1:
         return leaf_hashes[0], {}
 
-    nodes = {}
+    nodes: Dict[str, List[str]] = {}
     level = list(leaf_hashes)
 
     while len(level) > 1:
@@ -71,7 +158,7 @@ def build_merkle_tree(leaf_hashes: List[str]) -> (str, Dict[str, List[str]]):
 
         next_level = []
         for i in range(0, len(level), 2):
-            child1, child2 = level[i], level[i+1]
+            child1, child2 = level[i], level[i + 1]
             sorted_children = sorted([child1, child2])
             parent = h_join(sorted_children[0], sorted_children[1])
             nodes[parent] = sorted_children

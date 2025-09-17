@@ -1,5 +1,4 @@
 import random
-from hashlib import sha256
 from typing import List, Dict, Tuple
 
 from py_ecc.optimized_bn128 import (
@@ -13,20 +12,23 @@ from py_ecc.optimized_bn128 import (
 )
 
 from common.datastructures import DPDPParams, DPDPTags, DPDPProof
-from utils import sha256_hex
+from utils import sha256_hex, hash_to_field
 from merkle import MerkleTree
 from crypto import CURVE_ORDER as curve_order  # 使用 BN128 曲线阶
 
 G1_IDENTITY = Z1
 
-# 对 BN128：使用简化的 hash-to-G1（哈希为标量后乘 G1）
+# 对 BN128：使用简化的 hash-to-G1（SNARK 友好的 hash_to_field 后乘 G1）
 def hash_to_G1(message: bytes):
-    k = int.from_bytes(sha256(message).digest(), "big") % curve_order
+    k = hash_to_field(message) % curve_order
+    # 避免 0 标量导致无穷远点
+    if k == 0:
+        k = 1
     return multiply(G1, k)
 
 def chunk_to_int(chunk: bytes) -> int:
     """
-    将文件块转换为模曲线阶的整数。
+    将文件块转换为模曲线阶的整数（SNARK 友好哈希输出）。
     """
     h = sha256_hex(chunk)
     return int(h, 16)
@@ -62,7 +64,7 @@ class dPDP:
             sigma_i = multiply(base_point, int(params.sk_alpha))
             tags.append(sigma_i)
         return DPDPTags(tags=tags)
-    
+
     @staticmethod
     def gen_chal(prev_hash: str, timestamp: int, tags: DPDPTags, m: int | None = None) -> List[Tuple[int, int]]:
         """
@@ -76,8 +78,8 @@ class dPDP:
         chal: List[Tuple[int, int]] = []
         for j in range(count):
             seed = f"{prev_hash}:{timestamp}:{j}".encode()
-            i = int(sha256(seed).hexdigest(), 16) % n
-            v_i = int(sha256(b"chal|" + seed).hexdigest(), 16) % curve_order
+            i = hash_to_field(seed) % n
+            v_i = hash_to_field(b"chal|" + seed) % curve_order
             chal.append((i, v_i))
         return chal
 

@@ -1,8 +1,6 @@
 import random
 from typing import List, Tuple, Dict
 
-from py_ecc.bls12_381 import curve_order
-
 from common.datastructures import DPDPTags, DPDPProof, Block
 from Crypto.dpdp import dPDP
 from utils import log_msg
