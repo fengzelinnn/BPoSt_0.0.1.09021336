@@ -212,7 +212,7 @@ impl UserNode {
                 "reply_addr": [self.host, self.port],
             }
         });
-        let _ = super::node::send_json_line(self.bootstrap_addr, &offer);
+        let _ = super::node::send_json_line_without_response(self.bootstrap_addr, &offer);
         log_msg(
             "INFO",
             "USER_NODE",
