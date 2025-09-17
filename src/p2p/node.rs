@@ -251,14 +251,19 @@ impl Node {
     fn dispatch_command(&mut self, req: CommandRequest) -> CommandResponse {
         match req.cmd.as_str() {
             "get_peers" => {
-                let peers_obj: Map<String, Value> = self
-                    .peers
-                    .iter()
-                    .map(|(k, v)| {
-                        let entry = serde_json::json!([v.ip().to_string(), v.port()]);
-                        (k.clone(), entry)
-                    })
-                    .collect();
+                let mut peers_obj: Map<String, Value> = Map::new();
+                peers_obj.insert(
+                    self.node_id.clone(),
+                    serde_json::json!([self.host.clone(), self.port]),
+                );
+                for (k, v) in &self.peers {
+                    if k == &self.node_id {
+                        continue;
+                    }
+                    let entry = serde_json::json!([v.ip().to_string(), v.port()]);
+                    peers_obj.insert(k.clone(), entry);
+              }
+
                 let mut extra = HashMap::new();
                 extra.insert(String::from("peers"), Value::Object(peers_obj));
                 CommandResponse {
@@ -420,6 +425,24 @@ impl Node {
                 if resp.get("ok").and_then(Value::as_bool).unwrap_or(false) {
                     if let Some(map) = resp.get("peers").and_then(Value::as_object) {
                         for (nid, addr_val) in map {
+                            if nid == &self.node_id {
+                                continue;
+                            }
+                            if let Some(addr_arr) = addr_val.as_array() {
+                                if addr_arr.len() == 2 {
+                                    if let (Some(host), Some(port)) = (
+                                        addr_arr.get(0).and_then(Value::as_str),
+                                        addr_arr.get(1).and_then(Value::as_u64),
+                                    ) {
+                                        if let Ok(ip) = host.parse() {
+                                            let addr = SocketAddr::new(ip, port as u16);
+                                            self.peers.insert(nid.clone(), addr);
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+
                             if let Some(addr_str) = addr_val.as_str() {
                                 if let Ok(addr) = addr_str.parse() {
                                     self.peers.insert(nid.clone(), addr);
