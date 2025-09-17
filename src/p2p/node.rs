@@ -262,7 +262,8 @@ impl Node {
                     }
                     let entry = serde_json::json!([v.ip().to_string(), v.port()]);
                     peers_obj.insert(k.clone(), entry);
-                }
+              }
+
                 let mut extra = HashMap::new();
                 extra.insert(String::from("peers"), Value::Object(peers_obj));
                 CommandResponse {
@@ -441,6 +442,7 @@ impl Node {
                                     }
                                 }
                             }
+
                             if let Some(addr_str) = addr_val.as_str() {
                                 if let Ok(addr) = addr_str.parse() {
                                     self.peers.insert(nid.clone(), addr);
