@@ -40,8 +40,8 @@ class UserNode(multiprocessing.Process):
         while not self._stop_event.is_set():
             if not self.active_requests and random.random() < 0.3:
                 self._try_store_file()
-            if self.stored_files_info and random.random() < 0.2:
-                self._try_verify_file()
+            # if self.stored_files_info and random.random() < 0.8:
+            #     self._try_verify_file()
             time.sleep(random.uniform(3, 7))
         log_msg("DEBUG", "USER_NODE", self.owner.owner_id, "进程已停止。")
 
@@ -156,29 +156,64 @@ class UserNode(multiprocessing.Process):
 
         if not storer_addrs or num_chunks == 0: return
 
+        # 针对特定的随机文件块发起随机挑战（单分片）
         target_addr = random.choice(storer_addrs)
-        num_challenge_indices = max(1, num_chunks // 10)
-        challenge_indices = random.sample(range(num_chunks), k=num_challenge_indices)
+        idx = random.randrange(num_chunks)
+        challenge_indices = [idx]
 
-        log_msg("INFO", "dPDP_VERIFY", self.owner.owner_id, f"正在挑战节点 {target_addr} 对文件 {file_id} 的 {len(challenge_indices)} 个分片进行证明。")
+        log_msg("INFO", "dPDP_VERIFY", self.owner.owner_id, f"随机挑战节点 {target_addr}：文件 {file_id} 的单个分片 index={idx}。")
 
-        challenge_payload = {"cmd": "dpdp_challenge", "data": {"file_id": file_id, "indices": challenge_indices}}
+        # 附带元信息，便于存储节点按轮次格式入库并在后续轮次上传
+        challenge_payload = {
+            "cmd": "dpdp_challenge",
+            "data": {
+                "file_id": file_id,
+                "indices": challenge_indices,
+                "meta": {
+                    "type": "user_random_challenge",
+                    "ts_ms": int(time.time() * 1000),
+                    "initiator": self.addr,
+                    "owner_id": self.owner.owner_id,
+                    "persist": True
+                }
+            }
+        }
+
+        # 发送挑战并严格处理异常与错误响应
         response = _send_json_line(target_addr, challenge_payload)
+        if response is None:
+            msg = f"从节点 {target_addr} 无响应"
+            log_msg("ERROR", "dPDP_VERIFY", self.owner.owner_id, msg)
+            raise ConnectionError(msg)
 
-        if response and response.get("ok"):
-            try:
-                proof_data = response.get("proof")
-                challenge_data = response.get("challenge")
-                proof = DPDPProof(**proof_data)
-                challenge: List[tuple[int, int]] = [tuple(c) for c in challenge_data]
-                params = self.owner.get_dpdp_params()
-                is_valid = dPDP.check_proof(params, proof, challenge)
-                if is_valid:
-                    log_msg("SUCCESS", "dPDP_VERIFY", self.owner.owner_id, f"节点 {target_addr} 对文件 {file_id} 的dPDP证明验证成功！")
-                else:
-                    log_msg("CRITICAL", "dPDP_VERIFY", self.owner.owner_id, f"节点 {target_addr} 对文件 {file_id} 的dPDP证明验证失败！")
-            except Exception as e:
-                log_msg("ERROR", "dPDP_VERIFY", self.owner.owner_id, f"解析或验证来自 {target_addr} 的证明时出错: {e}")
-        else:
-            error_msg = response.get('error') if response else '无响应'
-            log_msg("WARN", "dPDP_VERIFY", self.owner.owner_id, f"从节点 {target_addr} 获取dPDP证明失败: {error_msg}")
+        if not response.get("ok"):
+            err = response.get("error", "未知错误")
+            msg = f"节点 {target_addr} 返回错误: {err}"
+            log_msg("ERROR", "dPDP_VERIFY", self.owner.owner_id, msg)
+            raise RuntimeError(msg)
+
+        try:
+            proof_data = response.get("proof")
+            challenge_data = response.get("challenge")
+
+            if proof_data is None or challenge_data is None:
+                raise ValueError("响应缺少必要字段: proof 或 challenge")
+
+            if not isinstance(challenge_data, list):
+                raise ValueError(f"challenge 类型异常: 期望 list，实际 {type(challenge_data)}")
+
+            proof = DPDPProof(**proof_data)
+            challenge: List[tuple[int, int]] = [tuple(c) for c in challenge_data]
+
+            params = self.owner.get_dpdp_params()
+            is_valid = dPDP.check_proof(params, proof, challenge)
+            if is_valid:
+                log_msg("SUCCESS", "dPDP_VERIFY", self.owner.owner_id, f"节点 {target_addr} 对文件 {file_id} 的 dPDP 证明验证成功。")
+            else:
+                msg = f"节点 {target_addr} 对文件 {file_id} 的 dPDP 证明验证失败！"
+                log_msg("CRITICAL", "dPDP_VERIFY", self.owner.owner_id, msg)
+                raise AssertionError(msg)
+        except Exception as e:
+            # 记录后继续抛出，避免异常被吞掉
+            log_msg("ERROR", "dPDP_VERIFY", self.owner.owner_id, f"解析或验证来自 {target_addr} 的证明时出错: {e}")
+            raise
