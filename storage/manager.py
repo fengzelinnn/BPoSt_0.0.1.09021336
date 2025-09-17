@@ -1,12 +1,10 @@
 import threading
-from typing import Dict, Tuple, List, Optional
-
-from py_ecc.optimized_bls12_381 import FQ
-from py_ecc.bls.g2_primitives import G1_to_pubkey
+from typing import Dict, Tuple, List, Optional, Any
 
 from common.datastructures import FileChunk, DPDPTags, DPDPProof
 from storage.state import ServerStorage
 from utils import h_join, sha256_hex, log_msg
+from crypto import serialize_g1
 
 class StorageManager:
     """
@@ -18,8 +16,8 @@ class StorageManager:
         self.max_storage = max_storage
 
         self.storage = ServerStorage()
-        self.files: Dict[str, Dict[int, Tuple[bytes, Tuple[FQ, FQ, FQ]]]] = {}
-        # 每个文件对应的所有者公钥 pk_beta（BLS G2 压缩字节的十六进制字符串）
+        self.files: Dict[str, Dict[int, Tuple[bytes, tuple]]] = {}
+        # 每个文件对应的所有者公钥 pk_beta（G2 序列化字节的十六进制字符串）
         self.file_pk_beta: Dict[str, str] = {}
         self.used_space = 0
         self.state_lock = threading.Lock()
@@ -107,7 +105,7 @@ class StorageManager:
         新流程请使用 update_state_after_contributions。
         """
         with self.state_lock:
-            proof_hash_for_post = sha256_hex(G1_to_pubkey(proof.sigma) + str(proof.mu).encode())
+            proof_hash_for_post = sha256_hex(serialize_g1(proof.sigma) + str(proof.mu).encode())
             tst_leaves = self.storage.time_trees.get(file_id, None)
             if tst_leaves:
                 for idx in indices:
@@ -129,7 +127,7 @@ class StorageManager:
                 return
             for idx, mu_i, sigma_i in contributions:
                 prev_leaf = tst.leaves.get(idx, h_join("missing", str(idx)))
-                sigma_bytes = G1_to_pubkey(sigma_i)
+                sigma_bytes = serialize_g1(sigma_i)
                 new_leaf = h_join("tleaf", prev_leaf, "mu", str(mu_i), "sigma", sigma_bytes.hex(), round_salt)
                 self.storage.add_chunk_commitment(file_id, idx, new_leaf)
             self.storage.build_state()

@@ -2,8 +2,8 @@ import random
 from hashlib import sha256
 from typing import List, Dict, Tuple
 
-from py_ecc.fields import optimized_bls12_381_FQ
-from py_ecc.optimized_bls12_381 import (
+from py_ecc.optimized_bn128 import (
+    FQ,
     G1, G2,
     pairing,
     add,
@@ -11,20 +11,18 @@ from py_ecc.optimized_bls12_381 import (
     is_inf,
     Z1
 )
-from py_ecc.bls12_381 import curve_order
-from py_ecc.bls.hash_to_curve import hash_to_G1 as _hash_to_G1
 
 from common.datastructures import DPDPParams, DPDPTags, DPDPProof
 from utils import sha256_hex
 from merkle import MerkleTree
+from crypto import CURVE_ORDER as curve_order  # 使用 BN128 曲线阶
 
 G1_IDENTITY = Z1
 
-H1_DST = b'BPoSt-H1-DST-v1.0'
-
-def hash_to_G1(message: bytes) -> Tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]:
-    """hash_to_G1 的封装, 提供一致的域分隔."""
-    return _hash_to_G1(message, H1_DST, sha256)
+# 对 BN128：使用简化的 hash-to-G1（哈希为标量后乘 G1）
+def hash_to_G1(message: bytes):
+    k = int.from_bytes(sha256(message).digest(), "big") % curve_order
+    return multiply(G1, k)
 
 def chunk_to_int(chunk: bytes) -> int:
     """
@@ -53,7 +51,7 @@ class dPDP:
     @staticmethod
     def tag_file(params: DPDPParams, file_chunks: List[bytes]) -> DPDPTags:
         """为每个文件块生成 dPDP 标签."""
-        tags: List[Tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]] = []
+        tags: List[Tuple[FQ, FQ, FQ]] = []
         for i, chunk in enumerate(file_chunks):
             b_i = chunk_to_int(chunk)
             b_i %= curve_order
@@ -74,7 +72,7 @@ class dPDP:
         n = len(tags.tags)
         if n == 0:
             return []
-        count = m if m is not None else max(1, (timestamp % n) or 1)
+        count = m if m is not None else max(1, (timestamp % n) or 5)
         chal: List[Tuple[int, int]] = []
         for j in range(count):
             seed = f"{prev_hash}:{timestamp}:{j}".encode()
@@ -84,18 +82,18 @@ class dPDP:
         return chal
 
     @staticmethod
-    def gen_contributions(tags: DPDPTags, file_chunks: Dict[int, bytes], challenge: List[Tuple[int, int]]) -> List[Tuple[int, int, Tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]]]:
+    def gen_contributions(tags: DPDPTags, file_chunks: Dict[int, bytes], challenge: List[Tuple[int, int]]) -> List[Tuple[int, int, Tuple[FQ, FQ, FQ]]]:
         """
         生成未聚合的分片贡献 (i, mu_i, sigma_i) 列表，其中
         mu_i = v_i * b_i (mod r), sigma_i = v_i * tag_i。
         """
-        contributions: List[Tuple[int, int, Tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]]] = []
+        contributions: List[Tuple[int, int, Tuple[FQ, FQ, FQ]]] = []
         for i, v_i in challenge:
             if i >= len(tags.tags) or i not in file_chunks:
                 raise ValueError(f"索引 {i} 在提供的块/标签中未找到，无法生成贡献")
             b_i = chunk_to_int(file_chunks[i]) % curve_order
             sigma_i = tuple(int(x) for x in tags.tags[i])
-            sigma_i = tuple(optimized_bls12_381_FQ(x) for x in sigma_i)
+            sigma_i = tuple(FQ(x) for x in sigma_i)
             mu_i = (v_i * b_i) % curve_order
             sigma_i_scaled = multiply(sigma_i, v_i)
             contributions.append((i, mu_i, sigma_i_scaled))
@@ -111,7 +109,7 @@ class dPDP:
                 raise ValueError(f"索引 {i} 在提供的块/标签中未找到，无法生成证明")
             b_i = chunk_to_int(file_chunks[i])
             sigma_i = tuple(int(x) for x in tags.tags[i])
-            sigma_i = tuple(optimized_bls12_381_FQ(x) for x in sigma_i)
+            sigma_i = tuple(FQ(x) for x in sigma_i)
             agg_mu = (agg_mu + (v_i * (b_i % curve_order))) % curve_order
             agg_sigma = add(agg_sigma, multiply(sigma_i, int(v_i)))
         return DPDPProof(mu=agg_mu, sigma=agg_sigma)
@@ -120,7 +118,7 @@ class dPDP:
     def check_proof(params: DPDPParams, proof: DPDPProof, challenge: List[Tuple[int, int]]) -> bool:
         """验证 dPDP 证明."""
         sigma = tuple(int(x) for x in proof.sigma)
-        sigma = tuple(optimized_bls12_381_FQ(x) for x in sigma)
+        sigma = tuple(FQ(x) for x in sigma)
         if is_inf(sigma):
             return not challenge
         lhs = pairing(params.g, sigma)
@@ -129,7 +127,7 @@ class dPDP:
             h_i = hash_to_G1(str(i).encode())
             agg_h = add(agg_h, multiply(h_i, int(v_i)))
         u = tuple(int(x) for x in params.u)
-        u = tuple(optimized_bls12_381_FQ(x) for x in u)
+        u = tuple(FQ(x) for x in u)
         mu_u = multiply(u, int(proof.mu))
         rhs_g1_point = add(agg_h, mu_u)
         rhs = pairing(params.pk_beta, rhs_g1_point)

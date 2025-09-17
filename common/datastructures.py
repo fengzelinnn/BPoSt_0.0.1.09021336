@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 
-from py_ecc.fields import optimized_bls12_381_FQ2, optimized_bls12_381_FQ
 from utils import h_join
 
 
@@ -68,7 +67,7 @@ class FileChunk:
     """一个文件分片，由客户端准备并附带dPDP标签。"""
     index: int
     data: bytes
-    tag: tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]
+    tag: tuple  # (FQ, FQ, FQ) 具体类型由曲线后端决定
     file_id: str = "default"
 
     def to_dict(self) -> dict:
@@ -106,9 +105,9 @@ class BobtailProof:
 @dataclass
 class DPDPParams:
     """dPDP公共参数和所有者的私钥。"""
-    g: tuple[optimized_bls12_381_FQ2, optimized_bls12_381_FQ2, optimized_bls12_381_FQ2]
-    u: tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]
-    pk_beta: tuple[optimized_bls12_381_FQ2, optimized_bls12_381_FQ2, optimized_bls12_381_FQ2]
+    g: tuple          # G2 生成元（曲线具体类型）
+    u: tuple          # G1 生成元（曲线具体类型）
+    pk_beta: tuple    # 所有者公钥（G2点）
     sk_alpha: int
 
     def to_dict(self) -> dict:
@@ -122,7 +121,7 @@ class DPDPParams:
 @dataclass
 class DPDPTags:
     """一个文件的所有分片的dPDP标签。"""
-    tags: list[tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]]
+    tags: list[tuple]
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -135,7 +134,7 @@ class DPDPTags:
 class DPDPProof:
     """针对给定挑战的dPDP证明。"""
     mu: int
-    sigma: tuple[optimized_bls12_381_FQ, optimized_bls12_381_FQ, optimized_bls12_381_FQ]
+    sigma: tuple  # (FQ, FQ, FQ) 具体类型由曲线后端决定
 
     def to_dict(self) -> dict:
         return asdict(self)

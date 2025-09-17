@@ -6,8 +6,7 @@ import time
 import random
 from collections import defaultdict
 from typing import Dict, List, Set, Optional, Tuple
-from py_ecc.bls.g2_primitives import G2_to_signature
-from py_ecc.bls.g2_primitives import G2_to_signature
+from crypto import serialize_g2
 
 from config import P2PSimConfig
 from common.datastructures import DPDPProof
@@ -129,8 +128,8 @@ class UserNode(multiprocessing.Process):
                 "num_chunks": len(chunks)
             }
 
-            # 提供所有者的 BLS 公钥 pk_beta（G2 压缩字节十六进制），供后续 dPDP 验证使用
-            owner_pk_beta_hex = G2_to_signature(self.owner.get_dpdp_params().pk_beta).hex()
+            # 提供所有者的 BN128 公钥 pk_beta（G2 序列化字节十六进制），供后续 dPDP 验证使用
+            owner_pk_beta_hex = serialize_g2(self.owner.get_dpdp_params().pk_beta).hex()
 
             for chunk in chunks:
                 for addr in winning_addrs:

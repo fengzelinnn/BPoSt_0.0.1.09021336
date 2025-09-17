@@ -15,8 +15,7 @@ from roles.prover import Prover
 from roles.miner import Miner
 from storage.manager import StorageManager
 from utils import log_msg, build_merkle_tree
-from py_ecc.bls.g2_primitives import signature_to_G2
-from py_ecc.optimized_bls12_381 import G1, G2
+from crypto import deserialize_g2, g1_generator as G1, g2_generator as G2
 
 def _json_sanitize(obj):
     if obj is None or isinstance(obj, (int, float, str, bool)):
@@ -401,7 +400,7 @@ class Node(multiprocessing.Process):
                                 if not pk_hex:
                                     log_msg("ERROR", "CONSENSUS", self.node_id, f"节点 {nid} 文件 {fid} 缺少 pk_beta，放弃本次出块。")
                                     return
-                                pk_point = signature_to_G2(bytes.fromhex(pk_hex))
+                                pk_point = deserialize_g2(bytes.fromhex(pk_hex))
                                 params = DPDPParams(g=G2, u=G1, pk_beta=pk_point, sk_alpha=0)
                                 if not dPDP.check_proof(params, proof, challenge):
                                     log_msg("CRITICAL", "CONSENSUS", self.node_id, f"dPDP 证明验证失败：节点 {nid} 文件 {fid}，放弃本次出块。")
