@@ -1,4 +1,5 @@
 pub mod dpdp;
+pub mod folding;
 
 use ark_bn254::{Fq, Fq2, G1Affine, G1Projective, G2Affine, G2Projective};
 use ark_ec::CurveGroup;

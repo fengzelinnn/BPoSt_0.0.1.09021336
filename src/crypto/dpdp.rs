@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
-use ark_bn254::{Bn254, Fr, G1Affine, G1Projective, G2Affine, G2Projective};
-use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup, PrimeGroup};
+use ark_bn254::{Fr, G1Affine, G1Projective, G2Affine, G2Projective};
+use ark_ec::{AffineRepr, PrimeGroup};
 use ark_ff::{PrimeField, Zero};
 use num_bigint::{BigUint, ToBigUint};
 use num_traits::cast::ToPrimitive;
 use rand::RngCore;
 
 use crate::common::datastructures::{DPDPParams, DPDPProof, DPDPTags};
+use crate::crypto::folding::{dpdp_verification_relaxed_r1cs, RelaxedR1CS};
 use crate::crypto::{curve_order, deserialize_g1, serialize_g1};
 use crate::merkle::MerkleTree;
 use crate::utils::{hash_to_field, sha256_hex};
@@ -64,6 +65,12 @@ fn chunk_to_int(chunk: &[u8]) -> BigUint {
 }
 
 pub struct DPDP;
+
+#[derive(Debug, Clone)]
+pub struct DPDPVerificationOutput {
+    pub valid: bool,
+    pub circuit: RelaxedR1CS<Fr>,
+}
 
 impl DPDP {
     pub fn key_gen() -> DPDPParams {
@@ -181,23 +188,25 @@ impl DPDP {
         proof: &DPDPProof,
         challenge: &[(usize, BigUint)],
     ) -> bool {
+        Self::check_proof_with_relaxed(params, proof, challenge).valid
+    }
+
+    pub fn check_proof_with_relaxed(
+        params: &DPDPParams,
+        proof: &DPDPProof,
+        challenge: &[(usize, BigUint)],
+    ) -> DPDPVerificationOutput {
         let sigma = deserialize_g1(&proof.sigma);
         if sigma.is_zero() {
-            return challenge.is_empty();
+            let (circuit, _) = dpdp_verification_relaxed_r1cs(params, proof, challenge);
+            return DPDPVerificationOutput {
+                valid: challenge.is_empty(),
+                circuit,
+            };
         }
-        let lhs = Bn254::pairing(sigma.into_affine(), params.g.into_affine());
-        let mut agg_h = G1Projective::zero();
-        for (i, v_i) in challenge {
-            let h_i = hash_to_g1(i.to_string().as_bytes());
-            agg_h += h_i.mul_bigint(biguint_to_fr(v_i).into_bigint());
-        }
-        let u = params.u;
-        let mu_big = BigUint::parse_bytes(proof.mu.as_bytes(), 10).unwrap_or_default();
-        let mu_fr = biguint_to_fr(&mu_big);
-        let mu_u = u.mul_bigint(mu_fr.into_bigint());
-        let rhs_point = agg_h + mu_u;
-        let rhs = Bn254::pairing(rhs_point.into_affine(), params.pk_beta.into_affine());
-        lhs == rhs
+
+        let (circuit, valid) = dpdp_verification_relaxed_r1cs(params, proof, challenge);
+        DPDPVerificationOutput { valid, circuit }
     }
 
     pub fn verify_with_merkle(
