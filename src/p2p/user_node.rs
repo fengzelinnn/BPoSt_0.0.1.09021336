@@ -1,11 +1,11 @@
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use parking_lot::Mutex;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -125,10 +125,11 @@ impl UserNode {
                             if line.trim().is_empty() {
                                 return Ok(());
                             }
-                            let req: CommandRequest = serde_json::from_str(&line).unwrap_or(CommandRequest {
-                                cmd: String::new(),
-                                data: Value::Null,
-                            });
+                            let req: CommandRequest =
+                                serde_json::from_str(&line).unwrap_or(CommandRequest {
+                                    cmd: String::new(),
+                                    data: Value::Null,
+                                });
                             // 基础响应
                             let mut response = CommandResponse {
                                 ok: false,
@@ -218,6 +219,7 @@ impl UserNode {
         );
     }
 
+    #[allow(dead_code)]
     fn handle_connection(&mut self, mut stream: TcpStream) -> std::io::Result<()> {
         stream.set_read_timeout(Some(Duration::from_secs(2)))?;
         stream.set_write_timeout(Some(Duration::from_secs(2)))?;
@@ -238,6 +240,7 @@ impl UserNode {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn dispatch_command(&mut self, req: CommandRequest) -> CommandResponse {
         match req.cmd.as_str() {
             "storage_bid" => self.handle_storage_bid(&req.data),
@@ -249,6 +252,7 @@ impl UserNode {
         }
     }
 
+    #[allow(dead_code)]
     fn handle_storage_bid(&mut self, data: &Value) -> CommandResponse {
         let request_id = data.get("request_id").and_then(Value::as_str).unwrap_or("");
         let is_active = {
