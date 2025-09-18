@@ -2,90 +2,85 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use ark_bn254::Fr;
+use ark_ff::{BigInteger, PrimeField};
 use indexmap::IndexMap;
+use light_poseidon::{Poseidon, PoseidonHasher};
 use log::{Level, LevelFilter, Metadata, Record};
 use num_bigint::BigUint;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
-const FIELD_PRIME_DEC: &str =
-    "21888242871839275222246405745257275088548364400416034343698204186575808495617";
-const MIMC_ROUNDS: usize = 91;
-
-static FIELD_PRIME: Lazy<BigUint> = Lazy::new(|| {
-    BigUint::parse_bytes(FIELD_PRIME_DEC.as_bytes(), 10).expect("invalid field prime")
+static POSEIDON_STATE: Lazy<Mutex<Poseidon<Fr>>> = Lazy::new(|| {
+    Mutex::new(
+        Poseidon::<Fr>::new_circom(2).expect("failed to initialize Poseidon hasher for 2 inputs"),
+    )
 });
 
-static MIMC_CONSTANTS: Lazy<Vec<BigUint>> = Lazy::new(|| {
-    let mut consts = Vec::with_capacity(MIMC_ROUNDS);
-    let mut seed = b"MIMC7_BN254_CONST".to_vec();
-    for i in 0..MIMC_ROUNDS {
-        let mut input = seed.clone();
-        input.extend_from_slice(&(i as u32).to_be_bytes());
-        seed = Sha256::digest(&input).to_vec();
-        let mut val = BigUint::from_bytes_be(&seed);
-        val %= &*FIELD_PRIME;
-        consts.push(val);
-    }
-    consts
-});
+const BYTES_DOMAIN: &[u8] = b"BPoStPoseidonHashv1";
+const HJOIN_DOMAIN: &[u8] = b"HJOINv1";
+
+fn domain_to_field(domain: &[u8]) -> Fr {
+    let mut buffer = [0u8; 32];
+    let copy_len = domain.len().min(32);
+    buffer[32 - copy_len..].copy_from_slice(&domain[..copy_len]);
+    Fr::from_be_bytes_mod_order(&buffer)
+}
 
 static LOGGER_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static LOGGER_GUARD: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
-fn mimc7_permute(mut x: BigUint, k: &BigUint) -> BigUint {
-    let p = &*FIELD_PRIME;
-    x %= p;
-    let key = k.clone() % p;
-    for i in 0..MIMC_ROUNDS.saturating_sub(1) {
-        let mut t = (&x + &key + &MIMC_CONSTANTS[i]) % p;
-        t = t.modpow(&BigUint::from(7u32), p);
-        x = t;
-    }
-    // last round + key
-    let mut t = (&x + &key + &MIMC_CONSTANTS[MIMC_ROUNDS - 1]) % p;
-    t = t.modpow(&BigUint::from(7u32), p);
-    x = (t + key) % p;
-    x
+fn bytes_to_field_elems(data: &[u8]) -> Vec<Fr> {
+    data.chunks(32)
+        .map(|chunk| {
+            let mut buffer = [0u8; 32];
+            let copy_len = chunk.len();
+            buffer[32 - copy_len..].copy_from_slice(chunk);
+            Fr::from_be_bytes_mod_order(&buffer)
+        })
+        .collect()
 }
 
-fn bytes_to_field_elems(data: &[u8]) -> Vec<BigUint> {
-    if data.is_empty() {
-        return vec![BigUint::from(0u32)];
-    }
-    let mut elems = Vec::new();
-    for chunk in data.chunks(31) {
-        let mut val = BigUint::from_bytes_be(chunk);
-        val %= &*FIELD_PRIME;
-        elems.push(val);
-    }
-    elems
+fn poseidon_compress(left: Fr, right: Fr) -> Fr {
+    let mut hasher = POSEIDON_STATE.lock();
+    hasher
+        .hash(&[left, right])
+        .expect("poseidon hash with two inputs should succeed")
 }
 
-pub fn hash_to_field(data: &[u8]) -> BigUint {
-    let mut state = BigUint::from(0u32);
-    for m in bytes_to_field_elems(data) {
-        let tmp = (state + m) % &*FIELD_PRIME;
-        state = mimc7_permute(tmp, &BigUint::from(0u32));
+fn poseidon_hash_bytes(data: &[u8]) -> Fr {
+    let mut state = domain_to_field(BYTES_DOMAIN);
+    let elements = bytes_to_field_elems(data);
+    if elements.is_empty() {
+        return poseidon_compress(state, Fr::from(0u32));
     }
-    state % &*FIELD_PRIME
+    for element in elements {
+        state = poseidon_compress(state, element);
+    }
+    state
 }
 
-pub fn snark_hash_bytes(data: &[u8]) -> [u8; 32] {
-    let h = hash_to_field(data);
-    let mut bytes = h.to_bytes_be();
-    if bytes.len() < 32 {
-        let mut padded = vec![0u8; 32 - bytes.len()];
-        padded.extend_from_slice(&bytes);
-        bytes = padded;
-    }
+fn field_to_biguint(value: Fr) -> BigUint {
+    let bytes = value.into_bigint().to_bytes_be();
+    BigUint::from_bytes_be(&bytes)
+}
+
+fn field_to_bytes(value: Fr) -> [u8; 32] {
+    let bytes = value.into_bigint().to_bytes_be();
     let mut out = [0u8; 32];
     let start = 32 - bytes.len();
     out[start..].copy_from_slice(&bytes);
     out
+}
+
+pub fn hash_to_field(data: &[u8]) -> BigUint {
+    field_to_biguint(poseidon_hash_bytes(data))
+}
+
+pub fn snark_hash_bytes(data: &[u8]) -> [u8; 32] {
+    field_to_bytes(poseidon_hash_bytes(data))
 }
 
 pub fn snark_hash_hex(data: &[u8]) -> String {
@@ -97,19 +92,17 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    let mut state = hash_to_field(b"HJOINv1");
+    let mut state = domain_to_field(HJOIN_DOMAIN);
+    let mut has_parts = false;
     for part in parts {
-        let piece = hash_to_field(part.as_ref().as_bytes());
-        let tmp = (state + piece) % &*FIELD_PRIME;
-        state = mimc7_permute(tmp, &BigUint::from(0u32));
+        has_parts = true;
+        let piece = poseidon_hash_bytes(part.as_ref().as_bytes());
+        state = poseidon_compress(state, piece);
     }
-    let mut bytes = state.to_bytes_be();
-    if bytes.len() < 32 {
-        let mut padded = vec![0u8; 32 - bytes.len()];
-        padded.extend_from_slice(&bytes);
-        bytes = padded;
+    if !has_parts {
+        state = poseidon_compress(state, Fr::from(0u32));
     }
-    hex::encode(bytes)
+    hex::encode(field_to_bytes(state))
 }
 
 pub fn sha256_hex(data: &[u8]) -> String {
