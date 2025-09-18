@@ -115,11 +115,29 @@ pub fn sha256_hex(data: &[u8]) -> String {
 
 /// 使用 CPU 并行批量计算 Poseidon 哈希（输出 hex）
 pub fn cpu_poseidon_hash_hex_batch(inputs: &[Vec<u8>]) -> Vec<String> {
+    const CHUNK: usize = 256;
+    if inputs.len() <= CHUNK {
+        return inputs.iter().map(|bytes| snark_hash_hex(bytes)).collect();
+    }
+
     use rayon::prelude::*;
-    inputs
-        .par_iter()
-        .map(|bytes| snark_hash_hex(bytes))
-        .collect()
+
+    // Process hashes in fixed-size chunks so Rayon does not recurse too deeply on
+    // the caller's stack. On some platforms with smaller default stacks the
+    // previous fully recursive `par_iter()` based approach could overflow when
+    // the miner evaluated large nonce batches.
+    let mut outputs = vec![String::new(); inputs.len()];
+    outputs
+        .par_chunks_mut(CHUNK)
+        .enumerate()
+        .for_each(|(idx, chunk)| {
+            let start = idx * CHUNK;
+            let slice = &inputs[start..start + chunk.len()];
+            for (slot, data) in chunk.iter_mut().zip(slice.iter()) {
+                *slot = snark_hash_hex(data);
+            }
+        });
+    outputs
 }
 
 /// 预留 GPU 批量哈希入口：启用 gpu-icicle 特性时尝试走 GPU；不可用时返回 None
