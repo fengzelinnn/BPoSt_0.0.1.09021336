@@ -15,4 +15,4 @@ class P2PSimConfig:
     bobtail_k: int = 3
     min_storage_kb: int = 512
     max_storage_kb: int = 2048
-    bid_wait_sec: int = 20
+    bid_wait_sec: int = 15
