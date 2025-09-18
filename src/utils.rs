@@ -13,12 +13,31 @@ use parking_lot::Mutex;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
+#[cfg(not(target_family = "wasm"))]
+use std::thread;
+
+#[cfg(target_family = "wasm")]
+fn create_poseidon_hasher() -> Poseidon<Fr> {
+    Poseidon::<Fr>::new_circom(2).expect("failed to initialize Poseidon hasher for 2 inputs")
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn create_poseidon_hasher() -> Poseidon<Fr> {
+    const STACK_SIZE: usize = 4 * 1024 * 1024;
+    thread::Builder::new()
+        .name("poseidon-init".into())
+        .stack_size(STACK_SIZE)
+        .spawn(|| {
+            Poseidon::<Fr>::new_circom(2)
+                .expect("failed to initialize Poseidon hasher for 2 inputs")
+        })
+        .expect("failed to spawn poseidon initializer")
+        .join()
+        .expect("poseidon initializer thread panicked")
+}
 
 thread_local! {
-    static POSEIDON_STATE: RefCell<Poseidon<Fr>> = RefCell::new(
-        Poseidon::<Fr>::new_circom(2)
-            .expect("failed to initialize Poseidon hasher for 2 inputs")
-    );
+    static POSEIDON_STATE: RefCell<Poseidon<Fr>> = RefCell::new(create_poseidon_hasher());
 }
 
 const BYTES_DOMAIN: &[u8] = b"BPoStPoseidonHashv1";
