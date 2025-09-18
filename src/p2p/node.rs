@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::Sender;
+use crossbeam_channel::{unbounded, RecvTimeoutError, Sender};
 use num_bigint::BigUint;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -153,6 +153,42 @@ impl Node {
             }
         };
         listener.set_nonblocking(true).expect("set nonblocking");
+        let (conn_tx, conn_rx) = unbounded::<TcpStream>();
+        let listener_stop = Arc::clone(&self.stop_flag);
+        let node_id_for_thread = self.node_id.clone();
+        let listener_handle = thread::spawn(move || {
+            loop {
+                if listener_stop.load(Ordering::SeqCst) {
+                    break;
+                }
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        if conn_tx.send(stream).is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(50));
+                    }
+                    Err(e) => {
+                        log_msg(
+                            "ERROR",
+                            "P2P_NET",
+                            Some(node_id_for_thread.clone()),
+                            &format!("接受连接失败: {}", e),
+                        );
+                        thread::sleep(Duration::from_millis(200));
+                    }
+                }
+            }
+            log_msg(
+                "DEBUG",
+                "NODE",
+                Some(node_id_for_thread.clone()),
+                "监听线程退出。",
+            );
+        });
+
         self.discover_peers();
         log_msg(
             "DEBUG",
@@ -160,11 +196,12 @@ impl Node {
             Some(self.node_id.clone()),
             &format!("进入主循环..."),
         );
-        let mut last_report = Instant::now();
-        let mut last_consensus = Instant::now();
+        let mut next_report = Instant::now() + Duration::from_secs(3);
+        let mut next_consensus =
+            Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1000..2000));
         while !self.stop_flag.load(Ordering::SeqCst) {
-            match listener.accept() {
-                Ok((stream, _)) => {
+            match conn_rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(stream) => {
                     if let Err(e) = self.handle_connection(stream) {
                         log_msg(
                             "ERROR",
@@ -174,36 +211,34 @@ impl Node {
                         );
                     }
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(e) => {
-                    log_msg(
-                        "ERROR",
-                        "P2P_NET",
-                        Some(self.node_id.clone()),
-                        &format!("接受连接失败: {}", e),
-                    );
-                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
             }
 
             if !self.mempool.is_empty() {
                 self.process_mempool();
             }
 
-            if last_consensus.elapsed()
-                > Duration::from_millis(rand::thread_rng().gen_range(1000..2000))
-            {
+            if Instant::now() >= next_consensus {
                 self.attempt_consensus();
-                last_consensus = Instant::now();
+                next_consensus = Instant::now()
+                    + Duration::from_millis(rand::thread_rng().gen_range(1000..2000));
             }
 
-            if last_report.elapsed() > Duration::from_secs(3) {
+            if Instant::now() >= next_report {
                 self.report_status();
-                last_report = Instant::now();
+                next_report = Instant::now() + Duration::from_secs(3);
             }
-
-            if self.mempool.is_empty() {
-                thread::sleep(Duration::from_millis(100));
-            }
+        }
+        self.stop_flag.store(true, Ordering::SeqCst);
+        drop(conn_rx);
+        if listener_handle.join().is_err() {
+            log_msg(
+                "WARN",
+                "NODE",
+                Some(self.node_id.clone()),
+                "监听线程 join 失败。",
+            );
         }
         log_msg("DEBUG", "NODE", Some(self.node_id.clone()), "节点停止。");
     }
