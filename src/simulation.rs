@@ -50,11 +50,18 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
             .env("P2P_SIM_CONFIG", config_json.clone());
         match cmd.spawn() {
             Ok(child) => {
+                let role_label = if i == 0 { "（引导节点）" } else { "" };
                 log_msg(
                     "INFO",
                     "SIMULATOR",
                     Some(String::from("MAIN")),
-                    &format!("已启动存储节点 {} 于端口 {}", node_id, port),
+                    &format!(
+                        "已启动存储节点 {} 于端口 {}{}（分配存储容量: {} KB）",
+                        node_id,
+                        port,
+                        role_label,
+                        storage_capacity / 1024
+                    ),
                 );
                 children.push((format!("node-{}", node_id), child));
             }

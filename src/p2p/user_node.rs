@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use parking_lot::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -39,8 +40,8 @@ pub struct UserNode {
     bootstrap_addr: SocketAddr,
     config: P2PSimConfig,
     stop_flag: Arc<AtomicBool>,
-    bids: HashMap<String, Vec<Value>>,
-    active_requests: HashSet<String>,
+    bids: Arc<Mutex<HashMap<String, Vec<Value>>>>,
+    active_requests: Arc<Mutex<HashSet<String>>>,
     stored_files: HashMap<String, (Vec<SocketAddr>, usize)>,
 }
 
@@ -59,8 +60,8 @@ impl UserNode {
             bootstrap_addr,
             config,
             stop_flag: Arc::new(AtomicBool::new(false)),
-            bids: HashMap::new(),
-            active_requests: HashSet::new(),
+            bids: Arc::new(Mutex::new(HashMap::new())),
+            active_requests: Arc::new(Mutex::new(HashSet::new())),
             stored_files: HashMap::new(),
         }
     }
@@ -83,36 +84,131 @@ impl UserNode {
                 return;
             }
         };
-        listener.set_nonblocking(true).unwrap();
         log_msg(
             "INFO",
             "USER_NODE",
             Some(self.owner.owner_id.clone()),
             &format!("用户节点已在 {}:{} 启动", self.host, self.port),
         );
-        let mut last_action = Instant::now();
+
+        // 克隆共享状态，用于监听线程
+        let stop_flag = Arc::clone(&self.stop_flag);
+        let bids = Arc::clone(&self.bids);
+        let active_requests = Arc::clone(&self.active_requests);
+        let owner_id = self.owner.owner_id.clone();
+
+        // 启动监听线程，处理 accept 循环与连接
+        thread::spawn(move || {
+            // 将监听器移入线程，并采用非阻塞以便响应停止信号
+            if let Err(e) = listener.set_nonblocking(true) {
+                log_msg(
+                    "ERROR",
+                    "USER_NODE",
+                    Some(owner_id.clone()),
+                    &format!("设置监听器为非阻塞失败: {}", e),
+                );
+                return;
+            }
+            loop {
+                if stop_flag.load(Ordering::SeqCst) {
+                    break;
+                }
+                match listener.accept() {
+                    Ok((mut stream, _peer)) => {
+                        // 处理单个连接
+                        let res: std::io::Result<()> = (|| {
+                            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+                            stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+                            let mut reader = BufReader::new(stream.try_clone()?);
+                            let mut line = String::new();
+                            reader.read_line(&mut line)?;
+                            if line.trim().is_empty() {
+                                return Ok(());
+                            }
+                            let req: CommandRequest = serde_json::from_str(&line).unwrap_or(CommandRequest {
+                                cmd: String::new(),
+                                data: Value::Null,
+                            });
+                            // 基础响应
+                            let mut response = CommandResponse {
+                                ok: false,
+                                error: Some(String::from("未知命令")),
+                                extra: HashMap::new(),
+                            };
+                            if req.cmd == "storage_bid" {
+                                let request_id = req
+                                    .data
+                                    .get("request_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                let is_active = {
+                                    let active = active_requests.lock();
+                                    active.contains(request_id)
+                                };
+                                if is_active {
+                                    {
+                                        let mut bids_map = bids.lock();
+                                        bids_map
+                                            .entry(request_id.to_string())
+                                            .or_default()
+                                            .push(req.data.clone());
+                                    }
+                                    response.ok = true;
+                                    response.error = None;
+                                } else {
+                                    response.ok = false;
+                                    response.error = Some(String::from("请求不活跃"));
+                                }
+                            }
+                            let resp_json = serde_json::to_string(&response).unwrap();
+                            stream.write_all(resp_json.as_bytes())?;
+                            stream.write_all(b"\n")?;
+                            Ok(())
+                        })();
+                        if let Err(e) = res {
+                            log_msg(
+                                "ERROR",
+                                "USER_NODE",
+                                Some(owner_id.clone()),
+                                &format!("处理连接失败: {}", e),
+                            );
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        // 短暂休眠，避免忙轮询
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                    Err(e) => {
+                        log_msg(
+                            "ERROR",
+                            "USER_NODE",
+                            Some(owner_id.clone()),
+                            &format!("接受连接失败: {}", e),
+                        );
+                        thread::sleep(Duration::from_millis(100));
+                    }
+                }
+            }
+            log_msg(
+                "DEBUG",
+                "USER_NODE",
+                Some(owner_id.clone()),
+                "监听线程已停止。",
+            );
+        });
+
+        // 主线程：仅负责尝试发起存储与随机睡眠
         while !self.stop_flag.load(Ordering::SeqCst) {
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    let _ = self.handle_connection(stream);
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(e) => {
-                    log_msg(
-                        "ERROR",
-                        "USER_NODE",
-                        Some(self.owner.owner_id.clone()),
-                        &format!("接受连接失败: {}", e),
-                    );
-                }
+            let should_try = {
+                let active_empty = self.active_requests.lock().is_empty();
+                active_empty && rand::thread_rng().gen_bool(0.3)
+            };
+            if should_try {
+                self.try_store_file();
             }
-            if last_action.elapsed() > Duration::from_secs(3) {
-                if self.active_requests.is_empty() && rand::thread_rng().gen_bool(0.3) {
-                    self.try_store_file();
-                }
-                last_action = Instant::now();
-            }
-            thread::sleep(Duration::from_millis(200));
+            // 随机休眠 3~7 秒
+            let ms = rand::thread_rng().gen_range(3000..=7000);
+            thread::sleep(Duration::from_millis(ms));
         }
         log_msg(
             "DEBUG",
@@ -155,11 +251,18 @@ impl UserNode {
 
     fn handle_storage_bid(&mut self, data: &Value) -> CommandResponse {
         let request_id = data.get("request_id").and_then(Value::as_str).unwrap_or("");
-        if self.active_requests.contains(request_id) {
-            self.bids
-                .entry(request_id.to_string())
-                .or_default()
-                .push(data.clone());
+        let is_active = {
+            let active = self.active_requests.lock();
+            active.contains(request_id)
+        };
+        if is_active {
+            {
+                let mut bids_map = self.bids.lock();
+                bids_map
+                    .entry(request_id.to_string())
+                    .or_default()
+                    .push(data.clone());
+            }
             CommandResponse {
                 ok: true,
                 error: None,
@@ -190,7 +293,10 @@ impl UserNode {
         }
         let total_size = chunks.len() * self.config.chunk_size;
         let request_id = format!("req-{}", self.owner.file_id);
-        self.active_requests.insert(request_id.clone());
+        {
+            let mut active = self.active_requests.lock();
+            active.insert(request_id.clone());
+        }
         log_msg(
             "INFO",
             "USER_NODE",
@@ -223,7 +329,10 @@ impl UserNode {
             ),
         );
         thread::sleep(Duration::from_secs(self.config.bid_wait_sec));
-        let bids = self.bids.get(&request_id).cloned().unwrap_or_default();
+        let bids = {
+            let bids_map = self.bids.lock();
+            bids_map.get(&request_id).cloned().unwrap_or_default()
+        };
         if bids.len() >= num_nodes_required {
             let mut rng = rand::thread_rng();
             let mut winners = Vec::new();
@@ -276,7 +385,13 @@ impl UserNode {
                 &format!("文件 {} 的存储请求失败。竞标数量不足。", self.owner.file_id),
             );
         }
-        self.bids.remove(&request_id);
-        self.active_requests.remove(&request_id);
+        {
+            let mut bids_map = self.bids.lock();
+            bids_map.remove(&request_id);
+        }
+        {
+            let mut active = self.active_requests.lock();
+            active.remove(&request_id);
+        }
     }
 }
