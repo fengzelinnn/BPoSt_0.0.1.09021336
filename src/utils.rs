@@ -12,12 +12,14 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 
-static POSEIDON_STATE: Lazy<Mutex<Poseidon<Fr>>> = Lazy::new(|| {
-    Mutex::new(
-        Poseidon::<Fr>::new_circom(2).expect("failed to initialize Poseidon hasher for 2 inputs"),
-    )
-});
+thread_local! {
+    static POSEIDON_STATE: RefCell<Poseidon<Fr>> = RefCell::new(
+        Poseidon::<Fr>::new_circom(2)
+            .expect("failed to initialize Poseidon hasher for 2 inputs")
+    );
+}
 
 const BYTES_DOMAIN: &[u8] = b"BPoStPoseidonHashv1";
 const HJOIN_DOMAIN: &[u8] = b"HJOINv1";
@@ -44,10 +46,12 @@ fn bytes_to_field_elems(data: &[u8]) -> Vec<Fr> {
 }
 
 fn poseidon_compress(left: Fr, right: Fr) -> Fr {
-    let mut hasher = POSEIDON_STATE.lock();
-    hasher
-        .hash(&[left, right])
-        .expect("poseidon hash with two inputs should succeed")
+    POSEIDON_STATE.with(|cell| {
+        let mut hasher = cell.borrow_mut();
+        hasher
+            .hash(&[left, right])
+            .expect("poseidon hash with two inputs should succeed")
+    })
 }
 
 fn poseidon_hash_bytes(data: &[u8]) -> Fr {
@@ -107,6 +111,28 @@ where
 
 pub fn sha256_hex(data: &[u8]) -> String {
     snark_hash_hex(data)
+}
+
+/// 使用 CPU 并行批量计算 Poseidon 哈希（输出 hex）
+pub fn cpu_poseidon_hash_hex_batch(inputs: &[Vec<u8>]) -> Vec<String> {
+    use rayon::prelude::*;
+    inputs
+        .par_iter()
+        .map(|bytes| snark_hash_hex(bytes))
+        .collect()
+}
+
+/// 预留 GPU 批量哈希入口：启用 gpu-icicle 特性时尝试走 GPU；不可用时返回 None
+pub fn try_gpu_poseidon_hash_hex_batch(_inputs: &[Vec<u8>]) -> Option<Vec<String>> {
+    #[cfg(feature = "gpu-icicle")]
+    {
+        // 这里预留与 icicle/cuda 集成点：
+        // - 实际工程中可将 _inputs 编码为 field elements，然后调用 GPU kernel 批量计算 Poseidon。
+        // - 当前实现暂不提供内核，返回 None 以触发安全回退至 CPU 并行版本。
+        return None;
+    }
+    #[allow(unreachable_code)]
+    None
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

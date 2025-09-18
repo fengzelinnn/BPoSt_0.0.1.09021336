@@ -213,7 +213,7 @@ where
         .parse()
         .expect("无法解析 bobtail_k");
     let (report_tx, _report_rx) = unbounded();
-    let node = Node::new(
+    let node = Box::new(Node::new(
         node_id,
         host,
         port,
@@ -222,7 +222,7 @@ where
         max_storage,
         bobtail_k,
         report_tx,
-    );
+    ));
     node.run();
 }
 
@@ -244,6 +244,6 @@ where
         .expect("无法解析引导节点地址");
     let config = load_config_from_env();
     let owner = FileOwner::new(owner_id, config.chunk_size);
-    let user = UserNode::new(owner, host, port, bootstrap, config.clone());
+    let user = Box::new(UserNode::new(owner, host, port, bootstrap, config.clone()));
     user.run();
 }

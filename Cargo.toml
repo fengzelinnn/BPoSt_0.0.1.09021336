@@ -26,3 +26,13 @@ serde_bytes = "0.11"
 num-bigint = "0.4"
 chrono = { version = "0.4", features = ["std"] }
 num-traits = "0.2"
+rayon = "1.10"
+
+# 可选的 GPU 加速依赖（默认不启用，启用时仍会安全回退）
+icicle-core = { version = "1.3", optional = true }
+icicle-cuda-runtime = { version = "1.3", optional = true }
+
+[features]
+default = []
+# 预留 GPU 特性开关（当前实现会在不可用时回退到 CPU 并行）
+gpu-icicle = ["icicle-core", "icicle-cuda-runtime"]
