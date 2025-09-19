@@ -6,7 +6,7 @@ use std::sync::Arc; // 原子引用计数，用于多线程共享数据
 use std::thread; // 线程操作
 use std::time::{Duration, Instant}; // 时间相关操作
 
-use crossbeam_channel::{unbounded, RecvTimeoutError, Sender}; // 高性能的并发消息通道
+use crossbeam_channel::{unbounded, Sender}; // 高性能的并发消息通道
 use num_bigint::BigUint; // 大整数处理
 use rand::Rng; // 随机数生成
 use serde::{Deserialize, Serialize}; // 序列化和反序列化
@@ -224,19 +224,25 @@ impl Node {
         // 节点主循环
         while !self.stop_flag.load(Ordering::SeqCst) {
             // 1. 处理新的TCP连接
+            // 1. 处理新的TCP连接
             match conn_rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(stream) => {
                     if let Err(e) = self.handle_connection(stream) {
-                        log_msg(
-                            "ERROR",
-                            "NODE",
-                            Some(self.node_id.clone()),
-                            &format!("处理连接失败: {}", e),
-                        );
+                        // 只有当错误不是 "WouldBlock" 或 "TimedOut" 时，才将其记录为严重错误
+                        if e.kind() != std::io::ErrorKind::WouldBlock && e.kind() != std::io::ErrorKind::TimedOut {
+                            log_msg(
+                                "ERROR",
+                                "NODE",
+                                Some(self.node_id.clone()),
+                                &format!("处理连接失败: {}", e),
+                            );
+                        }
+                        // (否则，如果是 WouldBlock/Timeout，我们就静默地忽略它，因为这只是一个客户端超时)
                     }
+                },
+                Err(_) => {
+                    // 如果接收超时，继续执行循环的下一次迭代
                 }
-                Err(RecvTimeoutError::Timeout) => {} // 超时，继续执行
-                Err(RecvTimeoutError::Disconnected) => break, // 通道断开，退出循环
             }
 
             // 2. 处理内存池中的消息

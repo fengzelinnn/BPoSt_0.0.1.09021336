@@ -49,8 +49,8 @@ fn main() {
         min_storage_kb: 512,    // 最小存储空间 (KB)
         max_storage_kb: 2048,   // 最大存储空间 (KB)
         bid_wait_sec: 20,       // 投标等待时间（秒）
-        min_storage_rounds: 3,  // 最小存储轮次
-        max_storage_rounds: 6,  // 最大存储轮次
+        min_storage_rounds: 2,  // 最小存储轮次
+        max_storage_rounds: 3,  // 最大存储轮次
     };
     // 运行 P2P 网络模拟
     run_p2p_simulation(config);
