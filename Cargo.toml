@@ -27,6 +27,7 @@ num-bigint = "0.4"
 chrono = { version = "0.4", features = ["std"] }
 num-traits = "0.2"
 rayon = "1.10"
+nova-snark = "0.41"
 
 # 可选的 GPU 加速依赖（默认不启用，启用时仍会安全回退）
 icicle-core = { version = "1.3", optional = true }

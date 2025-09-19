@@ -67,27 +67,27 @@ struct RoundUpdate {
 
 /// P2P网络中的核心节点结构体
 pub struct Node {
-    pub node_id: String, // 节点的唯一标识符
-    host: String,        // 节点监听的主机地址
-    port: u16,           // 节点监听的端口
+    pub node_id: String,                                       // 节点的唯一标识符
+    host: String,                                              // 节点监听的主机地址
+    port: u16,                                                 // 节点监听的端口
     bootstrap_addr: Option<SocketAddr>, // 引导节点的地址，如果没有则自己是引导节点
-    storage_manager: StorageManager, // 存储管理器，负责文件的存储和检索
-    prover: Prover,      // 证明者，负责生成dPDP证明
-    miner: Miner,        // 矿工，负责挖矿（生成Bobtail证明）
+    storage_manager: StorageManager,    // 存储管理器，负责文件的存储和检索
+    prover: Prover,                     // 证明者，负责生成dPDP证明
+    miner: Miner,                       // 矿工，负责挖矿（生成Bobtail证明）
     peers: HashMap<String, SocketAddr>, // 对等节点列表 <node_id, addr>
-    mempool: VecDeque<Value>, // 内存池，暂存待处理的gossip消息
+    mempool: VecDeque<Value>,           // 内存池，暂存待处理的gossip消息
     proof_pool: HashMap<usize, HashMap<String, BobtailProof>>, // 证明池 <height, <node_id, proof>>
-    seen_gossip_ids: HashSet<String>, // 已见过的gossip消息ID，防止重复处理
-    chain: Blockchain,   // 节点的区块链实例
-    bobtail_k: usize,    // Bobtail共识算法中的k参数
-    prepare_margin: usize, // 预备阶段的容错边际
-    difficulty_threshold: BigUint, // 挖矿难度阈值
+    seen_gossip_ids: HashSet<String>,   // 已见过的gossip消息ID，防止重复处理
+    chain: Blockchain,                  // 节点的区块链实例
+    bobtail_k: usize,                   // Bobtail共识算法中的k参数
+    prepare_margin: usize,              // 预备阶段的容错边际
+    difficulty_threshold: BigUint,      // 挖矿难度阈值
     preprepare_signals: HashMap<usize, HashMap<String, Vec<String>>>, // 预备信号 <height, <sender_id, proof_hashes>>
     sent_preprepare_signal_at: HashMap<usize, Vec<String>>, // 记录在某个高度已发送的预备信号
-    election_concluded_for: HashSet<usize>, // 记录已完成领导者选举的高度
+    election_concluded_for: HashSet<usize>,                 // 记录已完成领导者选举的高度
     round_tst_updates: HashMap<usize, HashMap<String, RoundUpdate>>, // 轮次状态更新 <height, <node_id, update>>
-    stop_flag: Arc<AtomicBool>, // 优雅停机的标志
-    report_sender: Sender<NodeReport>, // 用于发送节点状态报告的通道
+    stop_flag: Arc<AtomicBool>,                                      // 优雅停机的标志
+    report_sender: Sender<NodeReport>,                               // 用于发送节点状态报告的通道
 }
 
 impl Node {
@@ -165,12 +165,12 @@ impl Node {
         };
         // 设置为非阻塞模式
         listener.set_nonblocking(true).expect("set nonblocking");
-        
+
         // 创建一个通道用于从监听线程接收新的TCP连接
         let (conn_tx, conn_rx) = unbounded::<TcpStream>();
         let listener_stop = Arc::clone(&self.stop_flag);
         let node_id_for_thread = self.node_id.clone();
-        
+
         // 启动一个独立的线程来接受TCP连接
         let listener_handle = thread::spawn(move || {
             loop {
@@ -215,10 +215,11 @@ impl Node {
             Some(self.node_id.clone()),
             &format!("进入主循环..."),
         );
-        
+
         // 初始化定时器
         let mut next_report = Instant::now() + Duration::from_secs(3); // 下次报告状态的时间
-        let mut next_consensus = Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1000..2000)); // 下次尝试共识的时间
+        let mut next_consensus =
+            Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1000..2000)); // 下次尝试共识的时间
 
         // 节点主循环
         while !self.stop_flag.load(Ordering::SeqCst) {
@@ -258,7 +259,7 @@ impl Node {
                 next_report = Instant::now() + Duration::from_secs(3);
             }
         }
-        
+
         // 清理和关闭
         self.stop_flag.store(true, Ordering::SeqCst);
         drop(conn_rx); // 关闭通道，让监听线程退出
@@ -316,8 +317,10 @@ impl Node {
         let resp_json = serde_json::to_string(&response).unwrap();
         // 写回响应
         writer.write_all(resp_json.as_bytes())?;
-        writer.write_all(b"
-")?;
+        writer.write_all(
+            b"
+",
+        )?;
         Ok(())
     }
 
@@ -420,6 +423,18 @@ impl Node {
                     .set_file_pk_beta(&chunk.file_id, pk_bytes);
             }
         }
+        if ok {
+            if let (Some(period), Some(ch_size)) = (
+                data.get("storage_period").and_then(Value::as_u64),
+                data.get("challenge_size").and_then(Value::as_u64),
+            ) {
+                self.storage_manager.ensure_cycle_metadata(
+                    &chunk.file_id,
+                    period as usize,
+                    ch_size as usize,
+                );
+            }
+        }
         CommandResponse {
             ok,
             error: None,
@@ -454,17 +469,20 @@ impl Node {
             .last()
             .map(|b| (b.timestamp / 1_000_000_000) as u64)
             .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
-        
+
         let (chunks, tags) = self.storage_manager.get_file_data_for_proof(file_id);
         // 调用Prover生成证明
-        let (proof, challenge, contributions) = self
-            .prover
-            .prove(file_id, &indices, &chunks, &tags, &prev_hash, timestamp);
-        // 更新存储状态
-        self.storage_manager.update_state_after_contributions(
+        let challenge_len = self
+            .storage_manager
+            .challenge_size_for(file_id)
+            .unwrap_or_else(|| indices.len().max(1));
+        let (proof, challenge, _contributions) = self.prover.prove(
             file_id,
-            &contributions,
-            &format!("{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)),
+            &chunks,
+            &tags,
+            &prev_hash,
+            timestamp,
+            Some(challenge_len),
         );
         log_msg(
             "INFO",
@@ -472,7 +490,7 @@ impl Node {
             Some(self.node_id.clone()),
             &format!("为文件 {} 生成了dPDP证明。", file_id),
         );
-        
+
         // 构造响应
         let challenge_json: Vec<Value> = challenge
             .iter()
@@ -572,7 +590,7 @@ impl Node {
             }
             self.seen_gossip_ids.insert(gossip_id.to_string());
         }
-        
+
         // 2. 根据消息类型进行处理
         if let Some(msg_type) = data.get("type").and_then(Value::as_str) {
             match msg_type {
@@ -643,7 +661,7 @@ impl Node {
                 _ => {}
             }
         }
-        
+
         // 3. 将消息继续gossip给其他对等节点
         self.gossip(data.clone(), false);
     }
@@ -674,7 +692,7 @@ impl Node {
     /// 处理内存池中的消息
     fn process_mempool(&mut self) {
         let next_height = self.chain.height() + 1;
-        
+
         // 优先处理新区块消息
         if let Some(pos) = self.mempool.iter().position(|msg| {
             msg.get("type").and_then(Value::as_str) == Some("new_block")
@@ -709,7 +727,7 @@ impl Node {
             }
             return; // 优先处理完区块后直接返回
         }
-        
+
         // 处理其他共识消息
         if let Some(msg) = self.mempool.pop_front() {
             let height = msg
@@ -765,7 +783,7 @@ impl Node {
         if self.election_concluded_for.contains(&height) {
             return;
         }
-        
+
         // 1. 如果自己还没有为当前高度生成证明，则尝试挖矿
         if !self
             .proof_pool
@@ -805,7 +823,7 @@ impl Node {
                 );
             }
         }
-        
+
         // 2. 尝试选举领导者
         self.try_elect_leader(height);
     }
@@ -815,7 +833,7 @@ impl Node {
         if self.election_concluded_for.contains(&height) {
             return;
         }
-        
+
         // 阶段1: 预备 (Pre-prepare)
         // 如果尚未发送预备信号
         if !self.sent_preprepare_signal_at.contains_key(&height) {
@@ -828,13 +846,13 @@ impl Node {
             if proofs.len() >= self.bobtail_k + self.prepare_margin {
                 proofs.sort_by(|a, b| a.proof_hash.cmp(&b.proof_hash)); // 按哈希排序
                 let selected = proofs[..self.bobtail_k].to_vec(); // 选择前k个最好的证明
-                // 计算平均哈希
+                                                                  // 计算平均哈希
                 let avg_hash = selected
                     .iter()
                     .map(|p| BigUint::parse_bytes(p.proof_hash.as_bytes(), 16).unwrap_or_default())
                     .fold(BigUint::from(0u32), |acc, x| acc + x)
                     / BigUint::from(self.bobtail_k as u32);
-                
+
                 // 如果平均哈希满足难度要求
                 if avg_hash <= self.difficulty_threshold {
                     let proof_hashes: Vec<String> =
@@ -856,7 +874,7 @@ impl Node {
                 }
             }
         }
-        
+
         // 阶段2: 准备/提交 (Prepare/Commit)
         // 如果已经发送了预备信号，则开始同步和计票
         if let Some(signals_snapshot) = self.preprepare_signals.get(&height).cloned() {
@@ -870,7 +888,7 @@ impl Node {
                 }),
                 true,
             );
-            
+
             // 对收到的所有提案（信号）进行计票
             let mut votes: HashMap<Vec<String>, Vec<String>> = HashMap::new();
             for (sender, proof_hashes) in &signals_snapshot {
@@ -879,7 +897,7 @@ impl Node {
                     .or_default()
                     .push(sender.clone());
             }
-            
+
             // 检查是否有提案获得了足够的票数（k票）
             for (proof_set, voters) in votes {
                 if voters.len() >= self.bobtail_k {
@@ -893,7 +911,7 @@ impl Node {
                             voters.len()
                         ),
                     );
-                    
+
                     // 检查自己是否拥有所有获胜的证明，如果没有则等待同步
                     let known: HashSet<String> = self
                         .proof_pool
@@ -909,7 +927,7 @@ impl Node {
                         );
                         continue;
                     }
-                    
+
                     // 选举领导者：获胜证明集合中哈希最小的证明的创建者
                     let mut winning: Vec<BobtailProof> = self
                         .proof_pool
@@ -926,12 +944,12 @@ impl Node {
                     }
                     winning.sort_by(|a, b| a.proof_hash.cmp(&b.proof_hash));
                     let leader_id = winning[0].node_id.clone();
-                    
+
                     // 如果自己是领导者，则创建区块
                     if leader_id == self.node_id {
                         self.create_block(height, winning);
                     }
-                    
+
                     // 标记当前高度的选举已结束
                     self.election_concluded_for.insert(height);
                     return; // 选举结束，退出函数
@@ -953,7 +971,7 @@ impl Node {
             .map(|p| p.proof_hash.clone())
             .collect();
         let (proofs_merkle_root, proofs_merkle_tree) = build_merkle_tree(&proof_hashes);
-        
+
         // 收集并验证上一轮的dPDP证明
         let prev_height = height - 1;
         let updates_for_prev = self
@@ -973,25 +991,111 @@ impl Node {
                 dpdp_proofs.insert(nid.clone(), update.dpdp_proofs.clone());
             }
         }
-        
+
         // 验证所有获胜者提交的dPDP证明
         for nid in &winners_ids {
             if let Some(update) = updates_for_prev.get(nid) {
                 for (fid, pkg_val) in &update.dpdp_proofs {
-                    if let Some(pkg_obj) = pkg_val.as_object() {
-                        let proof_val = pkg_obj.get("proof").cloned().unwrap_or(Value::Null);
-                        let challenge_val =
-                            pkg_obj.get("challenge").cloned().unwrap_or(Value::Null);
-                        let pk_hex = pkg_obj.get("pk_beta").and_then(Value::as_str).unwrap_or("");
-                        if pk_hex.is_empty() {
+                    let Some(pkg_obj) = pkg_val.as_object() else {
+                        log_msg(
+                            "ERROR",
+                            "CONSENSUS",
+                            Some(self.node_id.clone()),
+                            &format!(
+                                "节点 {} 文件 {} 提供的 dPDP 数据格式错误，放弃本次出块。",
+                                nid, fid
+                            ),
+                        );
+                        return;
+                    };
+
+                    let pk_hex = pkg_obj.get("pk_beta").and_then(Value::as_str).unwrap_or("");
+                    if pk_hex.is_empty() {
+                        log_msg(
+                            "ERROR",
+                            "CONSENSUS",
+                            Some(self.node_id.clone()),
+                            &format!("节点 {} 文件 {} 缺少 pk_beta，放弃本次出块。", nid, fid),
+                        );
+                        return;
+                    }
+                    let pk_bytes = match hex::decode(pk_hex) {
+                        Ok(bytes) if bytes.len() == 192 => bytes,
+                        _ => {
                             log_msg(
                                 "ERROR",
                                 "CONSENSUS",
                                 Some(self.node_id.clone()),
-                                &format!("节点 {} 文件 {} 缺少 pk_beta，放弃本次出块。", nid, fid),
+                                &format!(
+                                    "节点 {} 文件 {} 的 pk_beta 无法解析，放弃本次出块。",
+                                    nid, fid
+                                ),
                             );
                             return;
                         }
+                    };
+                    let params = DPDPParams {
+                        g: G2Affine::generator().into(),
+                        u: G1Affine::generator().into(),
+                        pk_beta: deserialize_g2(&pk_bytes),
+                        sk_alpha: BigUint::from(0u32), // 验证时不需要私钥
+                    };
+
+                    let pending_rounds = pkg_obj
+                        .get("pending_rounds")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    if pending_rounds.is_empty() {
+                        if pkg_obj.get("final_fold").is_none() {
+                            log_msg(
+                                "WARN",
+                                "CONSENSUS",
+                                Some(self.node_id.clone()),
+                                &format!("节点 {} 文件 {} 未提供任何待验证的折叠轮次。", nid, fid),
+                            );
+                        }
+                    }
+
+                    for round_val in pending_rounds {
+                        let Some(round_obj) = round_val.as_object() else {
+                            log_msg(
+                                "WARN",
+                                "CONSENSUS",
+                                Some(self.node_id.clone()),
+                                &format!(
+                                    "节点 {} 文件 {} 存在格式异常的折叠轮次，忽略。",
+                                    nid, fid
+                                ),
+                            );
+                            continue;
+                        };
+
+                        let round_idx = round_obj
+                            .get("round")
+                            .and_then(Value::as_u64)
+                            .unwrap_or_default();
+                        let challenge_entries = round_obj
+                            .get("challenge")
+                            .and_then(Value::as_array)
+                            .cloned()
+                            .unwrap_or_default();
+                        let challenge: Vec<(usize, BigUint)> = challenge_entries
+                            .iter()
+                            .filter_map(|entry| match entry.as_array() {
+                                Some(inner) if inner.len() == 2 => Some((
+                                    inner[0].as_u64().unwrap_or(0) as usize,
+                                    BigUint::parse_bytes(
+                                        inner[1].as_str().unwrap_or("0").as_bytes(),
+                                        10,
+                                    )
+                                    .unwrap_or_default(),
+                                )),
+                                _ => None,
+                            })
+                            .collect();
+
+                        let proof_val = round_obj.get("proof").cloned().unwrap_or(Value::Null);
                         let proof = match serde_json::from_value::<DPDPProof>(proof_val) {
                             Ok(p) => p,
                             Err(e) => {
@@ -1000,61 +1104,22 @@ impl Node {
                                     "CONSENSUS",
                                     Some(self.node_id.clone()),
                                     &format!(
-                                        "dPDP 证明解析失败：节点 {} 文件 {} 错误 {}",
-                                        nid, fid, e
+                                        "dPDP 证明解析失败：节点 {} 文件 {} 轮次 {} 错误 {}",
+                                        nid, fid, round_idx, e
                                     ),
                                 );
                                 return;
                             }
                         };
-                        let challenge: Vec<(usize, BigUint)> = challenge_val
-                            .as_array()
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|entry| match entry.as_array() {
-                                        Some(inner) if inner.len() == 2 => Some((
-                                            inner[0].as_u64().unwrap_or(0) as usize,
-                                            BigUint::parse_bytes(
-                                                inner[1].as_str().unwrap_or("0").as_bytes(),
-                                                10,
-                                            )
-                                            .unwrap_or_default(),
-                                        )),
-                                        _ => None,
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        let pk_bytes = match hex::decode(pk_hex) {
-                            Ok(bytes) if bytes.len() == 192 => bytes,
-                            _ => {
-                                log_msg(
-                                    "ERROR",
-                                    "CONSENSUS",
-                                    Some(self.node_id.clone()),
-                                    &format!(
-                                        "节点 {} 文件 {} 的 pk_beta 无法解析，放弃本次出块。",
-                                        nid, fid
-                                    ),
-                                );
-                                return;
-                            }
-                        };
-                        let params = DPDPParams {
-                            g: G2Affine::generator().into(),
-                            u: G1Affine::generator().into(),
-                            pk_beta: deserialize_g2(&pk_bytes),
-                            sk_alpha: BigUint::from(0u32), // 验证时不需要私钥
-                        };
-                        // 核心验证步骤
+
                         if !DPDP::check_proof(&params, &proof, &challenge) {
                             log_msg(
                                 "CRITICAL",
                                 "CONSENSUS",
                                 Some(self.node_id.clone()),
                                 &format!(
-                                    "dPDP 证明验证失败：节点 {} 文件 {}，放弃本次出块。",
-                                    nid, fid
+                                    "dPDP 证明验证失败：节点 {} 文件 {} 轮次 {}，放弃本次出块。",
+                                    nid, fid, round_idx
                                 ),
                             );
                             return;
@@ -1063,7 +1128,7 @@ impl Node {
                 }
             }
         }
-        
+
         // 构造区块体
         let body = BlockBody {
             selected_k_proofs: winning_proofs
@@ -1080,7 +1145,7 @@ impl Node {
             proofs_merkle_tree: proofs_merkle_tree,
             dpdp_challenges,
         };
-        
+
         // 构造完整区块
         let new_block = Block {
             height: height as u64,
@@ -1096,7 +1161,7 @@ impl Node {
             bobtail_target: format!("{:x}", self.difficulty_threshold),
             timestamp: chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0) as u128,
         };
-        
+
         // 将新区块gossip出去
         self.gossip(
             serde_json::json!({
@@ -1113,50 +1178,73 @@ impl Node {
         if self.storage_manager.get_num_files() == 0 {
             return;
         }
-        let round_salt = format!("{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
         let mut challenges_by_file: HashMap<String, Vec<ChallengeEntry>> = HashMap::new();
-        let mut dpdp_proofs_by_file: HashMap<String, Value> = HashMap::new();
+        let mut latest_results: HashMap<String, Value> = HashMap::new();
         let file_ids = self.storage_manager.list_file_ids();
-        
+
         // 为自己存储的每个文件生成dPDP证明
         for fid in &file_ids {
             let (chunks, tags) = self.storage_manager.get_file_data_for_proof(fid);
+            let challenge_len = self
+                .storage_manager
+                .challenge_size_for(fid)
+                .unwrap_or_else(|| tags.len().max(1));
             let (proof, challenge, contributions) = self.prover.prove(
                 fid,
-                &[], // 空的索引表示对整个文件进行挑战
                 &chunks,
                 &tags,
                 &accepted_block.prev_hash,
                 (accepted_block.timestamp / 1_000_000_000) as u64,
+                Some(challenge_len),
             );
-            self.storage_manager
-                .update_state_after_contributions(fid, &contributions, &round_salt);
             let entries: Vec<ChallengeEntry> = challenge
                 .iter()
                 .map(|(i, v)| ChallengeEntry(*i, v.to_string()))
                 .collect();
             challenges_by_file.insert(fid.clone(), entries);
-            
-            // 准备要gossip出去的证明包
+
+            let round_salt = format!("{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+            if let Some(result) = self.storage_manager.process_round(
+                fid,
+                accepted_block,
+                &proof,
+                &challenge,
+                &contributions,
+                &round_salt,
+            ) {
+                latest_results.insert(
+                    fid.clone(),
+                    serde_json::json!({
+                        "accumulator": result.accumulator.to_string(),
+                        "step": result.step_index,
+                    }),
+                );
+            }
+        }
+
+        let mut pending_rounds = self.storage_manager.drain_pending_rounds();
+        let mut final_folds = self.storage_manager.take_final_folds();
+        let mut dpdp_proofs_by_file: HashMap<String, Value> = HashMap::new();
+        for fid in &file_ids {
             let pk_hex = self
                 .storage_manager
                 .get_file_pk_beta(fid)
                 .map(|bytes| hex::encode(bytes))
                 .unwrap_or_default();
-            let challenge_json: Vec<Value> = challenge
-                .iter()
-                .map(|(i, v)| serde_json::json!([*i as u64, v.to_string()]))
-                .collect();
+            let pending = pending_rounds.remove(fid).unwrap_or_default();
+            let final_fold = final_folds.remove(fid);
+            let latest = latest_results.get(fid).cloned();
             dpdp_proofs_by_file.insert(
                 fid.clone(),
                 serde_json::json!({
-                    "proof": proof,
-                    "challenge": challenge_json,
                     "pk_beta": pk_hex,
+                    "pending_rounds": pending,
+                    "latest": latest,
+                    "final_fold": final_fold,
                 }),
             );
         }
-        
+
         // 将自己的dPDP结果（作为下一轮的状态更新）gossip出去
         let roots = self.storage_manager.get_file_roots();
         let challenges_copy = challenges_by_file.clone();
@@ -1170,7 +1258,7 @@ impl Node {
             "dpdp_proofs": dpdp_proofs_by_file,
         });
         self.gossip(msg.clone(), true);
-        
+
         // 同时更新自己的本地状态
         let update = RoundUpdate {
             file_roots: self.storage_manager.get_file_roots(),
@@ -1206,8 +1294,10 @@ pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
     if let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(1500)) {
         let json = serde_json::to_string(payload).ok()?;
         let _ = stream.write_all(json.as_bytes());
-        let _ = stream.write_all(b"
-");
+        let _ = stream.write_all(
+            b"
+",
+        );
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
         if reader.read_line(&mut line).ok()? > 0 {

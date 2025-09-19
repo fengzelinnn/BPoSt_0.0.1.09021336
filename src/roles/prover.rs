@@ -18,17 +18,17 @@ impl Prover {
     pub fn prove(
         &self,
         file_id: &str,
-        _indices: &[usize],
         file_chunks: &HashMap<usize, Vec<u8>>,
         file_tags: &DPDPTags,
         prev_hash: &str,
         timestamp: u64,
+        challenge_size: Option<usize>,
     ) -> (
         DPDPProof,
         Vec<(usize, BigUint)>,
         Vec<(usize, BigUint, Vec<u8>)>,
     ) {
-        let challenge = DPDP::gen_chal(prev_hash, timestamp, file_tags, None);
+        let challenge = DPDP::gen_chal(prev_hash, timestamp, file_tags, challenge_size);
         let proof = DPDP::gen_proof(file_tags, file_chunks, &challenge);
         let contributions = DPDP::gen_contributions(file_tags, file_chunks, &challenge);
         log_msg(

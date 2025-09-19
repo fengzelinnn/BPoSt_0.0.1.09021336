@@ -52,12 +52,11 @@ impl Miner {
                 .collect();
 
             // 尝试 GPU；若返回 None 则用 CPU 并行批处理
-            let hashes: Vec<String> =
-                if let Some(hs) = try_gpu_poseidon_hash_hex_batch(&inputs) {
-                    hs
-                } else {
-                    cpu_poseidon_hash_hex_batch(&inputs)
-                };
+            let hashes: Vec<String> = if let Some(hs) = try_gpu_poseidon_hash_hex_batch(&inputs) {
+                hs
+            } else {
+                cpu_poseidon_hash_hex_batch(&inputs)
+            };
 
             // 遍历本批结果，更新全局最优
             for (i, h) in hashes.into_iter().enumerate() {
