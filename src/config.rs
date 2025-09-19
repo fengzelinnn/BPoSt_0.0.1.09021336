@@ -15,6 +15,8 @@ pub struct P2PSimConfig {
     pub min_storage_kb: usize,
     pub max_storage_kb: usize,
     pub bid_wait_sec: u64,
+    pub min_storage_rounds: usize,
+    pub max_storage_rounds: usize,
 }
 
 impl Default for P2PSimConfig {
@@ -33,6 +35,8 @@ impl Default for P2PSimConfig {
             min_storage_kb: 512,
             max_storage_kb: 2048,
             bid_wait_sec: 20,
+            min_storage_rounds: 3,
+            max_storage_rounds: 6,
         }
     }
 }

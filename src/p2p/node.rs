@@ -423,6 +423,17 @@ impl Node {
                     .set_file_pk_beta(&chunk.file_id, pk_bytes);
             }
         }
+        let owner_addr = data
+            .get("owner_addr")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| {
+                if arr.len() != 2 {
+                    return None;
+                }
+                let host = arr.get(0)?.as_str()?;
+                let port = arr.get(1)?.as_u64()? as u16;
+                host.parse().ok().map(|ip| SocketAddr::new(ip, port))
+            });
         if ok {
             if let (Some(period), Some(ch_size)) = (
                 data.get("storage_period").and_then(Value::as_u64),
@@ -432,6 +443,7 @@ impl Node {
                     &chunk.file_id,
                     period as usize,
                     ch_size as usize,
+                    owner_addr,
                 );
             }
         }
@@ -1123,12 +1135,13 @@ impl Node {
                                 ),
                             );
                             return;
-                        }
-                        else {
-                            log_msg("DEBUG",
-                                    "CONSENSUS",
-                                    Some(self.node_id.clone()),
-                                    &format!("dPDP 证明验证Pass：节点 {} 文件 {}。", nid, fid),);
+                        } else {
+                            log_msg(
+                                "DEBUG",
+                                "CONSENSUS",
+                                Some(self.node_id.clone()),
+                                &format!("dPDP 证明验证Pass：节点 {} 文件 {}。", nid, fid),
+                            );
                         }
                     }
                 }
@@ -1230,6 +1243,40 @@ impl Node {
 
         let mut pending_rounds = self.storage_manager.drain_pending_rounds();
         let mut final_folds = self.storage_manager.take_final_folds();
+        for (fid, fold_val) in final_folds.iter() {
+            if let Some(addr) = self.storage_manager.owner_addr_for(fid) {
+                if let Some(obj) = fold_val.as_object() {
+                    let payload = serde_json::json!({
+                        "cmd": "final_proof",
+                        "data": {
+                            "file_id": fid,
+                            "provider_id": self.node_id,
+                            "accumulator": obj
+                                .get("accumulator")
+                                .cloned()
+                                .unwrap_or(Value::Null),
+                            "steps": obj.get("steps").cloned().unwrap_or(Value::Null),
+                            "compressed_snark": obj
+                                .get("compressed_snark")
+                                .cloned()
+                                .unwrap_or(Value::Null),
+                            "verifier_key": obj
+                                .get("verifier_key")
+                                .cloned()
+                                .unwrap_or(Value::Null),
+                        }
+                    });
+                    if send_json_line(addr, &payload).is_none() {
+                        log_msg(
+                            "WARN",
+                            "P2P_NET",
+                            Some(self.node_id.clone()),
+                            &format!("向文件所有者发送文件 {} 最终证明失败", fid),
+                        );
+                    }
+                }
+            }
+        }
         let mut dpdp_proofs_by_file: HashMap<String, Value> = HashMap::new();
         for fid in &file_ids {
             let pk_hex = self

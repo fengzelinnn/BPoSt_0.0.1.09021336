@@ -6,7 +6,7 @@ use ff::{Field as FFField, PrimeField as FFPrimeField};
 use nova_snark::{
     errors::NovaError as NovaSnarkError,
     frontend::{num::AllocatedNum, ConstraintSystem, SynthesisError},
-    nova::{CompressedSNARK, PublicParams, RecursiveSNARK},
+    nova::{CompressedSNARK, PublicParams, RecursiveSNARK, VerifierKey},
     provider::{
         hyperkzg::EvaluationEngine as HyperKzg, ipa_pc::EvaluationEngine as IpaPc, Bn256EngineKZG,
         GrumpkinEngine,
@@ -846,6 +846,8 @@ pub enum NovaFoldingError {
     NovaInternal(#[from] NovaSnarkError),
     #[error("serialization failure: {0}")]
     Serialization(String),
+    #[error("validation failure: {0}")]
+    Validation(String),
 }
 
 /// 单轮折叠的结果。
@@ -1100,6 +1102,38 @@ impl NovaFoldingCycle {
             ),
         );
         Ok(Some(proof))
+    }
+
+    pub fn verify_final_accumulator(
+        expected_steps: usize,
+        compressed_snark: &[u8],
+        verifier_key: &[u8],
+    ) -> Result<String, NovaFoldingError> {
+        type NovaCompressed =
+            CompressedSNARK<NovaEngine1, NovaEngine2, NovaStepCircuit, NovaSNARK1, NovaSNARK2>;
+        let snark: NovaCompressed = bincode::deserialize(compressed_snark)
+            .map_err(|err| NovaFoldingError::Serialization(err.to_string()))?;
+        let vk: VerifierKey<NovaEngine1, NovaEngine2, NovaStepCircuit, NovaSNARK1, NovaSNARK2> =
+            bincode::deserialize(verifier_key)
+                .map_err(|err| NovaFoldingError::Serialization(err.to_string()))?;
+        let outputs = snark
+            .verify(&vk, expected_steps, &[NovaScalar::ZERO, NovaScalar::ZERO])
+            .map_err(NovaFoldingError::NovaInternal)?;
+        if outputs.len() < 2 {
+            return Err(NovaFoldingError::Validation(format!(
+                "expected 2 outputs, received {}",
+                outputs.len()
+            )));
+        }
+        let accumulator = nova_scalar_to_fr(&outputs[0]);
+        let steps_fr = nova_scalar_to_fr(&outputs[1]);
+        if steps_fr != Fr::from(expected_steps as u64) {
+            return Err(NovaFoldingError::Validation(format!(
+                "proof reports steps {}",
+                fr_to_padded_hex(&steps_fr)
+            )));
+        }
+        Ok(fr_to_padded_hex(&accumulator))
     }
 }
 
