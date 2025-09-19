@@ -1,7 +1,7 @@
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -39,6 +39,7 @@ struct StoredFileRecord {
     _num_chunks: usize,
     required_rounds: usize,
     final_verified: bool,
+    _final_listener_addr: Option<SocketAddr>,
 }
 
 pub struct UserNode {
@@ -178,149 +179,11 @@ impl UserNode {
                                         }
                                     }
                                     "final_proof" => {
-                                        let file_id = req
-                                            .data
-                                            .get("file_id")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or("")
-                                            .to_string();
-                                        let steps = req
-                                            .data
-                                            .get("steps")
-                                            .and_then(Value::as_u64)
-                                            .unwrap_or(0)
-                                            as usize;
-                                        let accumulator = req
-                                            .data
-                                            .get("accumulator")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or("")
-                                            .to_string();
-                                        let compressed_hex = req
-                                            .data
-                                            .get("compressed_snark")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or("")
-                                            .to_string();
-                                        let vk_hex = req
-                                            .data
-                                            .get("verifier_key")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or("")
-                                            .to_string();
-                                        let provider = req
-                                            .data
-                                            .get("provider_id")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or("unknown")
-                                            .to_string();
-
-                                        let (record_opt, already_verified) = {
-                                            let map = stored_files.lock();
-                                            match map.get(&file_id) {
-                                                Some(record) => {
-                                                    (Some(record.clone()), record.final_verified)
-                                                }
-                                                None => (None, false),
-                                            }
-                                        };
-
-                                        if file_id.is_empty()
-                                            || accumulator.is_empty()
-                                            || compressed_hex.is_empty()
-                                            || vk_hex.is_empty()
-                                            || record_opt.is_none()
-                                        {
-                                            response.error =
-                                                Some(String::from("参数缺失或未知文件"));
-                                        } else {
-                                            let record = record_opt.unwrap();
-                                            if steps != record.required_rounds {
-                                                log_msg(
-                                                    "WARN",
-                                                    "USER_NODE",
-                                                    Some(owner_id.clone()),
-                                                    &format!(
-                                                        "文件 {} 的最终证明步数 {} 与期望 {} 不符。",
-                                                        file_id, steps, record.required_rounds
-                                                    ),
-                                                );
-                                            }
-                                            match (
-                                                hex::decode(&compressed_hex),
-                                                hex::decode(&vk_hex),
-                                            ) {
-                                                (Ok(compressed_bytes), Ok(vk_bytes)) => {
-                                                    match NovaFoldingCycle::verify_final_accumulator(
-                                                        steps,
-                                                        &compressed_bytes,
-                                                        &vk_bytes,
-                                                    ) {
-                                                        Ok(proof_acc) => {
-                                                            if proof_acc == accumulator
-                                                                && steps == record.required_rounds
-                                                            {
-                                                                if !already_verified {
-                                                                    log_msg(
-                                                                        "SUCCESS",
-                                                                        "USER_NODE",
-                                                                        Some(owner_id.clone()),
-                                                                        &format!(
-                                                                            "成功验证来自节点 {} 的文件 {} 最终 Nova 证明。",
-                                                                            provider, file_id
-                                                                        ),
-                                                                    );
-                                                                }
-                                                                {
-                                                                    let mut map =
-                                                                        stored_files.lock();
-                                                                    if let Some(entry) =
-                                                                        map.get_mut(&file_id)
-                                                                    {
-                                                                        entry.final_verified = true;
-                                                                    }
-                                                                }
-                                                                response.ok = true;
-                                                                response.error = None;
-                                                            } else {
-                                                                log_msg(
-                                                                    "WARN",
-                                                                    "USER_NODE",
-                                                                    Some(owner_id.clone()),
-                                                                    &format!(
-                                                                        "文件 {} 的最终证明通过验证但输出不匹配（acc={}, steps={})。",
-                                                                        file_id, proof_acc, steps
-                                                                    ),
-                                                                );
-                                                                response.error =
-                                                                    Some(String::from(
-                                                                        "最终证明输出不匹配",
-                                                                    ));
-                                                            }
-                                                        }
-                                                        Err(err) => {
-                                                            log_msg(
-                                                                "ERROR",
-                                                                "USER_NODE",
-                                                                Some(owner_id.clone()),
-                                                                &format!(
-                                                                    "验证文件 {} 的最终 Nova 证明失败: {}",
-                                                                    file_id, err
-                                                                ),
-                                                            );
-                                                            response.error = Some(String::from(
-                                                                "最终证明验证失败",
-                                                            ));
-                                                        }
-                                                    }
-                                                }
-                                                _ => {
-                                                    response.error = Some(String::from(
-                                                        "无法解析最终证明或验证密钥",
-                                                    ));
-                                                }
-                                            }
-                                        }
+                                        response = Self::process_final_proof_command(
+                                            &stored_files,
+                                            &owner_id,
+                                            &req.data,
+                                        );
                                     }
                                     _ => {}
                                 }
@@ -445,6 +308,322 @@ impl UserNode {
         }
     }
 
+    fn process_final_proof_command(
+        stored_files: &Arc<Mutex<HashMap<String, StoredFileRecord>>>,
+        owner_id: &str,
+        data: &Value,
+    ) -> CommandResponse {
+        let mut response = CommandResponse {
+            ok: false,
+            error: Some(String::from("未知命令")),
+            extra: HashMap::new(),
+        };
+
+        let file_id = data
+            .get("file_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let steps = data.get("steps").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let accumulator = data
+            .get("accumulator")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let compressed_hex = data
+            .get("compressed_snark")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let vk_hex = data
+            .get("verifier_key")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let provider = data
+            .get("provider_id")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+
+        if file_id.is_empty()
+            || accumulator.is_empty()
+            || compressed_hex.is_empty()
+            || vk_hex.is_empty()
+        {
+            response.error = Some(String::from("参数缺失或未知文件"));
+            return response;
+        }
+
+        match Self::verify_final_proof(
+            stored_files,
+            owner_id,
+            &file_id,
+            steps,
+            &accumulator,
+            &compressed_hex,
+            &vk_hex,
+            &provider,
+        ) {
+            Ok(_) => {
+                response.ok = true;
+                response.error = None;
+            }
+            Err(err) => {
+                response.error = Some(err);
+            }
+        }
+
+        response
+    }
+
+    fn verify_final_proof(
+        stored_files: &Arc<Mutex<HashMap<String, StoredFileRecord>>>,
+        owner_id: &str,
+        file_id: &str,
+        steps: usize,
+        accumulator: &str,
+        compressed_hex: &str,
+        vk_hex: &str,
+        provider: &str,
+    ) -> Result<(), String> {
+        let (record_opt, already_verified) = {
+            let map = stored_files.lock();
+            match map.get(file_id) {
+                Some(record) => (Some(record.clone()), record.final_verified),
+                None => (None, false),
+            }
+        };
+
+        let record = match record_opt {
+            Some(rec) => rec,
+            None => return Err(String::from("参数缺失或未知文件")),
+        };
+
+        if steps != record.required_rounds {
+            log_msg(
+                "WARN",
+                "USER_NODE",
+                Some(owner_id.to_string()),
+                &format!(
+                    "文件 {} 的最终证明步数 {} 与期望 {} 不符。",
+                    file_id, steps, record.required_rounds
+                ),
+            );
+        }
+
+        let compressed_bytes = match hex::decode(compressed_hex) {
+            Ok(bytes) => bytes,
+            Err(_) => return Err(String::from("无法解析最终证明或验证密钥")),
+        };
+        let vk_bytes = match hex::decode(vk_hex) {
+            Ok(bytes) => bytes,
+            Err(_) => return Err(String::from("无法解析最终证明或验证密钥")),
+        };
+
+        match NovaFoldingCycle::verify_final_accumulator(steps, &compressed_bytes, &vk_bytes) {
+            Ok(proof_acc) => {
+                if proof_acc == accumulator && steps == record.required_rounds {
+                    if !already_verified {
+                        log_msg(
+                            "SUCCESS",
+                            "USER_NODE",
+                            Some(owner_id.to_string()),
+                            &format!(
+                                "成功验证来自节点 {} 的文件 {} 最终 Nova 证明。",
+                                provider, file_id
+                            ),
+                        );
+                        println!(
+                            "文件 {} 的最终 Nova 证明已成功验证（来自 {}）。",
+                            file_id, provider
+                        );
+                    }
+                    {
+                        let mut map = stored_files.lock();
+                        if let Some(entry) = map.get_mut(file_id) {
+                            entry.final_verified = true;
+                        }
+                    }
+                    Ok(())
+                } else {
+                    log_msg(
+                        "WARN",
+                        "USER_NODE",
+                        Some(owner_id.to_string()),
+                        &format!(
+                            "文件 {} 的最终证明通过验证但输出不匹配（acc={}, steps={})。",
+                            file_id, proof_acc, steps
+                        ),
+                    );
+                    Err(String::from("最终证明输出不匹配"))
+                }
+            }
+            Err(err) => {
+                log_msg(
+                    "ERROR",
+                    "USER_NODE",
+                    Some(owner_id.to_string()),
+                    &format!("验证文件 {} 的最终 Nova 证明失败: {}", file_id, err),
+                );
+                Err(String::from("最终证明验证失败"))
+            }
+        }
+    }
+
+    fn setup_final_proof_listener(&self, file_id: String) -> Option<SocketAddr> {
+        let ip: IpAddr = match self.host.parse() {
+            Ok(ip) => ip,
+            Err(err) => {
+                log_msg(
+                    "ERROR",
+                    "USER_NODE",
+                    Some(self.owner.owner_id.clone()),
+                    &format!("解析用于最终证明监听的主机地址失败: {}", err),
+                );
+                return None;
+            }
+        };
+
+        let listener = match TcpListener::bind(SocketAddr::new(ip, 0)) {
+            Ok(l) => l,
+            Err(err) => {
+                log_msg(
+                    "ERROR",
+                    "USER_NODE",
+                    Some(self.owner.owner_id.clone()),
+                    &format!("为文件 {} 启动最终证明监听失败: {}", file_id, err),
+                );
+                return None;
+            }
+        };
+        let local_addr = match listener.local_addr() {
+            Ok(addr) => addr,
+            Err(err) => {
+                log_msg(
+                    "ERROR",
+                    "USER_NODE",
+                    Some(self.owner.owner_id.clone()),
+                    &format!("获取文件 {} 最终证明监听地址失败: {}", file_id, err),
+                );
+                return None;
+            }
+        };
+
+        let stored_files = Arc::clone(&self.stored_files);
+        let stop_flag = Arc::clone(&self.stop_flag);
+        let owner_id = self.owner.owner_id.clone();
+        thread::spawn(move || {
+            Self::run_final_proof_listener(listener, file_id, stored_files, stop_flag, owner_id);
+        });
+
+        Some(local_addr)
+    }
+
+    fn run_final_proof_listener(
+        listener: TcpListener,
+        file_id: String,
+        stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
+        stop_flag: Arc<AtomicBool>,
+        owner_id: String,
+    ) {
+        if let Err(err) = listener.set_nonblocking(true) {
+            log_msg(
+                "ERROR",
+                "USER_NODE",
+                Some(owner_id.clone()),
+                &format!("设置文件 {} 的最终证明监听非阻塞失败: {}", file_id, err),
+            );
+            return;
+        }
+
+        loop {
+            if stop_flag.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let final_status = {
+                let map = stored_files.lock();
+                map.get(&file_id).map(|record| record.final_verified)
+            };
+            match final_status {
+                Some(true) => break,
+                Some(false) => {}
+                None => {
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+            }
+
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    if let Err(err) = Self::handle_final_proof_stream(
+                        stream,
+                        Arc::clone(&stored_files),
+                        owner_id.clone(),
+                    ) {
+                        log_msg(
+                            "ERROR",
+                            "USER_NODE",
+                            Some(owner_id.clone()),
+                            &format!("处理文件 {} 最终证明连接失败: {}", file_id, err),
+                        );
+                    }
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(200));
+                }
+                Err(err) => {
+                    log_msg(
+                        "ERROR",
+                        "USER_NODE",
+                        Some(owner_id.clone()),
+                        &format!("接受文件 {} 最终证明连接失败: {}", file_id, err),
+                    );
+                    thread::sleep(Duration::from_millis(200));
+                }
+            }
+        }
+
+        log_msg(
+            "DEBUG",
+            "USER_NODE",
+            Some(owner_id.clone()),
+            &format!("文件 {} 的最终证明监听线程退出。", file_id),
+        );
+    }
+
+    fn handle_final_proof_stream(
+        mut stream: TcpStream,
+        stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
+        owner_id: String,
+    ) -> std::io::Result<()> {
+        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+        let mut reader = BufReader::new(stream.try_clone()?);
+        let mut line = String::new();
+        reader.read_line(&mut line)?;
+        if line.trim().is_empty() {
+            return Ok(());
+        }
+        let req: CommandRequest = serde_json::from_str(&line).unwrap_or(CommandRequest {
+            cmd: String::new(),
+            data: Value::Null,
+        });
+        let response = match req.cmd.as_str() {
+            "final_proof" => Self::process_final_proof_command(&stored_files, &owner_id, &req.data),
+            _ => CommandResponse {
+                ok: false,
+                error: Some(String::from("未知命令")),
+                extra: HashMap::new(),
+            },
+        };
+        let resp_json = serde_json::to_string(&response).unwrap();
+        stream.write_all(resp_json.as_bytes())?;
+        stream.write_all(b"\n")?;
+        Ok(())
+    }
+
     fn try_store_file(&mut self) {
         let num_nodes_required = std::cmp::min(
             rand::thread_rng()
@@ -526,6 +705,7 @@ impl UserNode {
                     Some(SocketAddr::new(host.parse().ok()?, port))
                 })
                 .collect();
+            let final_listener_addr = self.setup_final_proof_listener(self.owner.file_id.clone());
             log_msg(
                 "SUCCESS",
                 "USER_NODE",
@@ -541,6 +721,7 @@ impl UserNode {
                         _num_chunks: chunks.len(),
                         required_rounds: storage_rounds,
                         final_verified: false,
+                        _final_listener_addr: final_listener_addr,
                     },
                 );
             }
@@ -549,15 +730,24 @@ impl UserNode {
             for chunk in &chunks {
                 let chunk_json = serde_json::to_value(chunk).unwrap();
                 for addr in &addrs {
+                    let mut data = serde_json::json!({
+                        "chunk": chunk_json.clone(),
+                        "owner_pk_beta": owner_pk_beta_hex,
+                        "storage_period": storage_rounds,
+                        "challenge_size": challenge_size,
+                        "owner_addr": [self.host, self.port],
+                    });
+                    if let Some(final_addr) = final_listener_addr {
+                        if let Some(obj) = data.as_object_mut() {
+                            obj.insert(
+                                String::from("final_proof_addr"),
+                                serde_json::json!([final_addr.ip().to_string(), final_addr.port()]),
+                            );
+                        }
+                    }
                     let payload = serde_json::json!({
                         "cmd": "chunk_distribute",
-                        "data": {
-                            "chunk": chunk_json.clone(),
-                            "owner_pk_beta": owner_pk_beta_hex,
-                            "storage_period": storage_rounds,
-                            "challenge_size": challenge_size,
-                            "owner_addr": [self.host, self.port],
-                        }
+                        "data": data,
                     });
                     let _ = super::node::send_json_line(*addr, &payload);
                 }

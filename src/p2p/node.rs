@@ -229,7 +229,9 @@ impl Node {
                 Ok(stream) => {
                     if let Err(e) = self.handle_connection(stream) {
                         // 只有当错误不是 "WouldBlock" 或 "TimedOut" 时，才将其记录为严重错误
-                        if e.kind() != std::io::ErrorKind::WouldBlock && e.kind() != std::io::ErrorKind::TimedOut {
+                        if e.kind() != std::io::ErrorKind::WouldBlock
+                            && e.kind() != std::io::ErrorKind::TimedOut
+                        {
                             log_msg(
                                 "ERROR",
                                 "NODE",
@@ -239,7 +241,7 @@ impl Node {
                         }
                         // (否则，如果是 WouldBlock/Timeout，我们就静默地忽略它，因为这只是一个客户端超时)
                     }
-                },
+                }
                 Err(_) => {
                     // 如果接收超时，继续执行循环的下一次迭代
                 }
@@ -440,6 +442,17 @@ impl Node {
                 let port = arr.get(1)?.as_u64()? as u16;
                 host.parse().ok().map(|ip| SocketAddr::new(ip, port))
             });
+        let final_proof_addr = data
+            .get("final_proof_addr")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| {
+                if arr.len() != 2 {
+                    return None;
+                }
+                let host = arr.get(0)?.as_str()?;
+                let port = arr.get(1)?.as_u64()? as u16;
+                host.parse().ok().map(|ip| SocketAddr::new(ip, port))
+            });
         if ok {
             if let (Some(period), Some(ch_size)) = (
                 data.get("storage_period").and_then(Value::as_u64),
@@ -450,6 +463,7 @@ impl Node {
                     period as usize,
                     ch_size as usize,
                     owner_addr,
+                    final_proof_addr,
                 );
             }
         }
@@ -1250,7 +1264,11 @@ impl Node {
         let mut pending_rounds = self.storage_manager.drain_pending_rounds();
         let mut final_folds = self.storage_manager.take_final_folds();
         for (fid, fold_val) in final_folds.iter() {
-            if let Some(addr) = self.storage_manager.owner_addr_for(fid) {
+            let target_addr = self
+                .storage_manager
+                .final_proof_addr_for(fid)
+                .or_else(|| self.storage_manager.owner_addr_for(fid));
+            if let Some(addr) = target_addr {
                 if let Some(obj) = fold_val.as_object() {
                     let payload = serde_json::json!({
                         "cmd": "final_proof",

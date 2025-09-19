@@ -25,6 +25,7 @@ struct StorageManagerInner {
     file_pk_beta: HashMap<String, Vec<u8>>,
     file_cycles: HashMap<String, FileCycleState>,
     file_owner_addrs: HashMap<String, SocketAddr>,
+    file_final_proof_addrs: HashMap<String, SocketAddr>,
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +106,7 @@ impl StorageManager {
             file_pk_beta: HashMap::new(),
             file_cycles: HashMap::new(),
             file_owner_addrs: HashMap::new(),
+            file_final_proof_addrs: HashMap::new(),
         };
         Self {
             node_id,
@@ -150,6 +152,7 @@ impl StorageManager {
         storage_period: usize,
         challenge_size: usize,
         owner_addr: Option<SocketAddr>,
+        final_proof_addr: Option<SocketAddr>,
     ) {
         let mut inner = self.inner.lock();
         inner
@@ -158,6 +161,11 @@ impl StorageManager {
             .or_insert_with(|| FileCycleState::new(storage_period, challenge_size));
         if let Some(addr) = owner_addr {
             inner.file_owner_addrs.insert(file_id.to_string(), addr);
+        }
+        if let Some(addr) = final_proof_addr {
+            inner
+                .file_final_proof_addrs
+                .insert(file_id.to_string(), addr);
         }
     }
 
@@ -228,6 +236,11 @@ impl StorageManager {
     pub fn owner_addr_for(&self, file_id: &str) -> Option<SocketAddr> {
         let inner = self.inner.lock();
         inner.file_owner_addrs.get(file_id).copied()
+    }
+
+    pub fn final_proof_addr_for(&self, file_id: &str) -> Option<SocketAddr> {
+        let inner = self.inner.lock();
+        inner.file_final_proof_addrs.get(file_id).copied()
     }
 
     pub fn challenge_size_for(&self, file_id: &str) -> Option<usize> {
