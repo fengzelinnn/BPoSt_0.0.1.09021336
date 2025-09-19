@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::config::P2PSimConfig;
-use crate::crypto::serialize_g2;
+use crate::crypto::{folding::NovaFoldingCycle, serialize_g2};
 use crate::roles::file_owner::FileOwner;
 use crate::utils::log_msg;
 
@@ -33,6 +33,14 @@ struct CommandResponse {
     extra: HashMap<String, Value>,
 }
 
+#[derive(Debug, Clone)]
+struct StoredFileRecord {
+    _nodes: Vec<SocketAddr>,
+    _num_chunks: usize,
+    required_rounds: usize,
+    final_verified: bool,
+}
+
 pub struct UserNode {
     owner: FileOwner,
     host: String,
@@ -42,7 +50,7 @@ pub struct UserNode {
     stop_flag: Arc<AtomicBool>,
     bids: Arc<Mutex<HashMap<String, Vec<Value>>>>,
     active_requests: Arc<Mutex<HashSet<String>>>,
-    stored_files: HashMap<String, (Vec<SocketAddr>, usize)>,
+    stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
 }
 
 impl UserNode {
@@ -62,7 +70,7 @@ impl UserNode {
             stop_flag: Arc::new(AtomicBool::new(false)),
             bids: Arc::new(Mutex::new(HashMap::new())),
             active_requests: Arc::new(Mutex::new(HashSet::new())),
-            stored_files: HashMap::new(),
+            stored_files: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -95,6 +103,7 @@ impl UserNode {
         let stop_flag = Arc::clone(&self.stop_flag);
         let bids = Arc::clone(&self.bids);
         let active_requests = Arc::clone(&self.active_requests);
+        let stored_files = Arc::clone(&self.stored_files);
         let owner_id = self.owner.owner_id.clone();
 
         // 启动监听线程，处理 accept 循环与连接
@@ -136,30 +145,168 @@ impl UserNode {
                                 error: Some(String::from("未知命令")),
                                 extra: HashMap::new(),
                             };
-                            if req.cmd == "storage_bid" {
-                                let request_id = req
-                                    .data
-                                    .get("request_id")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("");
-                                let is_active = {
-                                    let active = active_requests.lock();
-                                    active.contains(request_id)
-                                };
-                                if is_active {
-                                    {
-                                        let mut bids_map = bids.lock();
-                                        bids_map
-                                            .entry(request_id.to_string())
-                                            .or_default()
-                                            .push(req.data.clone());
+                            match req.cmd.as_str() {
+                                "storage_bid" => {
+                                    let request_id = req
+                                        .data
+                                        .get("request_id")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("");
+                                    let is_active = {
+                                        let active = active_requests.lock();
+                                        active.contains(request_id)
+                                    };
+                                    if is_active {
+                                        {
+                                            let mut bids_map = bids.lock();
+                                            bids_map
+                                                .entry(request_id.to_string())
+                                                .or_default()
+                                                .push(req.data.clone());
+                                        }
+                                        response.ok = true;
+                                        response.error = None;
+                                    } else {
+                                        response.ok = false;
+                                        response.error = Some(String::from("请求不活跃"));
                                     }
-                                    response.ok = true;
-                                    response.error = None;
-                                } else {
-                                    response.ok = false;
-                                    response.error = Some(String::from("请求不活跃"));
                                 }
+                                "final_proof" => {
+                                    let file_id = req
+                                        .data
+                                        .get("file_id")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let steps =
+                                        req.data.get("steps").and_then(Value::as_u64).unwrap_or(0)
+                                            as usize;
+                                    let accumulator = req
+                                        .data
+                                        .get("accumulator")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let compressed_hex = req
+                                        .data
+                                        .get("compressed_snark")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let vk_hex = req
+                                        .data
+                                        .get("verifier_key")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let provider = req
+                                        .data
+                                        .get("provider_id")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("unknown")
+                                        .to_string();
+
+                                    let (record_opt, already_verified) = {
+                                        let map = stored_files.lock();
+                                        match map.get(&file_id) {
+                                            Some(record) => {
+                                                (Some(record.clone()), record.final_verified)
+                                            }
+                                            None => (None, false),
+                                        }
+                                    };
+
+                                    if file_id.is_empty()
+                                        || accumulator.is_empty()
+                                        || compressed_hex.is_empty()
+                                        || vk_hex.is_empty()
+                                        || record_opt.is_none()
+                                    {
+                                        response.error = Some(String::from("参数缺失或未知文件"));
+                                    } else {
+                                        let record = record_opt.unwrap();
+                                        if steps != record.required_rounds {
+                                            log_msg(
+                                                "WARN",
+                                                "USER_NODE",
+                                                Some(owner_id.clone()),
+                                                &format!(
+                                                    "文件 {} 的最终证明步数 {} 与期望 {} 不符。",
+                                                    file_id, steps, record.required_rounds
+                                                ),
+                                            );
+                                        }
+                                        match (hex::decode(&compressed_hex), hex::decode(&vk_hex)) {
+                                            (Ok(compressed_bytes), Ok(vk_bytes)) => {
+                                                match NovaFoldingCycle::verify_final_accumulator(
+                                                    steps,
+                                                    &compressed_bytes,
+                                                    &vk_bytes,
+                                                ) {
+                                                    Ok(proof_acc) => {
+                                                        if proof_acc == accumulator
+                                                            && steps == record.required_rounds
+                                                        {
+                                                            if !already_verified {
+                                                                log_msg(
+                                                                    "SUCCESS",
+                                                                    "USER_NODE",
+                                                                    Some(owner_id.clone()),
+                                                                    &format!(
+                                                                        "成功验证来自节点 {} 的文件 {} 最终 Nova 证明。",
+                                                                        provider, file_id
+                                                                    ),
+                                                                );
+                                                            }
+                                                            {
+                                                                let mut map = stored_files.lock();
+                                                                if let Some(entry) =
+                                                                    map.get_mut(&file_id)
+                                                                {
+                                                                    entry.final_verified = true;
+                                                                }
+                                                            }
+                                                            response.ok = true;
+                                                            response.error = None;
+                                                        } else {
+                                                            log_msg(
+                                                                "WARN",
+                                                                "USER_NODE",
+                                                                Some(owner_id.clone()),
+                                                                &format!(
+                                                                    "文件 {} 的最终证明通过验证但输出不匹配（acc={}, steps={})。",
+                                                                    file_id, proof_acc, steps
+                                                                ),
+                                                            );
+                                                            response.error = Some(String::from(
+                                                                "最终证明输出不匹配",
+                                                            ));
+                                                        }
+                                                    }
+                                                    Err(err) => {
+                                                        log_msg(
+                                                            "ERROR",
+                                                            "USER_NODE",
+                                                            Some(owner_id.clone()),
+                                                            &format!(
+                                                                "验证文件 {} 的最终 Nova 证明失败: {}",
+                                                                file_id, err
+                                                            ),
+                                                        );
+                                                        response.error =
+                                                            Some(String::from("最终证明验证失败"));
+                                                    }
+                                                }
+                                            }
+                                            _ => {
+                                                response.error = Some(String::from(
+                                                    "无法解析最终证明或验证密钥",
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
                             }
                             let resp_json = serde_json::to_string(&response).unwrap();
                             stream.write_all(resp_json.as_bytes())?;
@@ -295,6 +442,12 @@ impl UserNode {
         if chunks.is_empty() {
             return;
         }
+        let storage_rounds = std::cmp::max(
+            1,
+            rand::thread_rng()
+                .gen_range(self.config.min_storage_rounds..=self.config.max_storage_rounds),
+        );
+        let challenge_size = std::cmp::max(1, std::cmp::min(chunks.len(), 4));
         let total_size = chunks.len() * self.config.chunk_size;
         let request_id = format!("req-{}", self.owner.file_id);
         {
@@ -306,10 +459,11 @@ impl UserNode {
             "USER_NODE",
             Some(self.owner.owner_id.clone()),
             &format!(
-                "为文件 {} ({}KB) 发起存储，需要 {} 个节点。",
+                "为文件 {} ({}KB) 发起存储，需要 {} 个节点，要求存储 {} 轮。",
                 self.owner.file_id,
                 total_size / 1024,
-                num_nodes_required
+                num_nodes_required,
+                storage_rounds
             ),
         );
         let offer = serde_json::json!({
@@ -320,6 +474,7 @@ impl UserNode {
                 "file_id": self.owner.file_id,
                 "total_size": total_size,
                 "reply_addr": [self.host, self.port],
+                "storage_rounds": storage_rounds,
             }
         });
         let _ = super::node::send_json_line_without_response(self.bootstrap_addr, &offer);
@@ -360,8 +515,18 @@ impl UserNode {
                 Some(self.owner.owner_id.clone()),
                 &format!("文件 {} 的存储竞标完成。", self.owner.file_id),
             );
-            self.stored_files
-                .insert(self.owner.file_id.clone(), (addrs.clone(), chunks.len()));
+            {
+                let mut records = self.stored_files.lock();
+                records.insert(
+                    self.owner.file_id.clone(),
+                    StoredFileRecord {
+                        _nodes: addrs.clone(),
+                        _num_chunks: chunks.len(),
+                        required_rounds: storage_rounds,
+                        final_verified: false,
+                    },
+                );
+            }
             let owner_pk_beta_hex =
                 hex::encode(serialize_g2(&self.owner.get_dpdp_params().pk_beta));
             for chunk in &chunks {
@@ -372,6 +537,9 @@ impl UserNode {
                         "data": {
                             "chunk": chunk_json.clone(),
                             "owner_pk_beta": owner_pk_beta_hex,
+                            "storage_period": storage_rounds,
+                            "challenge_size": challenge_size,
+                            "owner_addr": [self.host, self.port],
                         }
                     });
                     let _ = super::node::send_json_line(*addr, &payload);

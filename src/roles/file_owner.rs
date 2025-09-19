@@ -74,9 +74,9 @@ impl FileOwner {
             .into_iter()
             .enumerate()
             .map(|(i, data)| FileChunk {
-                index: i, // 块的索引
-                data,    // 块的原始数据
-                tag: tags.tags[i].clone(), // 对应的 dPDP 标签
+                index: i,                      // 块的索引
+                data,                          // 块的原始数据
+                tag: tags.tags[i].clone(),     // 对应的 dPDP 标签
                 file_id: self.file_id.clone(), // 文件 ID
             })
             .collect();

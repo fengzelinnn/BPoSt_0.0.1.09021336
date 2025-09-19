@@ -28,11 +28,11 @@ impl Miner {
     /// 挖矿的本质是寻找一个 nonce（随机数），使得组合了各种信息后的哈希值最小
     pub fn mine(
         &self,
-        seed: &str, // 挖矿种子，通常来自前一个区块的哈希，确保不可预测性
+        seed: &str,         // 挖矿种子，通常来自前一个区块的哈希，确保不可预测性
         storage_root: &str, // 矿工存储根哈希，证明其存储状态
         file_roots: &HashMap<String, String>, // 存储的各个文件的根哈希
-        num_files: usize, // 存储的文件数量
-        max_nonce: u64, // 要尝试的最大 nonce 值，限制了单次挖矿的计算量
+        num_files: usize,   // 存储的文件数量
+        max_nonce: u64,     // 要尝试的最大 nonce 值，限制了单次挖矿的计算量
     ) -> Vec<BobtailProof> {
         // 初始化找到的最佳哈希和对应的 nonce
         let mut best_hash = String::new();
@@ -91,7 +91,7 @@ impl Miner {
         let Some(nonce) = best_nonce else {
             return Vec::new(); // 没找到，返回空
         };
-        
+
         // 返回找到的唯一最佳证明
         vec![BobtailProof {
             node_id: self.node_id.clone(),
@@ -99,7 +99,7 @@ impl Miner {
             root: storage_root.to_string(),
             file_roots: file_roots.clone(),
             nonce: nonce.to_string(),
-            proof_hash: best_hash, // 挖矿的目标，即找到的最小哈希
+            proof_hash: best_hash,              // 挖矿的目标，即找到的最小哈希
             lots: num_files.max(1).to_string(), // "lots" 类似于权重，与存储文件数量相关
         }]
     }
