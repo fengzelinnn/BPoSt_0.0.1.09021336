@@ -602,6 +602,7 @@ impl UserNode {
         stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
         owner_id: String,
     ) -> std::io::Result<()> {
+        stream.set_nonblocking(false)?;
         stream.set_read_timeout(Some(Duration::from_secs(2)))?;
         stream.set_write_timeout(Some(Duration::from_secs(2)))?;
         let mut reader = BufReader::new(stream.try_clone()?);
