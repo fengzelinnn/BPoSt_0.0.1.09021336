@@ -1,6 +1,19 @@
 use ark_bn254::{Bn254, Fq, Fq12, Fr, G1Affine, G1Projective, G2Affine};
 use ark_ec::{pairing::Pairing, PrimeGroup};
 use ark_ff::{BigInteger, One, PrimeField, Zero};
+use bincode;
+use ff::{Field as FFField, PrimeField as FFPrimeField};
+use nova_snark::{
+    errors::NovaError as NovaSnarkError,
+    frontend::{num::AllocatedNum, ConstraintSystem, SynthesisError},
+    nova::{CompressedSNARK, PublicParams, RecursiveSNARK},
+    provider::{
+        hyperkzg::EvaluationEngine as HyperKzg, ipa_pc::EvaluationEngine as IpaPc, Bn256EngineKZG,
+        GrumpkinEngine,
+    },
+    spartan::snark::RelaxedR1CSSNARK,
+    traits::{circuit::StepCircuit, snark::RelaxedR1CSSNARKTrait, Engine},
+};
 use num_bigint::BigUint;
 use thiserror::Error;
 
@@ -148,8 +161,8 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
     pub fn enforce_equal(&mut self, left: usize, right: usize) {
         self.constraints.push(RelaxedR1CSConstraint::new(
             vec![(left, F::one()), (right, -F::one())], // left - right
-            vec![(0, F::one())], // * 1
-            Vec::new(), // = 0
+            vec![(0, F::one())],                        // * 1
+            Vec::new(),                                 // = 0
             F::zero(),
         ));
     }
@@ -251,6 +264,18 @@ fn assignments_digest(assignments: &[Fr]) -> Fr {
         acc += *value * weight;
     }
     acc
+}
+
+fn fr_to_nova_scalar(value: &Fr) -> NovaScalar {
+    let bytes = value.into_bigint().to_bytes_le();
+    let mut repr = <NovaScalar as FFPrimeField>::Repr::default();
+    repr.as_mut()[..bytes.len()].copy_from_slice(&bytes);
+    FFPrimeField::from_repr(repr).expect("valid Fr to NovaScalar conversion")
+}
+
+fn nova_scalar_to_fr(value: &NovaScalar) -> Fr {
+    let repr = value.to_repr();
+    Fr::from_le_bytes_mod_order(repr.as_ref())
 }
 
 /// 将 Fq 元素转换为 Fr 元素。
@@ -519,6 +544,276 @@ impl<F: PrimeField> IncrementalRelaxedCircuit<F> {
     }
 }
 
+type NovaEngine1 = Bn256EngineKZG;
+type NovaEngine2 = GrumpkinEngine;
+type NovaEE1 = HyperKzg<NovaEngine1>;
+type NovaEE2 = IpaPc<NovaEngine2>;
+type NovaSNARK1 = RelaxedR1CSSNARK<NovaEngine1, NovaEE1>;
+type NovaSNARK2 = RelaxedR1CSSNARK<NovaEngine2, NovaEE2>;
+type NovaScalar = <NovaEngine1 as Engine>::Scalar;
+
+#[derive(Clone, Debug)]
+struct NovaConstraint {
+    a: Vec<(usize, NovaScalar)>,
+    b: Vec<(usize, NovaScalar)>,
+    c: Vec<(usize, NovaScalar)>,
+    slack: NovaScalar,
+}
+
+#[derive(Clone, Debug)]
+struct NovaCircuitInstance {
+    assignments: Vec<NovaScalar>,
+    constraints: Vec<NovaConstraint>,
+}
+
+impl NovaCircuitInstance {
+    fn pad(&mut self) {
+        let current_vars = self.assignments.len().saturating_sub(1);
+        let target_vars = if current_vars == 0 {
+            1
+        } else {
+            current_vars.next_power_of_two()
+        };
+
+        for _ in current_vars..target_vars {
+            self.assignments.push(NovaScalar::ZERO);
+            let var_idx = self.assignments.len() - 1;
+            self.constraints.push(NovaConstraint {
+                a: vec![(var_idx, NovaScalar::ONE)],
+                b: vec![(0, NovaScalar::ONE)],
+                c: Vec::new(),
+                slack: NovaScalar::ZERO,
+            });
+        }
+
+        let current_cons = self.constraints.len();
+        let target_cons = if current_cons == 0 {
+            1
+        } else {
+            current_cons.next_power_of_two()
+        };
+        for _ in current_cons..target_cons {
+            self.constraints.push(NovaConstraint {
+                a: Vec::new(),
+                b: Vec::new(),
+                c: Vec::new(),
+                slack: NovaScalar::ZERO,
+            });
+        }
+    }
+}
+
+/// Nova 步骤电路，将一个或多个松弛 R1CS 实例嵌入到 Nova 的递归证明中。
+#[derive(Clone, Debug)]
+struct NovaStepCircuit {
+    circuits: Vec<NovaCircuitInstance>,
+    total_digest: NovaScalar,
+}
+
+impl NovaStepCircuit {
+    fn new(circuits: Vec<RelaxedR1CS<Fr>>) -> Self {
+        let mut converted = Vec::with_capacity(circuits.len());
+        let mut total_digest = NovaScalar::ZERO;
+
+        for circuit in circuits {
+            let assignments = circuit
+                .assignments
+                .iter()
+                .map(fr_to_nova_scalar)
+                .collect::<Vec<_>>();
+            let constraints = circuit
+                .constraints
+                .iter()
+                .map(|constraint| NovaConstraint {
+                    a: constraint
+                        .a
+                        .iter()
+                        .map(|(idx, coeff)| (*idx, fr_to_nova_scalar(coeff)))
+                        .collect(),
+                    b: constraint
+                        .b
+                        .iter()
+                        .map(|(idx, coeff)| (*idx, fr_to_nova_scalar(coeff)))
+                        .collect(),
+                    c: constraint
+                        .c
+                        .iter()
+                        .map(|(idx, coeff)| (*idx, fr_to_nova_scalar(coeff)))
+                        .collect(),
+                    slack: fr_to_nova_scalar(&constraint.slack),
+                })
+                .collect::<Vec<_>>();
+
+            let circuit_digest = assignments
+                .iter()
+                .enumerate()
+                .fold(NovaScalar::ZERO, |acc, (idx, value)| {
+                    acc + (*value * NovaScalar::from((idx as u64) + 1))
+                });
+            total_digest += circuit_digest;
+
+            converted.push(NovaCircuitInstance {
+                assignments,
+                constraints,
+            });
+        }
+
+        for instance in &mut converted {
+            instance.pad();
+        }
+
+        Self {
+            circuits: converted,
+            total_digest,
+        }
+    }
+}
+
+impl StepCircuit<NovaScalar> for NovaStepCircuit {
+    fn arity(&self) -> usize {
+        2
+    }
+
+    fn synthesize<CS: ConstraintSystem<NovaScalar>>(
+        &self,
+        cs: &mut CS,
+        z: &[AllocatedNum<NovaScalar>],
+    ) -> Result<Vec<AllocatedNum<NovaScalar>>, SynthesisError> {
+        assert_eq!(z.len(), 2, "Nova 步骤电路的输入维度应为 2");
+
+        let one = CS::one();
+        let mut digest_vars = Vec::with_capacity(self.circuits.len());
+
+        for (idx, circuit) in self.circuits.iter().enumerate() {
+            let mut ns = cs.namespace(|| format!("circuit_{idx}"));
+            let mut vars: Vec<Option<AllocatedNum<NovaScalar>>> =
+                Vec::with_capacity(circuit.assignments.len());
+            vars.push(None);
+
+            for (var_idx, value) in circuit.assignments.iter().copied().enumerate().skip(1) {
+                let allocated =
+                    AllocatedNum::alloc(ns.namespace(|| format!("var_{var_idx}")), || Ok(value))?;
+                vars.push(Some(allocated));
+            }
+
+            for (constraint_idx, constraint) in circuit.constraints.iter().enumerate() {
+                let a_terms = constraint.a.clone();
+                let b_terms = constraint.b.clone();
+                let c_terms = constraint.c.clone();
+                let slack = constraint.slack;
+                ns.enforce(
+                    || format!("constraint_{constraint_idx}"),
+                    |lc| {
+                        let mut lc = lc;
+                        for (var_idx, coeff) in &a_terms {
+                            if *var_idx == 0 {
+                                lc = lc + (*coeff, one);
+                            } else if let Some(var) = &vars[*var_idx] {
+                                lc = lc + (*coeff, var.get_variable());
+                            }
+                        }
+                        lc
+                    },
+                    |lc| {
+                        let mut lc = lc;
+                        for (var_idx, coeff) in &b_terms {
+                            if *var_idx == 0 {
+                                lc = lc + (*coeff, one);
+                            } else if let Some(var) = &vars[*var_idx] {
+                                lc = lc + (*coeff, var.get_variable());
+                            }
+                        }
+                        lc
+                    },
+                    |lc| {
+                        let mut lc = lc;
+                        for (var_idx, coeff) in &c_terms {
+                            if *var_idx == 0 {
+                                lc = lc + (*coeff, one);
+                            } else if let Some(var) = &vars[*var_idx] {
+                                lc = lc + (*coeff, var.get_variable());
+                            }
+                        }
+                        if slack != NovaScalar::ZERO {
+                            lc = lc + (slack, one);
+                        }
+                        lc
+                    },
+                );
+            }
+
+            let digest_value = circuit
+                .assignments
+                .iter()
+                .enumerate()
+                .fold(NovaScalar::ZERO, |acc, (var_idx, value)| {
+                    acc + (*value * NovaScalar::from((var_idx as u64) + 1))
+                });
+            let digest_var = AllocatedNum::alloc(ns.namespace(|| "digest"), || Ok(digest_value))?;
+            ns.enforce(
+                || "digest_constraint",
+                |lc| lc + one,
+                |lc| {
+                    let mut lc = lc;
+                    for (var_idx, _value) in circuit.assignments.iter().enumerate() {
+                        let coeff = NovaScalar::from((var_idx as u64) + 1);
+                        if var_idx == 0 {
+                            lc = lc + (coeff, one);
+                        } else if let Some(var) = &vars[var_idx] {
+                            lc = lc + (coeff, var.get_variable());
+                        }
+                    }
+                    lc
+                },
+                |lc| lc + digest_var.get_variable(),
+            );
+            digest_vars.push(digest_var);
+        }
+
+        let next_step = AllocatedNum::alloc(cs.namespace(|| "next_step"), || {
+            let mut step = z[1].get_value().ok_or(SynthesisError::AssignmentMissing)?;
+            step += NovaScalar::ONE;
+            Ok(step)
+        })?;
+
+        cs.enforce(
+            || "step_increment",
+            |lc| lc + one,
+            |lc| {
+                let mut lc = lc + z[1].get_variable();
+                lc = lc + (NovaScalar::ONE, one);
+                lc
+            },
+            |lc| lc + next_step.get_variable(),
+        );
+
+        let next_acc = AllocatedNum::alloc(cs.namespace(|| "next_acc"), || {
+            let mut acc = z[0].get_value().ok_or(SynthesisError::AssignmentMissing)?;
+            let mut step = z[1].get_value().ok_or(SynthesisError::AssignmentMissing)?;
+            step += NovaScalar::ONE;
+            acc += step;
+            acc += self.total_digest;
+            Ok(acc)
+        })?;
+
+        cs.enforce(
+            || "accumulator_update",
+            |lc| lc + one,
+            |lc| {
+                let mut lc = lc + z[0].get_variable();
+                lc = lc + next_step.get_variable();
+                for digest_var in &digest_vars {
+                    lc = lc + digest_var.get_variable();
+                }
+                lc
+            },
+            |lc| lc + next_acc.get_variable(),
+        );
+
+        Ok(vec![next_acc, next_step])
+    }
+}
+
 /// Nova 折叠编排的错误类型。
 #[derive(Debug, Error)]
 pub enum NovaFoldingError {
@@ -528,6 +823,10 @@ pub enum NovaFoldingError {
     NotInitialized,
     #[error("invalid relaxed circuit round")]
     EmptyRound,
+    #[error("nova internal error: {0}")]
+    NovaInternal(#[from] NovaSnarkError),
+    #[error("serialization failure: {0}")]
+    Serialization(String),
 }
 
 /// 单轮折叠的结果。
@@ -551,7 +850,6 @@ pub struct NovaFinalProof {
 }
 
 /// 管理存储周期的基于 Nova 的折叠驱动程序。
-#[derive(Debug)]
 pub struct NovaFoldingCycle {
     /// 存储周期中的步骤总数
     storage_period: usize,
@@ -563,6 +861,12 @@ pub struct NovaFoldingCycle {
     round_accumulators: Vec<Fr>,
     /// 最终的证明 (如果已生成)
     finalized: Option<NovaFinalProof>,
+    /// Nova 公共参数
+    pp: Option<PublicParams<NovaEngine1, NovaEngine2, NovaStepCircuit>>,
+    /// 当前的递归 SNARK 实例
+    recursive_snark: Option<RecursiveSNARK<NovaEngine1, NovaEngine2, NovaStepCircuit>>,
+    /// 初始公开输入向量
+    initial_z: Vec<NovaScalar>,
 }
 
 impl NovaFoldingCycle {
@@ -573,6 +877,9 @@ impl NovaFoldingCycle {
             accumulator: Fr::zero(),
             round_accumulators: Vec::new(),
             finalized: None,
+            pp: None,
+            recursive_snark: None,
+            initial_z: vec![NovaScalar::ZERO, NovaScalar::ZERO],
         }
     }
 
@@ -600,10 +907,46 @@ impl NovaFoldingCycle {
             acc + assignments_digest(&circuit.assignments)
         });
         let weight = Fr::from((self.steps + 1) as u64);
+        let step_circuit = NovaStepCircuit::new(circuits.clone());
+
+        if self.pp.is_none() {
+            let pp = PublicParams::<NovaEngine1, NovaEngine2, NovaStepCircuit>::setup(
+                &step_circuit,
+                &*NovaSNARK1::ck_floor(),
+                &*NovaSNARK2::ck_floor(),
+            )?;
+            let mut recursive_snark =
+                RecursiveSNARK::<NovaEngine1, NovaEngine2, NovaStepCircuit>::new(
+                    &pp,
+                    &step_circuit,
+                    &self.initial_z,
+                )?;
+            // 将内部计数推进到第一步
+            recursive_snark.prove_step(&pp, &step_circuit)?;
+            self.pp = Some(pp);
+            self.recursive_snark = Some(recursive_snark);
+        } else {
+            let pp = self.pp.as_ref().ok_or(NovaFoldingError::NotInitialized)?;
+            let recursive_snark = self
+                .recursive_snark
+                .as_mut()
+                .ok_or(NovaFoldingError::NotInitialized)?;
+            recursive_snark.prove_step(pp, &step_circuit)?;
+        }
+
         self.accumulator += delta + weight;
         self.steps += 1;
         self.round_accumulators.push(self.accumulator);
         self.finalized = None;
+
+        if let Some(snark) = &self.recursive_snark {
+            let outputs = snark.outputs();
+            if outputs.len() == 2 {
+                debug_assert_eq!(nova_scalar_to_fr(&outputs[0]), self.accumulator);
+                debug_assert_eq!(nova_scalar_to_fr(&outputs[1]), Fr::from(self.steps as u64),);
+            }
+        }
+
         Ok(NovaRoundResult {
             step_index: self.steps,
             accumulator: self.accumulator,
@@ -619,21 +962,39 @@ impl NovaFoldingCycle {
             return Ok(Some(proof.clone())); // 返回缓存的证明
         }
 
-        if self.round_accumulators.is_empty() {
-            return Err(NovaFoldingError::NotInitialized);
-        }
+        let pp = self.pp.as_ref().ok_or(NovaFoldingError::NotInitialized)?;
+        let recursive_snark = self
+            .recursive_snark
+            .as_ref()
+            .ok_or(NovaFoldingError::NotInitialized)?;
 
-        let accumulator_hex = fr_to_padded_hex(&self.accumulator);
-        let mut vk_bytes = Vec::new();
-        for acc in &self.round_accumulators {
-            vk_bytes.extend_from_slice(fr_to_padded_hex(acc).as_bytes());
-        }
-        if vk_bytes.is_empty() {
-            vk_bytes.extend_from_slice(accumulator_hex.as_bytes());
-        }
+        recursive_snark.verify(pp, self.steps, &self.initial_z)?;
+
+        let (pk, vk) = CompressedSNARK::<
+            NovaEngine1,
+            NovaEngine2,
+            NovaStepCircuit,
+            NovaSNARK1,
+            NovaSNARK2,
+        >::setup(pp)?;
+
+        let compressed = CompressedSNARK::<
+            NovaEngine1,
+            NovaEngine2,
+            NovaStepCircuit,
+            NovaSNARK1,
+            NovaSNARK2,
+        >::prove(pp, &pk, recursive_snark)?;
+
+        compressed.verify(&vk, self.steps, &self.initial_z)?;
+
+        let proof_bytes = bincode::serialize(&compressed)
+            .map_err(|err| NovaFoldingError::Serialization(err.to_string()))?;
+        let vk_bytes = bincode::serialize(&vk)
+            .map_err(|err| NovaFoldingError::Serialization(err.to_string()))?;
 
         let proof = NovaFinalProof {
-            compressed_snark: accumulator_hex.as_bytes().to_vec(),
+            compressed_snark: proof_bytes,
             verifier_key: vk_bytes,
             steps: self.steps,
             accumulator: self.accumulator,
@@ -787,5 +1148,23 @@ mod tests {
         assert_eq!(final_proof.steps, 2);
         assert!(!final_proof.compressed_snark.is_empty());
         assert!(!final_proof.verifier_key.is_empty());
+    }
+
+    #[test]
+    fn field_conversion_roundtrip() {
+        let samples = [
+            Fr::zero(),
+            Fr::one(),
+            Fr::from(2u64),
+            Fr::from(42u64),
+            -Fr::one(),
+            -Fr::from(2u64),
+        ];
+
+        for sample in samples {
+            let converted = fr_to_nova_scalar(&sample);
+            let roundtrip = nova_scalar_to_fr(&converted);
+            assert_eq!(roundtrip, sample);
+        }
     }
 }
