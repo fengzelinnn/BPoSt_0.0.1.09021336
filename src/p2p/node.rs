@@ -25,7 +25,7 @@ use crate::crypto::dpdp::DPDP; // dPDP 密码学逻辑
 use crate::roles::miner::Miner; // 矿工角色
 use crate::roles::prover::Prover; // 证明者角色
 use crate::storage::manager::StorageManager; // 存储管理器
-use crate::utils::{build_merkle_tree, log_msg}; // 工具函数
+use crate::utils::{build_merkle_tree, log_msg, with_cpu_heavy_limit}; // 工具函数
 
 /// 节点状态报告结构体，用于向外部报告节点的当前状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -508,14 +508,17 @@ impl Node {
             .storage_manager
             .challenge_size_for(file_id)
             .unwrap_or_else(|| indices.len().max(1));
-        let (proof, challenge, _contributions) = self.prover.prove(
-            file_id,
-            &chunks,
-            &tags,
-            &prev_hash,
-            timestamp,
-            Some(challenge_len),
-        );
+        let (proof, challenge) = with_cpu_heavy_limit(|| {
+            let (proof, challenge, _contributions) = self.prover.prove(
+                file_id,
+                &chunks,
+                &tags,
+                &prev_hash,
+                timestamp,
+                Some(challenge_len),
+            );
+            (proof, challenge)
+        });
         log_msg(
             "INFO",
             "dPDP_PROVE",
@@ -1228,29 +1231,34 @@ impl Node {
                 .storage_manager
                 .challenge_size_for(fid)
                 .unwrap_or_else(|| tags.len().max(1));
-            let (proof, challenge, contributions) = self.prover.prove(
-                fid,
-                &chunks,
-                &tags,
-                &accepted_block.prev_hash,
-                (accepted_block.timestamp / 1_000_000_000) as u64,
-                Some(challenge_len),
-            );
+            let (challenge, round_result) = with_cpu_heavy_limit(|| {
+                let (proof, challenge, contributions) = self.prover.prove(
+                    fid,
+                    &chunks,
+                    &tags,
+                    &accepted_block.prev_hash,
+                    (accepted_block.timestamp / 1_000_000_000) as u64,
+                    Some(challenge_len),
+                );
+                let round_salt =
+                    format!("{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
+                let result = self.storage_manager.process_round(
+                    fid,
+                    accepted_block,
+                    &proof,
+                    &challenge,
+                    &contributions,
+                    &round_salt,
+                );
+                (challenge, result)
+            });
             let entries: Vec<ChallengeEntry> = challenge
                 .iter()
                 .map(|(i, v)| ChallengeEntry(*i, v.to_string()))
                 .collect();
             challenges_by_file.insert(fid.clone(), entries);
 
-            let round_salt = format!("{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0));
-            if let Some(result) = self.storage_manager.process_round(
-                fid,
-                accepted_block,
-                &proof,
-                &challenge,
-                &contributions,
-                &round_salt,
-            ) {
+            if let Some(result) = round_result {
                 latest_results.insert(
                     fid.clone(),
                     serde_json::json!({

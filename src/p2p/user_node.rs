@@ -15,7 +15,7 @@ use serde_json::Value;
 use crate::config::P2PSimConfig;
 use crate::crypto::{folding::NovaFoldingCycle, serialize_g2};
 use crate::roles::file_owner::FileOwner;
-use crate::utils::log_msg;
+use crate::utils::{log_msg, with_cpu_heavy_limit};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CommandRequest {
@@ -355,16 +355,20 @@ impl UserNode {
             return response;
         }
 
-        match Self::verify_final_proof(
-            stored_files,
-            owner_id,
-            &file_id,
-            steps,
-            &accumulator,
-            &compressed_hex,
-            &vk_hex,
-            &provider,
-        ) {
+        let verification = with_cpu_heavy_limit(|| {
+            Self::verify_final_proof(
+                stored_files,
+                owner_id,
+                &file_id,
+                steps,
+                &accumulator,
+                &compressed_hex,
+                &vk_hex,
+                &provider,
+            )
+        });
+
+        match verification {
             Ok(_) => {
                 response.ok = true;
                 response.error = None;
