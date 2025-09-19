@@ -16,6 +16,8 @@ use std::cell::RefCell;
 #[cfg(not(target_family = "wasm"))]
 use std::thread;
 
+use crossbeam_channel::{bounded, Receiver, Sender};
+
 #[cfg(target_family = "wasm")]
 fn create_poseidon_hasher() -> Poseidon<Fr> {
     Poseidon::<Fr>::new_circom(2).expect("failed to initialize Poseidon hasher for 2 inputs")
@@ -52,6 +54,68 @@ fn domain_to_field(domain: &[u8]) -> Fr {
 
 static LOGGER_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static LOGGER_GUARD: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+struct CpuLimiter {
+    sender: Sender<()>,
+    receiver: Receiver<()>,
+}
+
+impl CpuLimiter {
+    fn new(max_permits: usize) -> Self {
+        assert!(max_permits > 0, "CPU limiter requires at least one permit");
+        let (sender, receiver) = bounded(max_permits);
+        for _ in 0..max_permits {
+            sender.send(()).expect("failed to seed CPU limiter permits");
+        }
+        Self { sender, receiver }
+    }
+
+    fn acquire(&self) -> CpuPermit {
+        self.receiver
+            .recv()
+            .expect("CPU limiter channel unexpectedly closed");
+        CpuPermit {
+            sender: self.sender.clone(),
+        }
+    }
+
+    fn run<F, R>(&self, task: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let permit = self.acquire();
+        let result = task();
+        drop(permit);
+        result
+    }
+}
+
+struct CpuPermit {
+    sender: Sender<()>,
+}
+
+impl Drop for CpuPermit {
+    fn drop(&mut self) {
+        let _ = self.sender.send(());
+    }
+}
+
+fn heavy_cpu_parallelism() -> usize {
+    let detected = std::thread::available_parallelism()
+        .map(|v| v.get())
+        .unwrap_or(1);
+    detected.saturating_sub(1).max(1)
+}
+
+static HEAVY_CPU_LIMITER: Lazy<CpuLimiter> = Lazy::new(|| CpuLimiter::new(heavy_cpu_parallelism()));
+
+/// Execute a CPU-intensive task while respecting the global concurrency limit.
+pub fn with_cpu_heavy_limit<F, R>(task: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    HEAVY_CPU_LIMITER.run(task)
+}
 
 fn bytes_to_field_elems(data: &[u8]) -> Vec<Fr> {
     data.chunks(32)
