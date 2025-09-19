@@ -316,6 +316,13 @@ impl StorageManager {
 
         let result = {
             let cycle = inner.file_cycles.get_mut(file_id)?;
+            let next_step = cycle.nova.steps_completed() + 1;
+            crate::utils::log_msg(
+                "DEBUG",
+                "Nova",
+                Some(self.node_id.clone()),
+                &format!("准备吸收文件 {} 的第 {} 个折叠轮次。", file_id, next_step),
+            );
             let result =
                 match cycle
                     .nova
@@ -333,10 +340,27 @@ impl StorageManager {
                         return None;
                     }
                 };
+            crate::utils::log_msg(
+                "INFO",
+                "Nova",
+                Some(self.node_id.clone()),
+                &format!(
+                    "文件 {} 完成折叠轮次 {}，累加器 {}。",
+                    file_id,
+                    result.step_index,
+                    fr_to_padded_hex(&result.accumulator)
+                ),
+            );
 
             cycle.record_round(result.clone(), challenge.to_vec(), proof.clone());
 
             if result.step_index >= cycle.storage_period && cycle.final_artifact.is_none() {
+                crate::utils::log_msg(
+                    "DEBUG",
+                    "Nova",
+                    Some(self.node_id.clone()),
+                    &format!("文件 {} 达到存储周期阈值，尝试生成最终折叠证明。", file_id),
+                );
                 match cycle.nova.finalize() {
                     Ok(Some(final_proof)) => cycle.set_final_artifact(final_proof),
                     Ok(None) | Err(NovaFoldingError::CycleComplete) => {}
@@ -348,6 +372,17 @@ impl StorageManager {
                             &format!("生成文件 {} 的最终折叠失败: {}", file_id, err),
                         );
                     }
+                }
+                if let Some(artifact) = &cycle.final_artifact {
+                    crate::utils::log_msg(
+                        "INFO",
+                        "Nova",
+                        Some(self.node_id.clone()),
+                        &format!(
+                            "文件 {} 的最终折叠产物已就绪：步数 {}，累加器 {}。",
+                            file_id, artifact.steps, artifact.accumulator
+                        ),
+                    );
                 }
             }
 

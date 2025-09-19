@@ -21,7 +21,7 @@ use crate::common::datastructures::{Block, DPDPParams, DPDPProof};
 use crate::crypto::deserialize_g1;
 use crate::crypto::dpdp::hash_to_g1;
 use crate::storage::state::StorageStateTree;
-use crate::utils::h_join;
+use crate::utils::{h_join, log_msg};
 
 /// 表示松弛 R1CS 关系中的单个约束。
 /// a * b = u * c + error
@@ -890,6 +890,12 @@ pub struct NovaFoldingCycle {
 
 impl NovaFoldingCycle {
     pub fn new(storage_period: usize) -> Self {
+        log_msg(
+            "DEBUG",
+            "NOVA",
+            None,
+            &format!("初始化 Nova 折叠周期，总轮数 {}。", storage_period),
+        );
         Self {
             storage_period,
             steps: 0,
@@ -916,16 +922,46 @@ impl NovaFoldingCycle {
         circuits: Vec<RelaxedR1CS<Fr>>,
     ) -> Result<NovaRoundResult, NovaFoldingError> {
         if circuits.is_empty() {
+            log_msg("WARN", "NOVA", None, "尝试吸收折叠轮次时电路集合为空。");
             return Err(NovaFoldingError::EmptyRound);
         }
         if self.steps >= self.storage_period {
+            log_msg(
+                "WARN",
+                "NOVA",
+                None,
+                &format!(
+                    "折叠周期已完成（{} 步），忽略新的轮次。",
+                    self.storage_period
+                ),
+            );
             return Err(NovaFoldingError::CycleComplete);
         }
 
+        log_msg(
+            "DEBUG",
+            "NOVA",
+            None,
+            &format!(
+                "开始吸收第 {} 个折叠轮次，电路数量 {}。",
+                self.steps + 1,
+                circuits.len()
+            ),
+        );
         let delta = circuits.iter().fold(Fr::zero(), |acc, circuit| {
             acc + assignments_digest(&circuit.assignments)
         });
         let weight = Fr::from((self.steps + 1) as u64);
+        log_msg(
+            "DEBUG",
+            "NOVA",
+            None,
+            &format!(
+                "本轮增量 delta={}，权重 weight={}",
+                fr_to_padded_hex(&delta),
+                fr_to_padded_hex(&weight)
+            ),
+        );
         let step_circuit = NovaStepCircuit::new(circuits.clone());
 
         if self.pp.is_none() {
@@ -942,6 +978,12 @@ impl NovaFoldingCycle {
                 )?;
             // 将内部计数推进到第一步
             recursive_snark.prove_step(&pp, &step_circuit)?;
+            log_msg(
+                "DEBUG",
+                "NOVA",
+                None,
+                "初始化 Nova 公共参数和递归 SNARK 实例。",
+            );
             self.pp = Some(pp);
             self.recursive_snark = Some(recursive_snark);
         } else {
@@ -951,12 +993,28 @@ impl NovaFoldingCycle {
                 .as_mut()
                 .ok_or(NovaFoldingError::NotInitialized)?;
             recursive_snark.prove_step(pp, &step_circuit)?;
+            log_msg(
+                "DEBUG",
+                "NOVA",
+                None,
+                &format!("递归 SNARK 推进到第 {} 步。", self.steps + 1),
+            );
         }
 
         self.accumulator += delta + weight;
         self.steps += 1;
         self.round_accumulators.push(self.accumulator);
         self.finalized = None;
+        log_msg(
+            "INFO",
+            "NOVA",
+            None,
+            &format!(
+                "完成第 {} 个折叠轮次，累加器更新为 {}。",
+                self.steps,
+                fr_to_padded_hex(&self.accumulator)
+            ),
+        );
 
         if let Some(snark) = &self.recursive_snark {
             let outputs = snark.outputs();
@@ -974,10 +1032,21 @@ impl NovaFoldingCycle {
 
     /// 完成折叠周期并生成最终证明。
     pub fn finalize(&mut self) -> Result<Option<NovaFinalProof>, NovaFoldingError> {
+        log_msg(
+            "DEBUG",
+            "NOVA",
+            None,
+            &format!(
+                "尝试完成折叠周期：当前步数 {}/{}。",
+                self.steps, self.storage_period
+            ),
+        );
         if self.steps < self.storage_period {
+            log_msg("DEBUG", "NOVA", None, "存储周期尚未完成，等待更多轮次。");
             return Ok(None); // 周期未完成
         }
         if let Some(proof) = &self.finalized {
+            log_msg("DEBUG", "NOVA", None, "返回已缓存的最终折叠证明。");
             return Ok(Some(proof.clone())); // 返回缓存的证明
         }
 
@@ -987,6 +1056,7 @@ impl NovaFoldingCycle {
             .as_ref()
             .ok_or(NovaFoldingError::NotInitialized)?;
 
+        log_msg("DEBUG", "NOVA", None, "验证递归 SNARK 并生成压缩证明。");
         recursive_snark.verify(pp, self.steps, &self.initial_z)?;
 
         let (pk, vk) = CompressedSNARK::<
@@ -1019,6 +1089,16 @@ impl NovaFoldingCycle {
             accumulator: self.accumulator,
         };
         self.finalized = Some(proof.clone());
+        log_msg(
+            "INFO",
+            "NOVA",
+            None,
+            &format!(
+                "折叠周期完成：步数 {}，最终累加器 {}。",
+                proof.steps,
+                fr_to_padded_hex(&proof.accumulator)
+            ),
+        );
         Ok(Some(proof))
     }
 }
