@@ -24,7 +24,7 @@ use crate::storage::state::StorageStateTree;
 use crate::utils::h_join;
 
 /// 表示松弛 R1CS 关系中的单个约束。
-/// a * b = c + slack
+/// a * b = u * c + error
 #[derive(Debug, Clone)]
 pub struct RelaxedR1CSConstraint<F: PrimeField> {
     /// 线性组合 a 的系数和变量索引
@@ -33,14 +33,14 @@ pub struct RelaxedR1CSConstraint<F: PrimeField> {
     pub b: Vec<(usize, F)>,
     /// 线性组合 c 的系数和变量索引
     pub c: Vec<(usize, F)>,
-    /// 松弛项
-    pub slack: F,
+    /// 松弛误差项 E
+    pub error: F,
 }
 
 impl<F: PrimeField> RelaxedR1CSConstraint<F> {
     /// 创建一个新的松弛 R1CS 约束。
-    pub fn new(a: Vec<(usize, F)>, b: Vec<(usize, F)>, c: Vec<(usize, F)>, slack: F) -> Self {
-        Self { a, b, c, slack }
+    pub fn new(a: Vec<(usize, F)>, b: Vec<(usize, F)>, c: Vec<(usize, F)>, error: F) -> Self {
+        Self { a, b, c, error }
     }
 }
 
@@ -57,6 +57,8 @@ pub struct RelaxedR1CS<F: PrimeField> {
     pub witness: Vec<F>,
     /// 约束列表
     pub constraints: Vec<RelaxedR1CSConstraint<F>>,
+    /// 关系的松弛标量 u
+    pub u: F,
     /// 所有变量的赋值 (包括输入和见证)
     assignments: Vec<F>,
 }
@@ -75,7 +77,7 @@ impl<F: PrimeField> RelaxedR1CS<F> {
             let a = eval(&constraint.a, &self.assignments);
             let b = eval(&constraint.b, &self.assignments);
             let c = eval(&constraint.c, &self.assignments);
-            a * b == c + constraint.slack
+            a * b == self.u * c + constraint.error
         })
     }
 
@@ -106,6 +108,8 @@ pub struct RelaxedR1CSBuilder<F: PrimeField> {
     input_indexes: Vec<usize>,
     /// 约束列表
     constraints: Vec<RelaxedR1CSConstraint<F>>,
+    /// 松弛标量 u
+    u: F,
 }
 
 impl<F: PrimeField> RelaxedR1CSBuilder<F> {
@@ -117,7 +121,13 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
             is_input: vec![false],
             input_indexes: Vec::new(),
             constraints: Vec::new(),
+            u: F::one(),
         }
+    }
+
+    /// 设置松弛标量 u。
+    pub fn set_relaxation_parameter(&mut self, u: F) {
+        self.u = u;
     }
 
     /// 分配一个新变量。
@@ -226,12 +236,17 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
     }
 
     /// 完成构建并返回松弛 R1CS 实例。
-    pub fn finish(self) -> RelaxedR1CS<F> {
+    pub fn finish(mut self) -> RelaxedR1CS<F> {
+        let u = self.u;
+        self.assignments.push(u);
+        self.is_input.push(false);
+
         let Self {
             assignments,
             is_input,
             input_indexes,
             constraints,
+            u: _,
         } = self;
 
         let inputs = input_indexes
@@ -251,6 +266,7 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
             inputs,
             witness,
             constraints,
+            u,
             assignments,
         }
     }
@@ -557,13 +573,14 @@ struct NovaConstraint {
     a: Vec<(usize, NovaScalar)>,
     b: Vec<(usize, NovaScalar)>,
     c: Vec<(usize, NovaScalar)>,
-    slack: NovaScalar,
+    error: NovaScalar,
 }
 
 #[derive(Clone, Debug)]
 struct NovaCircuitInstance {
     assignments: Vec<NovaScalar>,
     constraints: Vec<NovaConstraint>,
+    u: NovaScalar,
 }
 
 impl NovaCircuitInstance {
@@ -582,7 +599,7 @@ impl NovaCircuitInstance {
                 a: vec![(var_idx, NovaScalar::ONE)],
                 b: vec![(0, NovaScalar::ONE)],
                 c: Vec::new(),
-                slack: NovaScalar::ZERO,
+                error: NovaScalar::ZERO,
             });
         }
 
@@ -597,7 +614,7 @@ impl NovaCircuitInstance {
                 a: Vec::new(),
                 b: Vec::new(),
                 c: Vec::new(),
-                slack: NovaScalar::ZERO,
+                error: NovaScalar::ZERO,
             });
         }
     }
@@ -640,7 +657,7 @@ impl NovaStepCircuit {
                         .iter()
                         .map(|(idx, coeff)| (*idx, fr_to_nova_scalar(coeff)))
                         .collect(),
-                    slack: fr_to_nova_scalar(&constraint.slack),
+                    error: fr_to_nova_scalar(&constraint.error),
                 })
                 .collect::<Vec<_>>();
 
@@ -655,6 +672,7 @@ impl NovaStepCircuit {
             converted.push(NovaCircuitInstance {
                 assignments,
                 constraints,
+                u: fr_to_nova_scalar(&circuit.u),
             });
         }
 
@@ -700,7 +718,8 @@ impl StepCircuit<NovaScalar> for NovaStepCircuit {
                 let a_terms = constraint.a.clone();
                 let b_terms = constraint.b.clone();
                 let c_terms = constraint.c.clone();
-                let slack = constraint.slack;
+                let error = constraint.error;
+                let u = circuit.u;
                 ns.enforce(
                     || format!("constraint_{constraint_idx}"),
                     |lc| {
@@ -729,13 +748,13 @@ impl StepCircuit<NovaScalar> for NovaStepCircuit {
                         let mut lc = lc;
                         for (var_idx, coeff) in &c_terms {
                             if *var_idx == 0 {
-                                lc = lc + (*coeff, one);
+                                lc = lc + (*coeff * u, one);
                             } else if let Some(var) = &vars[*var_idx] {
-                                lc = lc + (*coeff, var.get_variable());
+                                lc = lc + (*coeff * u, var.get_variable());
                             }
                         }
-                        if slack != NovaScalar::ZERO {
-                            lc = lc + (slack, one);
+                        if error != NovaScalar::ZERO {
+                            lc = lc + (error, one);
                         }
                         lc
                     },
