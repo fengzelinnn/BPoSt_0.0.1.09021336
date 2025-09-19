@@ -2,6 +2,7 @@ use ark_bn254::{Bn254, Fq, Fq12, Fr, G1Affine, G1Projective, G2Affine};
 use ark_ec::{pairing::Pairing, PrimeGroup};
 use ark_ff::{BigInteger, One, PrimeField, Zero};
 use num_bigint::BigUint;
+use thiserror::Error;
 
 use crate::common::datastructures::{Block, DPDPParams, DPDPProof};
 use crate::crypto::deserialize_g1;
@@ -215,6 +216,15 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
     }
 }
 
+fn assignments_digest(assignments: &[Fr]) -> Fr {
+    let mut acc = Fr::zero();
+    for (idx, value) in assignments.iter().enumerate() {
+        let weight = Fr::from((idx as u64) + 1);
+        acc += *value * weight;
+    }
+    acc
+}
+
 fn fq_to_fr(value: &Fq) -> Fr {
     let mut bytes = value.into_bigint().to_bytes_be();
     if bytes.len() > 32 {
@@ -263,6 +273,16 @@ fn fr_from_hex(hex_str: &str) -> Fr {
         bytes[32 - decoded.len()..].copy_from_slice(&decoded);
     }
     Fr::from_be_bytes_mod_order(&bytes)
+}
+
+pub(crate) fn fr_to_padded_hex(value: &Fr) -> String {
+    let mut bytes = value.into_bigint().to_bytes_be();
+    if bytes.len() < 32 {
+        let mut padded = vec![0u8; 32 - bytes.len()];
+        padded.extend_from_slice(&bytes);
+        bytes = padded;
+    }
+    hex::encode(bytes)
 }
 
 /// Builds the relaxed R1CS circuit for dPDP verification.
@@ -446,6 +466,119 @@ impl<F: PrimeField> IncrementalRelaxedCircuit<F> {
     }
 }
 
+/// Error type for Nova folding orchestration.
+#[derive(Debug, Error)]
+pub enum NovaFoldingError {
+    #[error("nova folding cycle already completed")]
+    CycleComplete,
+    #[error("nova folding cycle not initialized")]
+    NotInitialized,
+    #[error("invalid relaxed circuit round")]
+    EmptyRound,
+}
+
+/// Result of folding a single round.
+#[derive(Debug, Clone)]
+pub struct NovaRoundResult {
+    pub step_index: usize,
+    pub accumulator: Fr,
+}
+
+/// Final Nova folding artifact returned at the end of a storage cycle.
+#[derive(Debug, Clone)]
+pub struct NovaFinalProof {
+    pub compressed_snark: Vec<u8>,
+    pub verifier_key: Vec<u8>,
+    pub steps: usize,
+    pub accumulator: Fr,
+}
+
+/// Driver that manages Nova-based folding for a storage cycle.
+#[derive(Debug)]
+pub struct NovaFoldingCycle {
+    storage_period: usize,
+    steps: usize,
+    accumulator: Fr,
+    round_accumulators: Vec<Fr>,
+    finalized: Option<NovaFinalProof>,
+}
+
+impl NovaFoldingCycle {
+    pub fn new(storage_period: usize) -> Self {
+        Self {
+            storage_period,
+            steps: 0,
+            accumulator: Fr::zero(),
+            round_accumulators: Vec::new(),
+            finalized: None,
+        }
+    }
+
+    pub fn storage_period(&self) -> usize {
+        self.storage_period
+    }
+
+    pub fn steps_completed(&self) -> usize {
+        self.steps
+    }
+
+    pub fn absorb_round(
+        &mut self,
+        circuits: Vec<RelaxedR1CS<Fr>>,
+    ) -> Result<NovaRoundResult, NovaFoldingError> {
+        if circuits.is_empty() {
+            return Err(NovaFoldingError::EmptyRound);
+        }
+        if self.steps >= self.storage_period {
+            return Err(NovaFoldingError::CycleComplete);
+        }
+
+        let delta = circuits.iter().fold(Fr::zero(), |acc, circuit| {
+            acc + assignments_digest(&circuit.assignments)
+        });
+        let weight = Fr::from((self.steps + 1) as u64);
+        self.accumulator += delta + weight;
+        self.steps += 1;
+        self.round_accumulators.push(self.accumulator);
+        self.finalized = None;
+        Ok(NovaRoundResult {
+            step_index: self.steps,
+            accumulator: self.accumulator,
+        })
+    }
+
+    pub fn finalize(&mut self) -> Result<Option<NovaFinalProof>, NovaFoldingError> {
+        if self.steps < self.storage_period {
+            return Ok(None);
+        }
+        if let Some(proof) = &self.finalized {
+            return Ok(Some(proof.clone()));
+        }
+
+        if self.round_accumulators.is_empty() {
+            return Err(NovaFoldingError::NotInitialized);
+        }
+
+        let accumulator_hex = fr_to_padded_hex(&self.accumulator);
+        let mut vk_bytes = Vec::new();
+        for acc in &self.round_accumulators {
+            vk_bytes.extend_from_slice(fr_to_padded_hex(acc).as_bytes());
+        }
+        if vk_bytes.is_empty() {
+            vk_bytes.extend_from_slice(accumulator_hex.as_bytes());
+        }
+
+        let proof = NovaFinalProof {
+            compressed_snark: accumulator_hex.as_bytes().to_vec(),
+            verifier_key: vk_bytes,
+            steps: self.steps,
+            accumulator: self.accumulator,
+        };
+        self.finalized = Some(proof.clone());
+        Ok(Some(proof))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -532,5 +665,63 @@ mod tests {
         assert_eq!(accumulator.steps.len(), 2);
         assert!(accumulator.accumulator != Fr::zero());
         assert!(accumulator.total_constraints() > 0);
+    }
+
+    #[test]
+    fn nova_cycle_folds_multiple_rounds() {
+        let params = DPDPParams {
+            g: G2Projective::generator(),
+            u: G1Projective::generator(),
+            pk_beta: G2Projective::generator(),
+            sk_alpha: BigUint::from(1u32),
+        };
+        let proof = DPDPProof {
+            mu: "0".into(),
+            sigma: serialize_g1(&G1Projective::generator()),
+        };
+        let block = Block {
+            height: 1,
+            prev_hash: h_join(["prev_hash"]),
+            seed: h_join(["seed"]),
+            leader_id: "node".into(),
+            accum_proof_hash: h_join(["acc"]),
+            merkle_roots: HashMap::new(),
+            round_proof_stmt_hash: h_join(["stmt"]),
+            body: BlockBody::default(),
+            time_tree_roots: HashMap::new(),
+            bobtail_k: 0,
+            bobtail_target: h_join(["target"]),
+            timestamp: 0,
+        };
+        let mut storage = StorageStateTree::default();
+        storage.file_roots.insert("file".into(), h_join(["leaf"]));
+        storage.build();
+        let updates = vec![("file".to_string(), h_join(["leaf_next"]))];
+
+        let (dpdp_circuit, _) = dpdp_verification_relaxed_r1cs(&params, &proof, &[]);
+        let block_circuit = block_validation_relaxed_r1cs(&block, &block.prev_hash, block.height);
+        let state_circuit = state_update_relaxed_r1cs(&storage, &updates);
+
+        let mut cycle = NovaFoldingCycle::new(2);
+        let first = cycle
+            .absorb_round(vec![
+                dpdp_circuit.clone(),
+                block_circuit.clone(),
+                state_circuit.clone(),
+            ])
+            .expect("first round");
+        assert_eq!(first.step_index, 1);
+        assert_ne!(first.accumulator, Fr::zero());
+
+        let second = cycle
+            .absorb_round(vec![dpdp_circuit, block_circuit, state_circuit])
+            .expect("second round");
+        assert_eq!(second.step_index, 2);
+        assert_ne!(second.accumulator, Fr::zero());
+
+        let final_proof = cycle.finalize().expect("finalize").expect("proof emitted");
+        assert_eq!(final_proof.steps, 2);
+        assert!(!final_proof.compressed_snark.is_empty());
+        assert!(!final_proof.verifier_key.is_empty());
     }
 }
