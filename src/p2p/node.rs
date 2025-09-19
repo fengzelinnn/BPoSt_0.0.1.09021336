@@ -751,21 +751,13 @@ impl Node {
                 if let Some(block_val) = msg.get("block") {
                     if let Ok(block) = serde_json::from_value::<Block>(block_val.clone()) {
                         // 验证并添加新区块
-                        if block.prev_hash == self.chain.last_hash() {
-                            self.chain.add_block(block.clone(), None);
+                        if !self.accept_block(block) {
                             log_msg(
-                                "INFO",
+                                "WARN",
                                 "BLOCKCHAIN",
                                 Some(self.node_id.clone()),
-                                &format!("接受了来自 {} 的区块 {}", block.leader_id, block.height),
+                                &format!("忽略高度 {} 的无效区块", next_height),
                             );
-                            // 区块接受后，执行dPDP轮次
-                            self.perform_dpdp_round(&block);
-                            // 清理当前高度的共识状态
-                            self.proof_pool.remove(&next_height);
-                            self.preprepare_signals.remove(&next_height);
-                            self.sent_preprepare_signal_at.remove(&next_height);
-                            self.election_concluded_for.insert(next_height);
                         }
                     }
                 }
@@ -1214,15 +1206,58 @@ impl Node {
             timestamp: chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0) as u128,
         };
 
+        // 领导者首先更新自己的链，避免等待gossip反馈
+        let gossip_block = new_block.clone();
+        if !self.accept_block(new_block) {
+            log_msg(
+                "ERROR",
+                "BLOCKCHAIN",
+                Some(self.node_id.clone()),
+                &format!("领导者在高度 {} 创建区块失败", height),
+            );
+            return;
+        }
+
         // 将新区块gossip出去
         self.gossip(
             serde_json::json!({
                 "type": "new_block",
                 "height": height,
-                "block": new_block,
+                "block": gossip_block,
             }),
             true,
         );
+    }
+
+    /// 接受一个新区块并更新本地区块链状态
+    fn accept_block(&mut self, block: Block) -> bool {
+        let expected_height = self.chain.height() + 1;
+        if block.prev_hash != self.chain.last_hash() || block.height as usize != expected_height {
+            return false;
+        }
+
+        let block_for_processing = block.clone();
+        let leader_id = block_for_processing.leader_id.clone();
+        let block_height = block_for_processing.height;
+
+        self.chain.add_block(block, None);
+        log_msg(
+            "INFO",
+            "BLOCKCHAIN",
+            Some(self.node_id.clone()),
+            &format!("接受了来自 {} 的区块 {}", leader_id, block_height),
+        );
+
+        // 区块接受后，执行dPDP轮次
+        self.perform_dpdp_round(&block_for_processing);
+
+        // 清理当前高度的共识状态
+        self.proof_pool.remove(&expected_height);
+        self.preprepare_signals.remove(&expected_height);
+        self.sent_preprepare_signal_at.remove(&expected_height);
+        self.election_concluded_for.insert(expected_height);
+
+        true
     }
 
     /// 在接受一个新区块后，执行dPDP轮次
@@ -1394,7 +1429,6 @@ pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
     for attempt in 0..max_attempts {
         match TcpStream::connect_timeout(&addr, connect_timeout) {
             Ok(mut stream) => {
-
                 let _ = stream.set_write_timeout(Some(Duration::from_secs(8)));
                 // Verifying the Nova proof can be CPU intensive on the user
                 // side, especially on Windows. Allow a generous timeout while
@@ -1433,7 +1467,6 @@ pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
                         thread::sleep(Duration::from_millis(backoff_ms));
                         continue;
                     }
-
                 }
             }
             Err(err) => {
