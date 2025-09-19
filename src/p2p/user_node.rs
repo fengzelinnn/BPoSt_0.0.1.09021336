@@ -234,7 +234,7 @@ impl UserNode {
             data: Value::Null,
         });
         let response = self.dispatch_command(req);
-        let resp_json = serde_json::to_string(&response).unwrap();
+        let resp_json = serde_json::to_string(&response)?;
         stream.write_all(resp_json.as_bytes())?;
         stream.write_all(b"\n")?;
         Ok(())

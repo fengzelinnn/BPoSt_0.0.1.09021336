@@ -24,7 +24,7 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
     let host = "127.0.0.1".to_string();
     let bootstrap_addr = SocketAddr::new(host.parse().unwrap(), config.base_port);
     let mut current_port = config.base_port;
-    let current_exe = std::env::current_exe().expect("无法定位当前可执行文件");
+    let current_exe = env::current_exe().expect("无法定位当前可执行文件");
     let config_json = serde_json::to_string(&config).expect("无法序列化配置");
 
     for i in 0..config.num_nodes {

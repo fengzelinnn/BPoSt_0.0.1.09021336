@@ -213,7 +213,7 @@ impl Node {
             "DEBUG",
             "NODE",
             Some(self.node_id.clone()),
-            &format!("进入主循环..."),
+            &"进入主循环...".to_string(),
         );
 
         // 初始化定时器
@@ -314,7 +314,7 @@ impl Node {
         // 分发命令并获取响应
         let response = self.dispatch_command(req);
         let mut writer = stream;
-        let resp_json = serde_json::to_string(&response).unwrap();
+        let resp_json = serde_json::to_string(&response)?;
         // 写回响应
         writer.write_all(resp_json.as_bytes())?;
         writer.write_all(
@@ -923,7 +923,7 @@ impl Node {
                             "WARN",
                             "CONSENSUS",
                             Some(self.node_id.clone()),
-                            &format!("缺少获胜集合中的证明，等待同步..."),
+                            &"缺少获胜集合中的证明，等待同步...".to_string(),
                         );
                         continue;
                     }
@@ -1124,6 +1124,12 @@ impl Node {
                             );
                             return;
                         }
+                        else {
+                            log_msg("DEBUG",
+                                    "CONSENSUS",
+                                    Some(self.node_id.clone()),
+                                    &format!("dPDP 证明验证Pass：节点 {} 文件 {}。", nid, fid),);
+                        }
                     }
                 }
             }
@@ -1142,7 +1148,7 @@ impl Node {
                 .iter()
                 .map(|p| (p.address.clone(), String::from("1"))) // 奖励分配
                 .collect(),
-            proofs_merkle_tree: proofs_merkle_tree,
+            proofs_merkle_tree,
             dpdp_challenges,
         };
 
