@@ -610,6 +610,7 @@ impl UserNode {
         // applying read/write timeouts. This keeps the listener responsive while
         // still allowing the proof exchange to behave like a normal blocking
         // connection.
+
         stream.set_nonblocking(false)?;
         stream.set_read_timeout(Some(Duration::from_secs(2)))?;
         stream.set_write_timeout(Some(Duration::from_secs(2)))?;

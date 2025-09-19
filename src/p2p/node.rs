@@ -1394,6 +1394,7 @@ pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
     for attempt in 0..max_attempts {
         match TcpStream::connect_timeout(&addr, connect_timeout) {
             Ok(mut stream) => {
+
                 let _ = stream.set_write_timeout(Some(Duration::from_secs(8)));
                 // Verifying the Nova proof can be CPU intensive on the user
                 // side, especially on Windows. Allow a generous timeout while
@@ -1409,6 +1410,7 @@ pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
 
                 let mut reader = BufReader::new(stream);
                 let mut line = String::new();
+
                 match reader.read_line(&mut line) {
                     Ok(0) => return None,
                     Ok(_) => return serde_json::from_str(&line).ok(),
@@ -1431,6 +1433,7 @@ pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
                         thread::sleep(Duration::from_millis(backoff_ms));
                         continue;
                     }
+
                 }
             }
             Err(err) => {
