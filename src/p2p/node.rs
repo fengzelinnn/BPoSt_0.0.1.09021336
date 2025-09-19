@@ -1375,22 +1375,51 @@ pub fn send_json_line_without_response(addr: SocketAddr, payload: &Value) -> boo
 }
 
 /// 同步发送JSON行数据，并等待响应
+
 pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
-    if let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(1500)) {
-        let json = serde_json::to_string(payload).ok()?;
-        let _ = stream.write_all(json.as_bytes());
-        let _ = stream.write_all(
-            b"
-",
-        );
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-        if reader.read_line(&mut line).ok()? > 0 {
-            serde_json::from_str(&line).ok()
-        } else {
-            None
+    let payload_bytes = serde_json::to_vec(payload).ok()?;
+    let max_attempts = 5;
+    let connect_timeout = Duration::from_secs(2);
+
+    for attempt in 0..max_attempts {
+        match TcpStream::connect_timeout(&addr, connect_timeout) {
+            Ok(mut stream) => {
+                let _ = stream.set_write_timeout(Some(Duration::from_secs(4)));
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(4)));
+                if stream.write_all(&payload_bytes).is_err() {
+                    return None;
+                }
+                if stream.write_all(b"\n").is_err() {
+                    return None;
+                }
+
+                let mut reader = BufReader::new(stream);
+                let mut line = String::new();
+                if reader.read_line(&mut line).ok()? > 0 {
+                    return serde_json::from_str(&line).ok();
+                } else {
+                    return None;
+                }
+            }
+            Err(err) => {
+                let should_retry = matches!(
+                    err.kind(),
+                    std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::ConnectionRefused
+                        | std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                );
+
+                if attempt + 1 >= max_attempts || !should_retry {
+                    return None;
+                }
+
+                let backoff_ms = 200 * (attempt as u64 + 1);
+                thread::sleep(Duration::from_millis(backoff_ms));
+            }
         }
-    } else {
-        None
     }
+
+    None
 }
