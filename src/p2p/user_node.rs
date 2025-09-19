@@ -602,6 +602,15 @@ impl UserNode {
         stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
         owner_id: String,
     ) -> std::io::Result<()> {
+        // On Windows, sockets accepted from a non-blocking listener inherit the
+        // non-blocking mode. Subsequent read/write operations will then return
+        // `WouldBlock` (WSAEWOULDBLOCK) instead of waiting for data, which breaks
+        // the synchronous protocol we use to receive the final proof. To avoid
+        // this, force the accepted stream back into blocking mode before
+        // applying read/write timeouts. This keeps the listener responsive while
+        // still allowing the proof exchange to behave like a normal blocking
+        // connection.
+
         stream.set_nonblocking(false)?;
         stream.set_read_timeout(Some(Duration::from_secs(2)))?;
         stream.set_write_timeout(Some(Duration::from_secs(2)))?;

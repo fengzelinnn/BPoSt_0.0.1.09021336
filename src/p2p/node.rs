@@ -228,10 +228,15 @@ impl Node {
             match conn_rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(stream) => {
                     if let Err(e) = self.handle_connection(stream) {
-                        // 只有当错误不是 "WouldBlock" 或 "TimedOut" 时，才将其记录为严重错误
-                        if e.kind() != std::io::ErrorKind::WouldBlock
-                            && e.kind() != std::io::ErrorKind::TimedOut
-                        {
+                        // 只有当错误不是常见的瞬时网络错误时，才将其记录为严重错误
+                        if !matches!(
+                            e.kind(),
+                            std::io::ErrorKind::WouldBlock
+                                | std::io::ErrorKind::TimedOut
+                                | std::io::ErrorKind::ConnectionReset
+                                | std::io::ErrorKind::ConnectionAborted
+                                | std::io::ErrorKind::BrokenPipe
+                        ) {
                             log_msg(
                                 "ERROR",
                                 "NODE",
@@ -306,8 +311,13 @@ impl Node {
 
     /// 处理单个TCP连接
     fn handle_connection(&mut self, stream: TcpStream) -> std::io::Result<()> {
-        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+        // Windows sockets inherit the listener's non-blocking flag. Force the
+        // per-connection stream back into blocking mode before layering
+        // timeouts so that synchronous reads/writes behave consistently with
+        // other platforms.
+        stream.set_nonblocking(false)?;
+        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         let mut reader = BufReader::new(stream.try_clone()?);
         let mut line = String::new();
         reader.read_line(&mut line)?; // 读取一行JSON数据
@@ -1384,8 +1394,13 @@ pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
     for attempt in 0..max_attempts {
         match TcpStream::connect_timeout(&addr, connect_timeout) {
             Ok(mut stream) => {
-                let _ = stream.set_write_timeout(Some(Duration::from_secs(4)));
-                let _ = stream.set_read_timeout(Some(Duration::from_secs(4)));
+
+                let _ = stream.set_write_timeout(Some(Duration::from_secs(8)));
+                // Verifying the Nova proof can be CPU intensive on the user
+                // side, especially on Windows. Allow a generous timeout while
+                // we wait for the response so we do not abort the exchange
+                // prematurely.
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
                 if stream.write_all(&payload_bytes).is_err() {
                     return None;
                 }
@@ -1395,10 +1410,30 @@ pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
 
                 let mut reader = BufReader::new(stream);
                 let mut line = String::new();
-                if reader.read_line(&mut line).ok()? > 0 {
-                    return serde_json::from_str(&line).ok();
-                } else {
-                    return None;
+
+                match reader.read_line(&mut line) {
+                    Ok(0) => return None,
+                    Ok(_) => return serde_json::from_str(&line).ok(),
+                    Err(err) => {
+                        let should_retry = matches!(
+                            err.kind(),
+                            std::io::ErrorKind::TimedOut
+                                | std::io::ErrorKind::WouldBlock
+                                | std::io::ErrorKind::Interrupted
+                                | std::io::ErrorKind::ConnectionReset
+                                | std::io::ErrorKind::ConnectionAborted
+                                | std::io::ErrorKind::BrokenPipe
+                        );
+
+                        if attempt + 1 >= max_attempts || !should_retry {
+                            return None;
+                        }
+
+                        let backoff_ms = 200 * (attempt as u64 + 1);
+                        thread::sleep(Duration::from_millis(backoff_ms));
+                        continue;
+                    }
+
                 }
             }
             Err(err) => {
