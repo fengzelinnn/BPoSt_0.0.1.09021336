@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque}; // 集合类型
+use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque}; // 集合类型
 use std::io::{BufRead, BufReader, Write}; // IO 操作
 use std::net::{SocketAddr, TcpListener, TcpStream}; // 网络地址和TCP流
 use std::sync::atomic::{AtomicBool, Ordering}; // 原子布尔值，用于线程安全地停止节点
@@ -6,7 +6,7 @@ use std::sync::Arc; // 原子引用计数，用于多线程共享数据
 use std::thread; // 线程操作
 use std::time::{Duration, Instant}; // 时间相关操作
 
-use crossbeam_channel::{unbounded, Sender}; // 高性能的并发消息通道
+use crossbeam_channel::{unbounded, Receiver, Sender}; // 高性能的并发消息通道
 use num_bigint::BigUint; // 大整数处理
 use rand::Rng; // 随机数生成
 use serde::{Deserialize, Serialize}; // 序列化和反序列化
@@ -82,12 +82,19 @@ pub struct Node {
     bobtail_k: usize,                   // Bobtail共识算法中的k参数
     prepare_margin: usize,              // 预备阶段的容错边际
     difficulty_threshold: BigUint,      // 挖矿难度阈值
+    broadcast_threshold: BigUint,       // 广播阈值，略高于全局难度
     preprepare_signals: HashMap<usize, HashMap<String, Vec<String>>>, // 预备信号 <height, <sender_id, proof_hashes>>
     sent_preprepare_signal_at: HashMap<usize, Vec<String>>, // 记录在某个高度已发送的预备信号
     election_concluded_for: HashSet<usize>,                 // 记录已完成领导者选举的高度
     round_tst_updates: HashMap<usize, HashMap<String, RoundUpdate>>, // 轮次状态更新 <height, <node_id, update>>
     stop_flag: Arc<AtomicBool>,                                      // 优雅停机的标志
     report_sender: Sender<NodeReport>,                               // 用于发送节点状态报告的通道
+    mined_proof_tx: Sender<(usize, BobtailProof)>,                   // 向主线程报告挖矿结果
+    mined_proof_rx: Receiver<(usize, BobtailProof)>,                 // 接收挖矿线程的证明
+    mining_thread: Option<thread::JoinHandle<()>>,                   // 当前的挖矿线程
+    mining_stop_flag: Option<Arc<AtomicBool>>,                       // 挖矿线程的停止标志
+    current_mining_height: Option<usize>,                            // 当前挖矿目标高度
+    mining_window_size: u64,                                         // 单次挖矿窗口大小
 }
 
 impl Node {
@@ -109,6 +116,15 @@ impl Node {
             16,
         )
         .unwrap();
+        let broadcast_threshold = {
+            let mut candidate =
+                (&difficulty_threshold * BigUint::from(11u32)) / BigUint::from(10u32);
+            if candidate <= difficulty_threshold {
+                candidate = &difficulty_threshold + BigUint::from(1u32);
+            }
+            candidate
+        };
+        let (mined_proof_tx, mined_proof_rx) = unbounded::<(usize, BobtailProof)>();
         Self {
             storage_manager: StorageManager::new(node_id.clone(), chunk_size, max_storage),
             prover: Prover::new(node_id.clone()),
@@ -125,12 +141,19 @@ impl Node {
             bobtail_k,
             prepare_margin: 0,
             difficulty_threshold,
+            broadcast_threshold,
             preprepare_signals: HashMap::new(),
             sent_preprepare_signal_at: HashMap::new(),
             election_concluded_for: HashSet::new(),
             round_tst_updates: HashMap::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
             report_sender,
+            mined_proof_tx,
+            mined_proof_rx,
+            mining_thread: None,
+            mining_stop_flag: None,
+            current_mining_height: None,
+            mining_window_size: 10_000,
         }
     }
 
@@ -258,6 +281,8 @@ impl Node {
                 self.process_mempool();
             }
 
+            self.drain_mined_proofs();
+
             // 3. 尝试共识
             if Instant::now() >= next_consensus {
                 self.attempt_consensus();
@@ -274,6 +299,7 @@ impl Node {
         }
 
         // 清理和关闭
+        self.stop_mining_thread();
         self.stop_flag.store(true, Ordering::SeqCst);
         drop(conn_rx); // 关闭通道，让监听线程退出
         if listener_handle.join().is_err() {
@@ -810,46 +836,35 @@ impl Node {
         }
     }
 
-    /// 尝试进行共识
-    fn attempt_consensus(&mut self) {
-        // 如果没有存储文件，则不参与共识
-        if self.storage_manager.get_num_files() == 0 {
-            return;
-        }
-        let height = self.chain.height() + 1;
-        if self.election_concluded_for.contains(&height) {
-            return;
-        }
+    /// 处理挖矿线程上报的证明
+    fn drain_mined_proofs(&mut self) {
+        while let Ok((height, proof)) = self.mined_proof_rx.try_recv() {
+            if height < self.chain.height() + 1 {
+                continue; // 已经过期的证明
+            }
 
-        // 1. 如果自己还没有为当前高度生成证明，则尝试挖矿
-        if !self
-            .proof_pool
-            .get(&height)
-            .map(|m| m.contains_key(&self.node_id))
-            .unwrap_or(false)
-        {
-            let seed = self.chain.last_hash();
-            let proofs = self.miner.mine(
-                &seed,
-                &self.storage_manager.get_storage_root(),
-                &self.storage_manager.get_file_roots(),
-                self.storage_manager.get_num_files(),
-                10_000, // 挖矿迭代次数
-            );
-            if let Some(proof) = proofs.first() {
-                // 将挖出的证明存入自己的证明池
-                self.proof_pool
-                    .entry(height)
-                    .or_default()
-                    .entry(self.node_id.clone())
-                    .or_insert(proof.clone());
+            let pool = self.proof_pool.entry(height).or_default();
+            let mut should_broadcast = false;
+            match pool.entry(proof.node_id.clone()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(proof.clone());
+                    should_broadcast = true;
+                }
+                Entry::Occupied(mut entry) => {
+                    if proof.proof_hash < entry.get().proof_hash {
+                        entry.insert(proof.clone());
+                        should_broadcast = true;
+                    }
+                }
+            }
+
+            if should_broadcast {
                 log_msg(
                     "DEBUG",
-                    "CONSENSUS",
+                    "MINER",
                     Some(self.node_id.clone()),
-                    &format!("为高度 {} 挖出了一个证明", height),
+                    &format!("高度 {} 获得新的本地证明 {}", height, proof.proof_hash),
                 );
-                // 将新挖出的证明gossip出去
                 self.gossip(
                     serde_json::json!({
                         "type": "bobtail_proof",
@@ -859,6 +874,133 @@ impl Node {
                     true,
                 );
             }
+        }
+    }
+
+    /// 确保当前高度的挖矿线程正在运行
+    fn ensure_mining_thread(&mut self, height: usize) {
+        if self.current_mining_height == Some(height) {
+            return;
+        }
+
+        self.stop_mining_thread();
+
+        let miner = self.miner.clone();
+        let seed = self.chain.last_hash();
+        let storage_root = self.storage_manager.get_storage_root();
+        let file_roots = self.storage_manager.get_file_roots();
+        let num_files = self.storage_manager.get_num_files();
+        let broadcast_threshold = self.broadcast_threshold.clone();
+        let tx = self.mined_proof_tx.clone();
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let thread_flag = Arc::clone(&stop_flag);
+        let mining_window = self.mining_window_size;
+        let node_id = self.node_id.clone();
+
+        match thread::Builder::new()
+            .name(format!("mining-{}-{}", node_id, height))
+            .spawn(move || {
+                let mut next_start = 0u64;
+                let mut best_seen: Option<BigUint> = None;
+                while !thread_flag.load(Ordering::SeqCst) {
+                    if mining_window == 0 || next_start == u64::MAX {
+                        break;
+                    }
+                    let proof_opt = with_cpu_heavy_limit(|| {
+                        miner.mine_window(
+                            &seed,
+                            &storage_root,
+                            &file_roots,
+                            num_files,
+                            next_start,
+                            mining_window,
+                        )
+                    });
+                    if thread_flag.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    if let Some(proof) = proof_opt {
+                        if let Some(hash_val) =
+                            BigUint::parse_bytes(proof.proof_hash.as_bytes(), 16)
+                        {
+                            if hash_val <= broadcast_threshold
+                                && best_seen.as_ref().map_or(true, |prev| hash_val < *prev)
+                            {
+                                best_seen = Some(hash_val);
+                                if tx.send((height, proof)).is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    let new_start = next_start.saturating_add(mining_window);
+                    if new_start == next_start {
+                        break;
+                    }
+                    next_start = new_start;
+                }
+            }) {
+            Ok(handle) => {
+                log_msg(
+                    "DEBUG",
+                    "MINER",
+                    Some(self.node_id.clone()),
+                    &format!("启动高度 {} 的挖矿线程", height),
+                );
+                self.mining_stop_flag = Some(stop_flag);
+                self.mining_thread = Some(handle);
+                self.current_mining_height = Some(height);
+            }
+            Err(e) => {
+                log_msg(
+                    "ERROR",
+                    "MINER",
+                    Some(self.node_id.clone()),
+                    &format!("无法启动挖矿线程: {}", e),
+                );
+                self.mining_stop_flag = None;
+                self.mining_thread = None;
+                self.current_mining_height = None;
+            }
+        }
+    }
+
+    /// 停止当前的挖矿线程
+    fn stop_mining_thread(&mut self) {
+        if let Some(flag) = self.mining_stop_flag.take() {
+            flag.store(true, Ordering::SeqCst);
+        }
+        if let Some(handle) = self.mining_thread.take() {
+            if handle.join().is_err() {
+                log_msg(
+                    "WARN",
+                    "MINER",
+                    Some(self.node_id.clone()),
+                    "挖矿线程 join 失败",
+                );
+            }
+        }
+        self.current_mining_height = None;
+    }
+
+    /// 尝试进行共识
+    fn attempt_consensus(&mut self) {
+        // 如果没有存储文件，则不参与共识
+        if self.storage_manager.get_num_files() == 0 {
+            self.stop_mining_thread();
+            return;
+        }
+        let height = self.chain.height() + 1;
+        if self.election_concluded_for.contains(&height) {
+            self.stop_mining_thread();
+            return;
+        }
+
+        if !self.sent_preprepare_signal_at.contains_key(&height) {
+            self.ensure_mining_thread(height);
+        } else {
+            self.stop_mining_thread();
         }
 
         // 2. 尝试选举领导者
@@ -892,6 +1034,7 @@ impl Node {
 
                 // 如果平均哈希满足难度要求
                 if avg_hash <= self.difficulty_threshold {
+                    self.stop_mining_thread();
                     let proof_hashes: Vec<String> =
                         selected.iter().map(|p| p.proof_hash.clone()).collect();
                     // 记录自己发送的预备信号
@@ -1235,6 +1378,8 @@ impl Node {
         if block.prev_hash != self.chain.last_hash() || block.height as usize != expected_height {
             return false;
         }
+
+        self.stop_mining_thread();
 
         let block_for_processing = block.clone();
         let leader_id = block_for_processing.leader_id.clone();
