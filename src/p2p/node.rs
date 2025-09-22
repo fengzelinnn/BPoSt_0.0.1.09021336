@@ -6,7 +6,7 @@ use std::sync::Arc; // 原子引用计数，用于多线程共享数据
 use std::thread; // 线程操作
 use std::time::{Duration, Instant}; // 时间相关操作
 
-use crossbeam_channel::{unbounded, Receiver, Sender}; // 高性能的并发消息通道
+use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender}; // 高性能的并发消息通道
 use num_bigint::BigUint; // 大整数处理
 use rand::Rng; // 随机数生成
 use serde::{Deserialize, Serialize}; // 序列化和反序列化
@@ -37,6 +37,16 @@ pub struct NodeReport {
     pub mempool_size: usize,    // 内存池中的消息数量
     pub proof_pool_size: usize, // 证明池中的证明数量
     pub is_mining: bool,        // 是否正在挖矿（即是否存储了文件）
+}
+
+/// 提案同步线程的控制命令
+enum ProposalSyncCommand {
+    Broadcast {
+        height: usize,
+        payload: Value,
+        peers: Vec<SocketAddr>,
+    },
+    Stop,
 }
 
 /// 节点间直接通信的命令请求结构体
@@ -98,6 +108,8 @@ pub struct Node {
     mining_stop_flag: Option<Arc<AtomicBool>>,                       // 挖矿线程的停止标志
     current_mining_height: Option<usize>,                            // 当前挖矿目标高度
     mining_window_size: u64,                                         // 单次挖矿窗口大小
+    proposal_sync_thread: Option<thread::JoinHandle<()>>,            // 提案同步线程
+    proposal_sync_tx: Option<Sender<ProposalSyncCommand>>,           // 提案同步命令通道
 }
 
 impl Node {
@@ -158,6 +170,8 @@ impl Node {
             mining_stop_flag: None,
             current_mining_height: None,
             mining_window_size: 10_000,
+            proposal_sync_thread: None,
+            proposal_sync_tx: None,
             new_block_buffer: VecDeque::new(),
             outstanding_proof_requests: HashMap::new(),
         }
@@ -307,6 +321,7 @@ impl Node {
 
         // 清理和关闭
         self.stop_mining_thread();
+        self.shutdown_proposal_sync();
         self.stop_flag.store(true, Ordering::SeqCst);
         drop(conn_rx); // 关闭通道，让监听线程退出
         if listener_handle.join().is_err() {
@@ -1060,6 +1075,128 @@ impl Node {
         self.current_mining_height = None;
     }
 
+    /// 确保提案同步线程已启动
+    fn ensure_proposal_sync_thread(&mut self) {
+        if self.proposal_sync_thread.is_some() {
+            return;
+        }
+        let (tx, rx) = unbounded::<ProposalSyncCommand>();
+        let node_id = self.node_id.clone();
+        let stop_flag = Arc::clone(&self.stop_flag);
+        let handle = thread::spawn(move || {
+            log_msg(
+                "DEBUG",
+                "CONSENSUS",
+                Some(node_id.clone()),
+                "提案同步线程启动。",
+            );
+            loop {
+                if stop_flag.load(Ordering::SeqCst) {
+                    break;
+                }
+                match rx.recv_timeout(Duration::from_millis(200)) {
+                    Ok(ProposalSyncCommand::Broadcast {
+                        height,
+                        payload,
+                        peers,
+                    }) => {
+                        for addr in peers {
+                            if !send_json_line_without_response(addr, &payload) {
+                                log_msg(
+                                    "WARN",
+                                    "CONSENSUS",
+                                    Some(node_id.clone()),
+                                    &format!("向 {} 广播高度 {} 的提案失败", addr, height),
+                                );
+                            }
+                        }
+                    }
+                    Ok(ProposalSyncCommand::Stop) => break,
+                    Err(RecvTimeoutError::Timeout) => continue,
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
+            }
+            log_msg(
+                "DEBUG",
+                "CONSENSUS",
+                Some(node_id.clone()),
+                "提案同步线程退出。",
+            );
+        });
+        self.proposal_sync_tx = Some(tx);
+        self.proposal_sync_thread = Some(handle);
+    }
+
+    /// 关闭提案同步线程
+    fn shutdown_proposal_sync(&mut self) {
+        if let Some(tx) = self.proposal_sync_tx.take() {
+            let _ = tx.send(ProposalSyncCommand::Stop);
+        }
+        if let Some(handle) = self.proposal_sync_thread.take() {
+            if handle.join().is_err() {
+                log_msg(
+                    "WARN",
+                    "CONSENSUS",
+                    Some(self.node_id.clone()),
+                    "提案同步线程 join 失败",
+                );
+            }
+        }
+    }
+
+    /// 通过提案同步线程分发预备阶段的提案
+    fn dispatch_preprepare_sync(
+        &mut self,
+        height: usize,
+        signals_snapshot: HashMap<String, Vec<String>>,
+    ) {
+        self.ensure_proposal_sync_thread();
+
+        let node_id = self.node_id.clone();
+        let mut payload = serde_json::json!({
+            "type": "preprepare_sync",
+            "height": height,
+            "sender_id": node_id.clone(),
+            "signals": signals_snapshot,
+        });
+        let gossip_id = format!(
+            "{}:{}",
+            node_id,
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        );
+        if let Value::Object(map) = &mut payload {
+            map.insert(String::from("gossip_id"), Value::from(gossip_id.clone()));
+        }
+        self.seen_gossip_ids.insert(gossip_id);
+
+        let peers: Vec<SocketAddr> = self.peers.values().cloned().collect();
+        if peers.is_empty() {
+            return;
+        }
+
+        if let Some(tx) = self.proposal_sync_tx.as_ref() {
+            if let Err(e) = tx.send(ProposalSyncCommand::Broadcast {
+                height,
+                payload,
+                peers,
+            }) {
+                log_msg(
+                    "WARN",
+                    "CONSENSUS",
+                    Some(self.node_id.clone()),
+                    &format!("提案同步线程不可用: {}", e),
+                );
+            }
+        } else {
+            log_msg(
+                "WARN",
+                "CONSENSUS",
+                Some(self.node_id.clone()),
+                "提案同步线程尚未启动，无法广播提案",
+            );
+        }
+    }
+
     /// 尝试进行共识
     fn attempt_consensus(&mut self) {
         self.process_new_block_buffer();
@@ -1124,6 +1261,7 @@ impl Node {
                         Some(self.node_id.clone()),
                         &format!("为高度 {} 达成预备条件，创建自己的提案。", height),
                     );
+                    self.ensure_proposal_sync_thread();
                 }
             }
         }
@@ -1137,15 +1275,7 @@ impl Node {
                     None => true,
                 };
                 if should_broadcast {
-                    self.gossip(
-                        serde_json::json!({
-                            "type": "preprepare_sync",
-                            "height": height,
-                            "sender_id": self.node_id,
-                            "signals": signals_snapshot.clone(),
-                        }),
-                        true,
-                    );
+                    self.dispatch_preprepare_sync(height, signals_snapshot.clone());
                     self.last_preprepare_broadcast
                         .insert(height, signals_snapshot.clone());
                 }
