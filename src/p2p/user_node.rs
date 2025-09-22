@@ -750,7 +750,16 @@ impl UserNode {
                 request_id, self.config.bid_wait_sec
             ),
         );
-        thread::sleep(Duration::from_secs(self.config.bid_wait_sec));
+        let total_wait_ms = self.config.bid_wait_sec.saturating_mul(1000);
+        let mut waited_ms = 0u64;
+        while waited_ms < total_wait_ms && !self.stop_flag.load(Ordering::SeqCst) {
+            let remaining = total_wait_ms - waited_ms;
+            let step = std::cmp::min(remaining, 200);
+            thread::sleep(Duration::from_millis(step));
+            self.drain_broadcast_buffer();
+            waited_ms += step;
+        }
+        self.drain_broadcast_buffer();
         let bids = {
             let bids_map = self.bids.lock();
             bids_map.get(&request_id).cloned().unwrap_or_default()
