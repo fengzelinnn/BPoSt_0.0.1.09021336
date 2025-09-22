@@ -67,9 +67,9 @@ struct RoundUpdate {
 
 /// P2P网络中的核心节点结构体
 pub struct Node {
-    pub node_id: String,                                       // 节点的唯一标识符
-    host: String,                                              // 节点监听的主机地址
-    port: u16,                                                 // 节点监听的端口
+    pub node_id: String,                                         // 节点的唯一标识符
+    host: String,                                                // 节点监听的主机地址
+    port: u16,                                                   // 节点监听的端口
     bootstrap_addr: Option<SocketAddr>, // 引导节点的地址，如果没有则自己是引导节点
     storage_manager: StorageManager,    // 存储管理器，负责文件的存储和检索
     prover: Prover,                     // 证明者，负责生成dPDP证明
@@ -77,6 +77,7 @@ pub struct Node {
     peers: HashMap<String, SocketAddr>, // 对等节点列表 <node_id, addr>
     mempool: VecDeque<Value>,           // 内存池，暂存待处理的gossip消息
     new_block_buffer: VecDeque<Block>,  // 新区块消息缓冲区
+    outstanding_proof_requests: HashMap<usize, HashSet<String>>, // 尚未满足的证明请求
     proof_pool: HashMap<usize, HashMap<String, BobtailProof>>, // 证明池 <height, <node_id, proof>>
     seen_gossip_ids: HashSet<String>,   // 已见过的gossip消息ID，防止重复处理
     chain: Blockchain,                  // 节点的区块链实例
@@ -156,6 +157,7 @@ impl Node {
             current_mining_height: None,
             mining_window_size: 10_000,
             new_block_buffer: VecDeque::new(),
+            outstanding_proof_requests: HashMap::new(),
         }
     }
 
@@ -699,7 +701,7 @@ impl Node {
                         }
                     }
                 }
-                "bobtail_proof" | "preprepare_sync" => {
+                "bobtail_proof" | "preprepare_sync" | "proof_request" => {
                     // 将共识相关的消息放入内存池等待处理
                     self.mempool.push_back(data.clone());
                 }
@@ -799,11 +801,20 @@ impl Node {
                     if let Some(proof_val) = msg.get("proof") {
                         if let Ok(proof) = serde_json::from_value::<BobtailProof>(proof_val.clone())
                         {
+                            let proof_hash = proof.proof_hash.clone();
+                            let miner_id = proof.node_id.clone();
                             self.proof_pool
                                 .entry(height)
                                 .or_default()
-                                .entry(proof.node_id.clone())
+                                .entry(miner_id)
                                 .or_insert(proof);
+                            if let Some(pending) = self.outstanding_proof_requests.get_mut(&height)
+                            {
+                                pending.remove(&proof_hash);
+                                if pending.is_empty() {
+                                    self.outstanding_proof_requests.remove(&height);
+                                }
+                            }
                         }
                     }
                 }
@@ -819,6 +830,49 @@ impl Node {
                                     .collect();
                                 entry.entry(sender.clone()).or_insert(hashes);
                             }
+                        }
+                    }
+                }
+                Some("proof_request") => {
+                    let requested: Vec<String> = msg
+                        .get("proof_hashes")
+                        .and_then(Value::as_array)
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if requested.is_empty() {
+                        return;
+                    }
+                    if let Some(pool) = self.proof_pool.get(&height) {
+                        let mut found: Vec<BobtailProof> = Vec::new();
+                        for hash in requested {
+                            if let Some(proof) =
+                                pool.values().find(|p| p.proof_hash == hash).cloned()
+                            {
+                                found.push(proof);
+                            }
+                        }
+                        for proof in found {
+                            log_msg(
+                                "DEBUG",
+                                "CONSENSUS",
+                                Some(self.node_id.clone()),
+                                &format!(
+                                    "收到证明请求，重播高度 {} 的证明 {}",
+                                    height, proof.proof_hash
+                                ),
+                            );
+                            self.gossip(
+                                serde_json::json!({
+                                    "type": "bobtail_proof",
+                                    "height": height,
+                                    "proof": proof,
+                                }),
+                                true,
+                            );
                         }
                     }
                 }
@@ -1120,13 +1174,46 @@ impl Node {
                         .get(&height)
                         .map(|m| m.values().map(|p| p.proof_hash.clone()).collect())
                         .unwrap_or_default();
-                    if !proof_set.iter().all(|hash| known.contains(hash)) {
+                    let missing_hashes: Vec<String> = proof_set
+                        .iter()
+                        .filter(|hash| !known.contains(*hash))
+                        .cloned()
+                        .collect();
+                    if !missing_hashes.is_empty() {
                         log_msg(
                             "WARN",
                             "CONSENSUS",
                             Some(self.node_id.clone()),
                             &"缺少获胜集合中的证明，等待同步...".to_string(),
                         );
+                        let pending = self.outstanding_proof_requests.entry(height).or_default();
+                        let mut newly_requested = Vec::new();
+                        for hash in missing_hashes {
+                            if pending.insert(hash.clone()) {
+                                newly_requested.push(hash);
+                            }
+                        }
+                        if !newly_requested.is_empty() {
+                            log_msg(
+                                "DEBUG",
+                                "CONSENSUS",
+                                Some(self.node_id.clone()),
+                                &format!(
+                                    "请求高度 {} 的缺失证明: {}",
+                                    height,
+                                    newly_requested.join(", ")
+                                ),
+                            );
+                            self.gossip(
+                                serde_json::json!({
+                                    "type": "proof_request",
+                                    "height": height,
+                                    "requested_by": self.node_id,
+                                    "proof_hashes": newly_requested,
+                                }),
+                                true,
+                            );
+                        }
                         continue;
                     }
 
@@ -1422,6 +1509,7 @@ impl Node {
         self.proof_pool.remove(&expected_height);
         self.preprepare_signals.remove(&expected_height);
         self.sent_preprepare_signal_at.remove(&expected_height);
+        self.outstanding_proof_requests.remove(&expected_height);
         self.election_concluded_for.insert(expected_height);
 
         true
