@@ -1,5 +1,5 @@
 use parking_lot::Mutex;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -52,6 +52,7 @@ pub struct UserNode {
     bids: Arc<Mutex<HashMap<String, Vec<Value>>>>,
     active_requests: Arc<Mutex<HashSet<String>>>,
     stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
+    broadcast_buffer: Arc<Mutex<VecDeque<CommandRequest>>>,
 }
 
 impl UserNode {
@@ -72,6 +73,7 @@ impl UserNode {
             bids: Arc::new(Mutex::new(HashMap::new())),
             active_requests: Arc::new(Mutex::new(HashSet::new())),
             stored_files: Arc::new(Mutex::new(HashMap::new())),
+            broadcast_buffer: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -102,9 +104,7 @@ impl UserNode {
 
         // 克隆共享状态，用于监听线程
         let stop_flag = Arc::clone(&self.stop_flag);
-        let bids = Arc::clone(&self.bids);
-        let active_requests = Arc::clone(&self.active_requests);
-        let stored_files = Arc::clone(&self.stored_files);
+        let broadcast_buffer = Arc::clone(&self.broadcast_buffer);
         let owner_id = self.owner.owner_id.clone();
 
         // 启动监听线程，处理 accept 循环与连接
@@ -125,10 +125,8 @@ impl UserNode {
                 }
                 match listener.accept() {
                     Ok((stream, _peer)) => {
-                        let bids = Arc::clone(&bids);
-                        let active_requests = Arc::clone(&active_requests);
-                        let stored_files = Arc::clone(&stored_files);
                         let owner_id = owner_id.clone();
+                        let broadcast_buffer = Arc::clone(&broadcast_buffer);
                         // 将连接处理派发到新线程，确保监听循环可以立即返回并处理下一个连接
                         thread::spawn(move || {
                             let mut stream = stream;
@@ -152,40 +150,16 @@ impl UserNode {
                                     error: Some(String::from("未知命令")),
                                     extra: HashMap::new(),
                                 };
-                                match req.cmd.as_str() {
-                                    "storage_bid" => {
-                                        let request_id = req
-                                            .data
-                                            .get("request_id")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or("");
-                                        let is_active = {
-                                            let active = active_requests.lock();
-                                            active.contains(request_id)
-                                        };
-                                        if is_active {
-                                            {
-                                                let mut bids_map = bids.lock();
-                                                bids_map
-                                                    .entry(request_id.to_string())
-                                                    .or_default()
-                                                    .push(req.data.clone());
-                                            }
-                                            response.ok = true;
-                                            response.error = None;
-                                        } else {
-                                            response.ok = false;
-                                            response.error = Some(String::from("请求不活跃"));
-                                        }
-                                    }
-                                    "final_proof" => {
-                                        response = Self::process_final_proof_command(
-                                            &stored_files,
-                                            &owner_id,
-                                            &req.data,
-                                        );
-                                    }
-                                    _ => {}
+                                {
+                                    let mut extra = HashMap::new();
+                                    extra.insert(String::from("queued"), Value::Bool(true));
+                                    response.extra = extra;
+                                    response.ok = true;
+                                    response.error = None;
+                                }
+                                {
+                                    let mut buffer = broadcast_buffer.lock();
+                                    buffer.push_back(req.clone());
                                 }
                                 let resp_json = serde_json::to_string(&response).unwrap();
                                 stream.write_all(resp_json.as_bytes())?;
@@ -227,6 +201,7 @@ impl UserNode {
 
         // 主线程：仅负责尝试发起存储与随机睡眠
         while !self.stop_flag.load(Ordering::SeqCst) {
+            self.drain_broadcast_buffer();
             let should_try = {
                 let active_empty = self.active_requests.lock().is_empty();
                 active_empty && rand::thread_rng().gen_bool(0.3)
@@ -234,9 +209,16 @@ impl UserNode {
             if should_try {
                 self.try_store_file();
             }
+            self.drain_broadcast_buffer();
             // 随机休眠 3~7 秒
             let ms = rand::thread_rng().gen_range(3000..=7000);
-            thread::sleep(Duration::from_millis(ms));
+            let mut remaining = ms;
+            while remaining > 0 && !self.stop_flag.load(Ordering::SeqCst) {
+                let step = std::cmp::min(remaining, 500);
+                thread::sleep(Duration::from_millis(step as u64));
+                self.drain_broadcast_buffer();
+                remaining -= step;
+            }
         }
         log_msg(
             "DEBUG",
@@ -244,6 +226,56 @@ impl UserNode {
             Some(self.owner.owner_id.clone()),
             "进程已停止。",
         );
+    }
+
+    fn drain_broadcast_buffer(&mut self) {
+        loop {
+            let req_opt = {
+                let mut buffer = self.broadcast_buffer.lock();
+                buffer.pop_front()
+            };
+            let Some(req) = req_opt else {
+                break;
+            };
+            match req.cmd.as_str() {
+                "storage_bid" => {
+                    let response = self.handle_storage_bid(&req.data);
+                    if !response.ok {
+                        let detail = response.error.unwrap_or_else(|| String::from("未知错误"));
+                        log_msg(
+                            "WARN",
+                            "USER_NODE",
+                            Some(self.owner.owner_id.clone()),
+                            &format!("异步处理存储竞标失败: {}", detail),
+                        );
+                    }
+                }
+                "final_proof" => {
+                    let response = Self::process_final_proof_command(
+                        &self.stored_files,
+                        &self.owner.owner_id,
+                        &req.data,
+                    );
+                    if !response.ok {
+                        let detail = response.error.unwrap_or_else(|| String::from("未知错误"));
+                        log_msg(
+                            "WARN",
+                            "USER_NODE",
+                            Some(self.owner.owner_id.clone()),
+                            &format!("异步处理最终证明失败: {}", detail),
+                        );
+                    }
+                }
+                other => {
+                    log_msg(
+                        "DEBUG",
+                        "USER_NODE",
+                        Some(self.owner.owner_id.clone()),
+                        &format!("收到未知广播消息 {}，已忽略", other),
+                    );
+                }
+            }
+        }
     }
 
     #[allow(dead_code)]
@@ -517,8 +549,16 @@ impl UserNode {
         let stored_files = Arc::clone(&self.stored_files);
         let stop_flag = Arc::clone(&self.stop_flag);
         let owner_id = self.owner.owner_id.clone();
+        let broadcast_buffer = Arc::clone(&self.broadcast_buffer);
         thread::spawn(move || {
-            Self::run_final_proof_listener(listener, file_id, stored_files, stop_flag, owner_id);
+            Self::run_final_proof_listener(
+                listener,
+                file_id,
+                stored_files,
+                broadcast_buffer,
+                stop_flag,
+                owner_id,
+            );
         });
 
         Some(local_addr)
@@ -528,6 +568,7 @@ impl UserNode {
         listener: TcpListener,
         file_id: String,
         stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
+        broadcast_buffer: Arc<Mutex<VecDeque<CommandRequest>>>,
         stop_flag: Arc<AtomicBool>,
         owner_id: String,
     ) {
@@ -563,7 +604,7 @@ impl UserNode {
                 Ok((stream, _)) => {
                     if let Err(err) = Self::handle_final_proof_stream(
                         stream,
-                        Arc::clone(&stored_files),
+                        Arc::clone(&broadcast_buffer),
                         owner_id.clone(),
                     ) {
                         log_msg(
@@ -599,8 +640,8 @@ impl UserNode {
 
     fn handle_final_proof_stream(
         mut stream: TcpStream,
-        stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
-        owner_id: String,
+        broadcast_buffer: Arc<Mutex<VecDeque<CommandRequest>>>,
+        _owner_id: String,
     ) -> std::io::Result<()> {
         // On Windows, sockets accepted from a non-blocking listener inherit the
         // non-blocking mode. Subsequent read/write operations will then return
@@ -625,7 +666,19 @@ impl UserNode {
             data: Value::Null,
         });
         let response = match req.cmd.as_str() {
-            "final_proof" => Self::process_final_proof_command(&stored_files, &owner_id, &req.data),
+            "final_proof" => {
+                {
+                    let mut buffer = broadcast_buffer.lock();
+                    buffer.push_back(req.clone());
+                }
+                let mut extra = HashMap::new();
+                extra.insert(String::from("queued"), Value::Bool(true));
+                CommandResponse {
+                    ok: true,
+                    error: None,
+                    extra,
+                }
+            }
             _ => CommandResponse {
                 ok: false,
                 error: Some(String::from("未知命令")),
