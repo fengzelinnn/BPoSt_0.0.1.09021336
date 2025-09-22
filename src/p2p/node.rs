@@ -232,12 +232,12 @@ impl Node {
 
         // 发现网络中的其他对等节点
         self.discover_peers();
-        log_msg(
-            "DEBUG",
-            "NODE",
-            Some(self.node_id.clone()),
-            &"进入主循环...".to_string(),
-        );
+        // log_msg(
+        //     "DEBUG",
+        //     "NODE",
+        //     Some(self.node_id.clone()),
+        //     &"进入主循环...".to_string(),
+        // );
 
         // 初始化定时器
         let mut next_report = Instant::now() + Duration::from_secs(3); // 下次报告状态的时间

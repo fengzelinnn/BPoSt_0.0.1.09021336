@@ -892,12 +892,12 @@ pub struct NovaFoldingCycle {
 
 impl NovaFoldingCycle {
     pub fn new(storage_period: usize) -> Self {
-        log_msg(
-            "DEBUG",
-            "NOVA",
-            None,
-            &format!("初始化 Nova 折叠周期，总轮数 {}。", storage_period),
-        );
+        // log_msg(
+        //     "DEBUG",
+        //     "NOVA",
+        //     None,
+        //     &format!("初始化 Nova 折叠周期，总轮数 {}。", storage_period),
+        // );
         Self {
             storage_period,
             steps: 0,
@@ -954,16 +954,15 @@ impl NovaFoldingCycle {
             acc + assignments_digest(&circuit.assignments)
         });
         let weight = Fr::from((self.steps + 1) as u64);
-        log_msg(
-            "DEBUG",
-            "NOVA",
-            None,
-            &format!(
-                "本轮增量 delta={}，权重 weight={}",
-                fr_to_padded_hex(&delta),
-                fr_to_padded_hex(&weight)
-            ),
-        );
+        // log_msg(
+        //     "DEBUG",
+        //     "NOVA",
+        //     None,
+        //     &format!(
+        //         "本轮增量 delta={}",
+        //         fr_to_padded_hex(&delta)
+        //     ),
+        // );
         let step_circuit = NovaStepCircuit::new(circuits.clone());
 
         if self.pp.is_none() {
