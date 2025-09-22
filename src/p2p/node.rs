@@ -41,12 +41,99 @@ pub struct NodeReport {
 
 /// 提案同步线程的控制命令
 enum ProposalSyncCommand {
-    Broadcast {
+    UpdateLocal {
         height: usize,
-        payload: Value,
+        proposal: HashMap<String, Vec<String>>,
         peers: Vec<SocketAddr>,
+        gossip_id: Option<String>,
+    },
+    Inbound {
+        height: usize,
+        sender: String,
+        proposal: HashMap<String, Vec<String>>,
     },
     Stop,
+}
+
+/// 提案同步线程产生的事件
+enum ProposalSyncEvent {
+    RemoteProposals {
+        height: usize,
+        proposals: HashMap<String, Vec<String>>,
+    },
+}
+
+/// 本地提案的线程内状态
+struct LocalProposalState {
+    signals: HashMap<String, Vec<String>>,
+    peers: Vec<SocketAddr>,
+    gossip_id: Option<String>,
+    last_broadcast: Option<Instant>,
+}
+
+impl LocalProposalState {
+    fn new() -> Self {
+        Self {
+            signals: HashMap::new(),
+            peers: Vec::new(),
+            gossip_id: None,
+            last_broadcast: None,
+        }
+    }
+
+    fn broadcast(&mut self, height: usize, node_id: &str) {
+        if self.peers.is_empty() || self.signals.is_empty() {
+            return;
+        }
+
+        const BROADCAST_INTERVAL: Duration = Duration::from_millis(800);
+        if let Some(last) = self.last_broadcast {
+            if last.elapsed() < BROADCAST_INTERVAL {
+                return;
+            }
+        }
+
+        let gossip_id = if let Some(gid) = &self.gossip_id {
+            gid.clone()
+        } else {
+            let gid = format!(
+                "{}:{}:{}",
+                node_id,
+                height,
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+            );
+            self.gossip_id = Some(gid.clone());
+            gid
+        };
+
+        let mut payload = serde_json::json!({
+            "type": "preprepare_sync",
+            "height": height,
+            "sender_id": node_id,
+            "signals": self.signals,
+        });
+        if let Value::Object(map) = &mut payload {
+            map.insert(String::from("gossip_id"), Value::from(gossip_id));
+        }
+
+        let envelope = serde_json::json!({
+            "cmd": "gossip",
+            "data": payload,
+        });
+
+        for addr in &self.peers {
+            if !send_json_line_without_response(*addr, &envelope) {
+                log_msg(
+                    "WARN",
+                    "CONSENSUS",
+                    Some(node_id.to_string()),
+                    &format!("向 {} 广播高度 {} 的提案失败", addr, height),
+                );
+            }
+        }
+
+        self.last_broadcast = Some(Instant::now());
+    }
 }
 
 /// 节点间直接通信的命令请求结构体
@@ -110,6 +197,7 @@ pub struct Node {
     mining_window_size: u64,                                         // 单次挖矿窗口大小
     proposal_sync_thread: Option<thread::JoinHandle<()>>,            // 提案同步线程
     proposal_sync_tx: Option<Sender<ProposalSyncCommand>>,           // 提案同步命令通道
+    proposal_sync_rx: Option<Receiver<ProposalSyncEvent>>,           // 提案同步事件通道
 }
 
 impl Node {
@@ -172,6 +260,7 @@ impl Node {
             mining_window_size: 10_000,
             proposal_sync_thread: None,
             proposal_sync_tx: None,
+            proposal_sync_rx: None,
             new_block_buffer: VecDeque::new(),
             outstanding_proof_requests: HashMap::new(),
         }
@@ -301,6 +390,8 @@ impl Node {
                 // log_msg("DEBUG", "SN", Some(self.node_id.clone()), "process_mempool");
                 self.process_mempool();
             }
+
+            self.drain_proposal_sync_events();
 
             self.drain_mined_proofs();
 
@@ -837,16 +928,40 @@ impl Node {
                     }
                 }
                 Some("preprepare_sync") => {
-                    // 同步其他节点的预备信号
                     if let Some(signals) = msg.get("signals").and_then(Value::as_object) {
-                        let entry = self.preprepare_signals.entry(height).or_default();
+                        let mut parsed: HashMap<String, Vec<String>> = HashMap::new();
                         for (sender, list_val) in signals {
                             if let Some(list) = list_val.as_array() {
                                 let hashes: Vec<String> = list
                                     .iter()
                                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                    .filter(|v| !v.is_empty())
                                     .collect();
-                                entry.insert(sender.clone(), hashes);
+                                if !hashes.is_empty() {
+                                    parsed.insert(sender.clone(), hashes);
+                                }
+                            }
+                        }
+                        if !parsed.is_empty() {
+                            self.ensure_proposal_sync_thread();
+                            if let Some(tx) = self.proposal_sync_tx.as_ref() {
+                                let sender_id = msg
+                                    .get("sender_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_string();
+                                if tx
+                                    .send(ProposalSyncCommand::Inbound {
+                                        height,
+                                        sender: sender_id,
+                                        proposal: parsed.clone(),
+                                    })
+                                    .is_err()
+                                {
+                                    self.merge_preprepare_signals(height, parsed);
+                                }
+                            } else {
+                                self.merge_preprepare_signals(height, parsed);
                             }
                         }
                     }
@@ -896,6 +1011,58 @@ impl Node {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// 处理提案同步线程回传的事件
+    fn drain_proposal_sync_events(&mut self) {
+        let Some(rx) = self.proposal_sync_rx.as_ref() else {
+            return;
+        };
+
+        let mut events = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            events.push(event);
+        }
+
+        for event in events {
+            match event {
+                ProposalSyncEvent::RemoteProposals { height, proposals } => {
+                    if height < self.chain.height() + 1 {
+                        continue;
+                    }
+                    if proposals.is_empty() {
+                        continue;
+                    }
+                    self.merge_preprepare_signals(height, proposals);
+                }
+            }
+        }
+    }
+
+    fn merge_preprepare_signals(&mut self, height: usize, proposals: HashMap<String, Vec<String>>) {
+        let entry = self.preprepare_signals.entry(height).or_default();
+        let mut updated = false;
+        for (sender, hashes) in proposals {
+            let needs_update = entry
+                .get(&sender)
+                .map_or(true, |existing| existing != &hashes);
+            if needs_update {
+                entry.insert(sender.clone(), hashes);
+                updated = true;
+            }
+        }
+        if updated {
+            log_msg(
+                "DEBUG",
+                "CONSENSUS",
+                Some(self.node_id.clone()),
+                &format!(
+                    "同步高度 {} 的提案快照，当前拥有 {} 份提案。",
+                    height,
+                    entry.len()
+                ),
+            );
         }
     }
 
@@ -1083,6 +1250,7 @@ impl Node {
             return;
         }
         let (tx, rx) = unbounded::<ProposalSyncCommand>();
+        let (event_tx, event_rx) = unbounded::<ProposalSyncEvent>();
         let node_id = self.node_id.clone();
         let stop_flag = Arc::clone(&self.stop_flag);
         let handle = thread::spawn(move || {
@@ -1092,30 +1260,78 @@ impl Node {
                 Some(node_id.clone()),
                 "提案同步线程启动。",
             );
+            let mut local_proposals: HashMap<usize, LocalProposalState> = HashMap::new();
+            let mut remote_snapshots: HashMap<usize, HashMap<String, Vec<String>>> = HashMap::new();
+            let mut last_notified_remote: HashMap<usize, HashMap<String, Vec<String>>> =
+                HashMap::new();
+
             loop {
                 if stop_flag.load(Ordering::SeqCst) {
                     break;
                 }
                 match rx.recv_timeout(Duration::from_millis(200)) {
-                    Ok(ProposalSyncCommand::Broadcast {
+                    Ok(ProposalSyncCommand::UpdateLocal {
                         height,
-                        payload,
+                        proposal,
                         peers,
+                        gossip_id,
                     }) => {
-                        for addr in peers {
-                            if !send_json_line_without_response(addr, &payload) {
-                                log_msg(
-                                    "WARN",
-                                    "CONSENSUS",
-                                    Some(node_id.clone()),
-                                    &format!("向 {} 广播高度 {} 的提案失败", addr, height),
-                                );
+                        let entry = local_proposals
+                            .entry(height)
+                            .or_insert_with(LocalProposalState::new);
+                        entry.signals = proposal;
+                        entry.peers = peers;
+                        entry.gossip_id = gossip_id;
+                        entry.broadcast(height, &node_id);
+                    }
+                    Ok(ProposalSyncCommand::Inbound {
+                        height,
+                        sender,
+                        proposal,
+                    }) => {
+                        let snapshot = remote_snapshots.entry(height).or_default();
+                        let mut changed = false;
+                        for (node, hashes) in proposal {
+                            let needs_update = snapshot
+                                .get(&node)
+                                .map_or(true, |existing| existing != &hashes);
+                            if needs_update {
+                                snapshot.insert(node.clone(), hashes.clone());
+                                changed = true;
                             }
+                        }
+                        if changed {
+                            log_msg(
+                                "DEBUG",
+                                "CONSENSUS",
+                                Some(node_id.clone()),
+                                &format!("接收并合并了来自 {} 的高度 {} 提案。", sender, height),
+                            );
                         }
                     }
                     Ok(ProposalSyncCommand::Stop) => break,
-                    Err(RecvTimeoutError::Timeout) => continue,
+                    Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => break,
+                }
+
+                for (height, entry) in local_proposals.iter_mut() {
+                    entry.broadcast(*height, &node_id);
+                }
+
+                let mut to_notify: Vec<(usize, HashMap<String, Vec<String>>)> = Vec::new();
+                for (height, remote) in &remote_snapshots {
+                    let merged = remote.clone();
+                    let should_notify = last_notified_remote
+                        .get(height)
+                        .map_or(true, |prev| prev != &merged);
+                    if should_notify {
+                        last_notified_remote.insert(*height, merged.clone());
+                        to_notify.push((*height, merged));
+                    }
+                }
+
+                for (height, proposals) in to_notify {
+                    let _ = event_tx.send(ProposalSyncEvent::RemoteProposals { height, proposals });
                 }
             }
             log_msg(
@@ -1126,6 +1342,7 @@ impl Node {
             );
         });
         self.proposal_sync_tx = Some(tx);
+        self.proposal_sync_rx = Some(event_rx);
         self.proposal_sync_thread = Some(handle);
     }
 
@@ -1144,6 +1361,7 @@ impl Node {
                 );
             }
         }
+        self.proposal_sync_rx = None;
     }
 
     /// 通过提案同步线程分发预备阶段的提案
@@ -1156,21 +1374,12 @@ impl Node {
 
         let node_id = self.node_id.clone();
         let snapshot_for_record = signals_snapshot.clone();
-        let mut payload = serde_json::json!({
-            "type": "preprepare_sync",
-            "height": height,
-            "sender_id": node_id.clone(),
-            "signals": signals_snapshot.clone(),
-        });
         let gossip_id = format!(
             "{}:{}",
             node_id,
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
         );
-        if let Value::Object(map) = &mut payload {
-            map.insert(String::from("gossip_id"), Value::from(gossip_id.clone()));
-        }
-        self.seen_gossip_ids.insert(gossip_id);
+        self.seen_gossip_ids.insert(gossip_id.clone());
 
         let peers: Vec<SocketAddr> = self.peers.values().cloned().collect();
         if peers.is_empty() {
@@ -1178,10 +1387,11 @@ impl Node {
         }
 
         if let Some(tx) = self.proposal_sync_tx.as_ref() {
-            if let Err(e) = tx.send(ProposalSyncCommand::Broadcast {
+            if let Err(e) = tx.send(ProposalSyncCommand::UpdateLocal {
                 height,
-                payload,
                 peers,
+                proposal: signals_snapshot.clone(),
+                gossip_id: Some(gossip_id.clone()),
             }) {
                 log_msg(
                     "WARN",
