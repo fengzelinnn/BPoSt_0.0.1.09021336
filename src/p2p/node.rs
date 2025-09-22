@@ -6,7 +6,7 @@ use std::sync::Arc; // 原子引用计数，用于多线程共享数据
 use std::thread; // 线程操作
 use std::time::{Duration, Instant}; // 时间相关操作
 
-use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender}; // 高性能的并发消息通道
+use crossbeam_channel::{unbounded, Receiver, Sender}; // 高性能的并发消息通道
 use num_bigint::BigUint; // 大整数处理
 use rand::Rng; // 随机数生成
 use serde::{Deserialize, Serialize}; // 序列化和反序列化
@@ -37,103 +37,6 @@ pub struct NodeReport {
     pub mempool_size: usize,    // 内存池中的消息数量
     pub proof_pool_size: usize, // 证明池中的证明数量
     pub is_mining: bool,        // 是否正在挖矿（即是否存储了文件）
-}
-
-/// 提案同步线程的控制命令
-enum ProposalSyncCommand {
-    UpdateLocal {
-        height: usize,
-        proposal: HashMap<String, Vec<String>>,
-        peers: Vec<SocketAddr>,
-        gossip_id: Option<String>,
-    },
-    Inbound {
-        height: usize,
-        sender: String,
-        proposal: HashMap<String, Vec<String>>,
-    },
-    Stop,
-}
-
-/// 提案同步线程产生的事件
-enum ProposalSyncEvent {
-    RemoteProposals {
-        height: usize,
-        proposals: HashMap<String, Vec<String>>,
-    },
-}
-
-/// 本地提案的线程内状态
-struct LocalProposalState {
-    signals: HashMap<String, Vec<String>>,
-    peers: Vec<SocketAddr>,
-    gossip_id: Option<String>,
-    last_broadcast: Option<Instant>,
-}
-
-impl LocalProposalState {
-    fn new() -> Self {
-        Self {
-            signals: HashMap::new(),
-            peers: Vec::new(),
-            gossip_id: None,
-            last_broadcast: None,
-        }
-    }
-
-    fn broadcast(&mut self, height: usize, node_id: &str) {
-        if self.peers.is_empty() || self.signals.is_empty() {
-            return;
-        }
-
-        const BROADCAST_INTERVAL: Duration = Duration::from_millis(800);
-        if let Some(last) = self.last_broadcast {
-            if last.elapsed() < BROADCAST_INTERVAL {
-                return;
-            }
-        }
-
-        let gossip_id = if let Some(gid) = &self.gossip_id {
-            gid.clone()
-        } else {
-            let gid = format!(
-                "{}:{}:{}",
-                node_id,
-                height,
-                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
-            );
-            self.gossip_id = Some(gid.clone());
-            gid
-        };
-
-        let mut payload = serde_json::json!({
-            "type": "preprepare_sync",
-            "height": height,
-            "sender_id": node_id,
-            "signals": self.signals,
-        });
-        if let Value::Object(map) = &mut payload {
-            map.insert(String::from("gossip_id"), Value::from(gossip_id));
-        }
-
-        let envelope = serde_json::json!({
-            "cmd": "gossip",
-            "data": payload,
-        });
-
-        for addr in &self.peers {
-            if !send_json_line_without_response(*addr, &envelope) {
-                log_msg(
-                    "WARN",
-                    "CONSENSUS",
-                    Some(node_id.to_string()),
-                    &format!("向 {} 广播高度 {} 的提案失败", addr, height),
-                );
-            }
-        }
-
-        self.last_broadcast = Some(Instant::now());
-    }
 }
 
 /// 节点间直接通信的命令请求结构体
@@ -179,12 +82,8 @@ pub struct Node {
     seen_gossip_ids: HashSet<String>,   // 已见过的gossip消息ID，防止重复处理
     chain: Blockchain,                  // 节点的区块链实例
     bobtail_k: usize,                   // Bobtail共识算法中的k参数
-    prepare_margin: usize,              // 预备阶段的容错边际
     difficulty_threshold: BigUint,      // 挖矿难度阈值
     broadcast_threshold: BigUint,       // 广播阈值，略高于全局难度
-    preprepare_signals: HashMap<usize, HashMap<String, Vec<String>>>, // 预备信号 <height, <sender_id, proof_hashes>>
-    sent_preprepare_signal_at: HashMap<usize, Vec<String>>, // 记录在某个高度已发送的预备信号
-    last_preprepare_broadcast: HashMap<usize, HashMap<String, Vec<String>>>, // 记录最近广播的提案快照
     election_concluded_for: HashSet<usize>, // 记录已完成领导者选举的高度
     round_tst_updates: HashMap<usize, HashMap<String, RoundUpdate>>, // 轮次状态更新 <height, <node_id, update>>
     stop_flag: Arc<AtomicBool>,                                      // 优雅停机的标志
@@ -195,9 +94,6 @@ pub struct Node {
     mining_stop_flag: Option<Arc<AtomicBool>>,                       // 挖矿线程的停止标志
     current_mining_height: Option<usize>,                            // 当前挖矿目标高度
     mining_window_size: u64,                                         // 单次挖矿窗口大小
-    proposal_sync_thread: Option<thread::JoinHandle<()>>,            // 提案同步线程
-    proposal_sync_tx: Option<Sender<ProposalSyncCommand>>,           // 提案同步命令通道
-    proposal_sync_rx: Option<Receiver<ProposalSyncEvent>>,           // 提案同步事件通道
 }
 
 impl Node {
@@ -242,12 +138,8 @@ impl Node {
             seen_gossip_ids: HashSet::new(),
             chain: Blockchain::new(),
             bobtail_k,
-            prepare_margin: 0,
             difficulty_threshold,
             broadcast_threshold,
-            preprepare_signals: HashMap::new(),
-            sent_preprepare_signal_at: HashMap::new(),
-            last_preprepare_broadcast: HashMap::new(),
             election_concluded_for: HashSet::new(),
             round_tst_updates: HashMap::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
@@ -258,9 +150,6 @@ impl Node {
             mining_stop_flag: None,
             current_mining_height: None,
             mining_window_size: 10_000,
-            proposal_sync_thread: None,
-            proposal_sync_tx: None,
-            proposal_sync_rx: None,
             new_block_buffer: VecDeque::new(),
             outstanding_proof_requests: HashMap::new(),
         }
@@ -391,8 +280,6 @@ impl Node {
                 self.process_mempool();
             }
 
-            self.drain_proposal_sync_events();
-
             self.drain_mined_proofs();
 
             // 3. 尝试共识
@@ -412,7 +299,6 @@ impl Node {
 
         // 清理和关闭
         self.stop_mining_thread();
-        self.shutdown_proposal_sync();
         self.stop_flag.store(true, Ordering::SeqCst);
         drop(conn_rx); // 关闭通道，让监听线程退出
         if listener_handle.join().is_err() {
@@ -809,7 +695,7 @@ impl Node {
                         }
                     }
                 }
-                "bobtail_proof" | "preprepare_sync" | "proof_request" => {
+                "bobtail_proof" | "proof_request" => {
                     // 将共识相关的消息放入内存池等待处理
                     self.mempool.push_back(data.clone());
                 }
@@ -927,45 +813,6 @@ impl Node {
                         }
                     }
                 }
-                Some("preprepare_sync") => {
-                    if let Some(signals) = msg.get("signals").and_then(Value::as_object) {
-                        let mut parsed: HashMap<String, Vec<String>> = HashMap::new();
-                        for (sender, list_val) in signals {
-                            if let Some(list) = list_val.as_array() {
-                                let hashes: Vec<String> = list
-                                    .iter()
-                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                    .filter(|v| !v.is_empty())
-                                    .collect();
-                                if !hashes.is_empty() {
-                                    parsed.insert(sender.clone(), hashes);
-                                }
-                            }
-                        }
-                        if !parsed.is_empty() {
-                            self.ensure_proposal_sync_thread();
-                            if let Some(tx) = self.proposal_sync_tx.as_ref() {
-                                let sender_id = msg
-                                    .get("sender_id")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .to_string();
-                                if tx
-                                    .send(ProposalSyncCommand::Inbound {
-                                        height,
-                                        sender: sender_id,
-                                        proposal: parsed.clone(),
-                                    })
-                                    .is_err()
-                                {
-                                    self.merge_preprepare_signals(height, parsed);
-                                }
-                            } else {
-                                self.merge_preprepare_signals(height, parsed);
-                            }
-                        }
-                    }
-                }
                 Some("proof_request") => {
                     let requested: Vec<String> = msg
                         .get("proof_hashes")
@@ -1011,58 +858,6 @@ impl Node {
                 }
                 _ => {}
             }
-        }
-    }
-
-    /// 处理提案同步线程回传的事件
-    fn drain_proposal_sync_events(&mut self) {
-        let Some(rx) = self.proposal_sync_rx.as_ref() else {
-            return;
-        };
-
-        let mut events = Vec::new();
-        while let Ok(event) = rx.try_recv() {
-            events.push(event);
-        }
-
-        for event in events {
-            match event {
-                ProposalSyncEvent::RemoteProposals { height, proposals } => {
-                    if height < self.chain.height() + 1 {
-                        continue;
-                    }
-                    if proposals.is_empty() {
-                        continue;
-                    }
-                    self.merge_preprepare_signals(height, proposals);
-                }
-            }
-        }
-    }
-
-    fn merge_preprepare_signals(&mut self, height: usize, proposals: HashMap<String, Vec<String>>) {
-        let entry = self.preprepare_signals.entry(height).or_default();
-        let mut updated = false;
-        for (sender, hashes) in proposals {
-            let needs_update = entry
-                .get(&sender)
-                .map_or(true, |existing| existing != &hashes);
-            if needs_update {
-                entry.insert(sender.clone(), hashes);
-                updated = true;
-            }
-        }
-        if updated {
-            log_msg(
-                "DEBUG",
-                "CONSENSUS",
-                Some(self.node_id.clone()),
-                &format!(
-                    "同步高度 {} 的提案快照，当前拥有 {} 份提案。",
-                    height,
-                    entry.len()
-                ),
-            );
         }
     }
 
@@ -1244,234 +1039,73 @@ impl Node {
         self.current_mining_height = None;
     }
 
-    /// 确保提案同步线程已启动
-    fn ensure_proposal_sync_thread(&mut self) {
-        if self.proposal_sync_thread.is_some() {
-            return;
-        }
-        let (tx, rx) = unbounded::<ProposalSyncCommand>();
-        let (event_tx, event_rx) = unbounded::<ProposalSyncEvent>();
-        let node_id = self.node_id.clone();
-        let stop_flag = Arc::clone(&self.stop_flag);
-        let handle = thread::spawn(move || {
-            log_msg(
-                "DEBUG",
-                "CONSENSUS",
-                Some(node_id.clone()),
-                "提案同步线程启动。",
-            );
-            let mut local_proposals: HashMap<usize, LocalProposalState> = HashMap::new();
-            let mut remote_snapshots: HashMap<usize, HashMap<String, Vec<String>>> = HashMap::new();
-            let mut last_notified_remote: HashMap<usize, HashMap<String, Vec<String>>> =
-                HashMap::new();
-
-            loop {
-                if stop_flag.load(Ordering::SeqCst) {
-                    break;
-                }
-                match rx.recv_timeout(Duration::from_millis(200)) {
-                    Ok(ProposalSyncCommand::UpdateLocal {
-                        height,
-                        proposal,
-                        peers,
-                        gossip_id,
-                    }) => {
-                        let entry = local_proposals
-                            .entry(height)
-                            .or_insert_with(LocalProposalState::new);
-                        entry.signals = proposal;
-                        entry.peers = peers;
-                        entry.gossip_id = gossip_id;
-                        entry.broadcast(height, &node_id);
-                    }
-                    Ok(ProposalSyncCommand::Inbound {
-                        height,
-                        sender,
-                        proposal,
-                    }) => {
-                        let snapshot = remote_snapshots.entry(height).or_default();
-                        let mut changed = false;
-                        for (node, hashes) in proposal {
-                            let needs_update = snapshot
-                                .get(&node)
-                                .map_or(true, |existing| existing != &hashes);
-                            if needs_update {
-                                snapshot.insert(node.clone(), hashes.clone());
-                                changed = true;
-                            }
-                        }
-                        if changed {
-                            log_msg(
-                                "DEBUG",
-                                "CONSENSUS",
-                                Some(node_id.clone()),
-                                &format!("接收并合并了来自 {} 的高度 {} 提案。", sender, height),
-                            );
-                        }
-                    }
-                    Ok(ProposalSyncCommand::Stop) => break,
-                    Err(RecvTimeoutError::Timeout) => {}
-                    Err(RecvTimeoutError::Disconnected) => break,
-                }
-
-                for (height, entry) in local_proposals.iter_mut() {
-                    entry.broadcast(*height, &node_id);
-                }
-
-                let mut to_notify: Vec<(usize, HashMap<String, Vec<String>>)> = Vec::new();
-                for (height, remote) in &remote_snapshots {
-                    let merged = remote.clone();
-                    let should_notify = last_notified_remote
-                        .get(height)
-                        .map_or(true, |prev| prev != &merged);
-                    if should_notify {
-                        last_notified_remote.insert(*height, merged.clone());
-                        to_notify.push((*height, merged));
-                    }
-                }
-
-                for (height, proposals) in to_notify {
-                    let _ = event_tx.send(ProposalSyncEvent::RemoteProposals { height, proposals });
-                }
-            }
-            log_msg(
-                "DEBUG",
-                "CONSENSUS",
-                Some(node_id.clone()),
-                "提案同步线程退出。",
-            );
-        });
-        self.proposal_sync_tx = Some(tx);
-        self.proposal_sync_rx = Some(event_rx);
-        self.proposal_sync_thread = Some(handle);
-    }
-
-    /// 关闭提案同步线程
-    fn shutdown_proposal_sync(&mut self) {
-        if let Some(tx) = self.proposal_sync_tx.take() {
-            let _ = tx.send(ProposalSyncCommand::Stop);
-        }
-        if let Some(handle) = self.proposal_sync_thread.take() {
-            if handle.join().is_err() {
-                log_msg(
-                    "WARN",
-                    "CONSENSUS",
-                    Some(self.node_id.clone()),
-                    "提案同步线程 join 失败",
-                );
-            }
-        }
-        self.proposal_sync_rx = None;
-    }
-
-    /// 通过提案同步线程分发预备阶段的提案
-    fn dispatch_preprepare_sync(
-        &mut self,
-        height: usize,
-        signals_snapshot: &HashMap<String, Vec<String>>,
-    ) {
-        self.ensure_proposal_sync_thread();
-
-        let node_id = self.node_id.clone();
-        let snapshot_for_record = signals_snapshot.clone();
-        let gossip_id = format!(
-            "{}:{}",
-            node_id,
-            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
-        );
-        self.seen_gossip_ids.insert(gossip_id.clone());
-
-        let peers: Vec<SocketAddr> = self.peers.values().cloned().collect();
-        if peers.is_empty() {
-            return;
-        }
-
-        if let Some(tx) = self.proposal_sync_tx.as_ref() {
-            if let Err(e) = tx.send(ProposalSyncCommand::UpdateLocal {
-                height,
-                peers,
-                proposal: signals_snapshot.clone(),
-                gossip_id: Some(gossip_id.clone()),
-            }) {
-                log_msg(
-                    "WARN",
-                    "CONSENSUS",
-                    Some(self.node_id.clone()),
-                    &format!("提案同步线程不可用: {}", e),
-                );
-            }
-        } else {
-            log_msg(
-                "WARN",
-                "CONSENSUS",
-                Some(self.node_id.clone()),
-                "提案同步线程尚未启动，无法广播提案",
-            );
-        }
-
-        self.last_preprepare_broadcast
-            .insert(height, snapshot_for_record);
-    }
-
-    /// 证明池发生变化时刷新本地提案
+    /// 证明池发生变化时尝试完成共识
     fn on_proof_pool_updated(&mut self, height: usize) {
-        if let Some(snapshot) = self.refresh_local_proposal(height) {
-            self.dispatch_preprepare_sync(height, &snapshot);
-        }
+        self.evaluate_consensus_for_height(height);
     }
 
-    /// 根据最新的证明池重新选择本地提案的证明集合
-    fn refresh_local_proposal(&mut self, height: usize) -> Option<HashMap<String, Vec<String>>> {
-        if !self.sent_preprepare_signal_at.contains_key(&height) {
-            return None;
+    /// 检查某个高度的证明池是否满足共识条件
+    fn evaluate_consensus_for_height(&mut self, height: usize) {
+        if self.election_concluded_for.contains(&height) {
+            return;
+        }
+        if self.bobtail_k == 0 {
+            return;
         }
 
-        let mut proofs: Vec<BobtailProof> = self
-            .proof_pool
-            .get(&height)
-            .map(|m| m.values().cloned().collect())
-            .unwrap_or_default();
-
-        if proofs.len() < self.bobtail_k + self.prepare_margin {
-            return None;
+        let Some(pool) = self.proof_pool.get(&height) else {
+            return;
+        };
+        if pool.len() < self.bobtail_k {
+            return;
         }
 
+        let mut proofs: Vec<BobtailProof> = pool.values().cloned().collect();
         proofs.sort_by(|a, b| a.proof_hash.cmp(&b.proof_hash));
         let selected = proofs[..self.bobtail_k].to_vec();
-        let avg_hash = selected
+        let hash_values: Option<Vec<BigUint>> = selected
             .iter()
-            .map(|p| BigUint::parse_bytes(p.proof_hash.as_bytes(), 16).unwrap_or_default())
-            .fold(BigUint::from(0u32), |acc, x| acc + x)
-            / BigUint::from(self.bobtail_k as u32);
+            .map(|p| BigUint::parse_bytes(p.proof_hash.as_bytes(), 16))
+            .collect();
+        let Some(values) = hash_values else {
+            return;
+        };
+
+        let total = values
+            .into_iter()
+            .fold(BigUint::from(0u32), |acc, x| acc + x);
+        let avg_hash = &total / BigUint::from(self.bobtail_k as u64);
 
         if avg_hash > self.difficulty_threshold {
-            return None;
+            return;
         }
 
-        let new_hashes: Vec<String> = selected.iter().map(|p| p.proof_hash.clone()).collect();
-        let entry = self.preprepare_signals.entry(height).or_default();
+        self.stop_mining_thread();
+        let leader_id = selected[0].node_id.clone();
+        self.election_concluded_for.insert(height);
 
-        if let Some(existing) = entry.get(&self.node_id) {
-            if *existing == new_hashes {
-                return None;
-            }
+        if leader_id == self.node_id {
+            log_msg(
+                "INFO",
+                "CONSENSUS",
+                Some(self.node_id.clone()),
+                &format!(
+                    "高度 {} 的最低证明集合已满足难度阈值，由本节点负责出块。",
+                    height
+                ),
+            );
+            self.create_block(height, selected);
+        } else {
+            log_msg(
+                "INFO",
+                "CONSENSUS",
+                Some(self.node_id.clone()),
+                &format!(
+                    "高度 {} 的最低证明集合已满足难度阈值，等待领导者 {} 广播新区块。",
+                    height, leader_id
+                ),
+            );
         }
-
-        log_msg(
-            "DEBUG",
-            "CONSENSUS",
-            Some(self.node_id.clone()),
-            &format!(
-                "高度 {} 的本地提案更新为新的证明集合: {}",
-                height,
-                new_hashes.join(", ")
-            ),
-        );
-
-        entry.insert(self.node_id.clone(), new_hashes.clone());
-        self.sent_preprepare_signal_at.insert(height, new_hashes);
-
-        Some(entry.clone())
     }
 
     /// 尝试进行共识
@@ -1483,6 +1117,10 @@ impl Node {
             self.stop_mining_thread();
             return;
         }
+        if self.bobtail_k == 0 {
+            return;
+        }
+
         let height = self.chain.height() + 1;
         if self.election_concluded_for.contains(&height) {
             self.stop_mining_thread();
@@ -1490,174 +1128,7 @@ impl Node {
         }
 
         self.ensure_mining_thread(height);
-
-        // 2. 尝试选举领导者
-        self.try_elect_leader(height);
-    }
-
-    /// 尝试选举领导者
-    fn try_elect_leader(&mut self, height: usize) {
-        if self.election_concluded_for.contains(&height) {
-            return;
-        }
-
-        // 阶段1: 预备 (Pre-prepare)
-        // 如果尚未发送预备信号
-        if !self.sent_preprepare_signal_at.contains_key(&height) {
-            let mut proofs: Vec<BobtailProof> = self
-                .proof_pool
-                .get(&height)
-                .map(|m| m.values().cloned().collect())
-                .unwrap_or_default();
-            // 如果收集到的证明数量足够
-            if proofs.len() >= self.bobtail_k + self.prepare_margin {
-                proofs.sort_by(|a, b| a.proof_hash.cmp(&b.proof_hash)); // 按哈希排序
-                let selected = proofs[..self.bobtail_k].to_vec(); // 选择前k个最好的证明
-                                                                  // 计算平均哈希
-                let avg_hash = selected
-                    .iter()
-                    .map(|p| BigUint::parse_bytes(p.proof_hash.as_bytes(), 16).unwrap_or_default())
-                    .fold(BigUint::from(0u32), |acc, x| acc + x)
-                    / BigUint::from(self.bobtail_k as u32);
-
-                // 如果平均哈希满足难度要求
-                if avg_hash <= self.difficulty_threshold {
-                    let proof_hashes: Vec<String> =
-                        selected.iter().map(|p| p.proof_hash.clone()).collect();
-                    // 记录自己发送的预备信号
-                    self.sent_preprepare_signal_at
-                        .insert(height, proof_hashes.clone());
-                    // 将自己的信号加入信号池
-                    self.preprepare_signals
-                        .entry(height)
-                        .or_default()
-                        .insert(self.node_id.clone(), proof_hashes);
-                    log_msg(
-                        "INFO",
-                        "CONSENSUS",
-                        Some(self.node_id.clone()),
-                        &format!("为高度 {} 达成预备条件，创建自己的提案。", height),
-                    );
-                    self.ensure_proposal_sync_thread();
-                }
-            }
-        }
-
-        // 阶段2: 准备/提交 (Prepare/Commit)
-        // 如果已经发送了预备信号，则开始同步和计票
-        if let Some(signals_snapshot) = self.preprepare_signals.get(&height).cloned() {
-            if !signals_snapshot.is_empty() {
-                let should_broadcast = match self.last_preprepare_broadcast.get(&height) {
-                    Some(prev) => prev != &signals_snapshot,
-                    None => true,
-                };
-                if should_broadcast {
-                    self.dispatch_preprepare_sync(height, &signals_snapshot);
-                }
-            }
-
-            // 对收到的所有提案（信号）进行计票
-            let mut votes: HashMap<Vec<String>, Vec<String>> = HashMap::new();
-            for (sender, proof_hashes) in &signals_snapshot {
-                votes
-                    .entry(proof_hashes.clone())
-                    .or_default()
-                    .push(sender.clone());
-            }
-
-            // 检查是否有提案获得了足够的票数（k票）
-            for (proof_set, voters) in votes {
-                if voters.len() >= self.bobtail_k {
-                    self.stop_mining_thread();
-                    log_msg(
-                        "INFO",
-                        "CONSENSUS",
-                        Some(self.node_id.clone()),
-                        &format!(
-                            "高度 {} 的共识达成 (提案有 {} 票)，开始选举领导者。",
-                            height,
-                            voters.len()
-                        ),
-                    );
-
-                    // 检查自己是否拥有所有获胜的证明，如果没有则等待同步
-                    let known: HashSet<String> = self
-                        .proof_pool
-                        .get(&height)
-                        .map(|m| m.values().map(|p| p.proof_hash.clone()).collect())
-                        .unwrap_or_default();
-                    let missing_hashes: Vec<String> = proof_set
-                        .iter()
-                        .filter(|hash| !known.contains(*hash))
-                        .cloned()
-                        .collect();
-                    if !missing_hashes.is_empty() {
-                        log_msg(
-                            "WARN",
-                            "CONSENSUS",
-                            Some(self.node_id.clone()),
-                            &"缺少获胜集合中的证明，等待同步...".to_string(),
-                        );
-                        let pending = self.outstanding_proof_requests.entry(height).or_default();
-                        let mut newly_requested = Vec::new();
-                        for hash in missing_hashes {
-                            if pending.insert(hash.clone()) {
-                                newly_requested.push(hash);
-                            }
-                        }
-                        if !newly_requested.is_empty() {
-                            log_msg(
-                                "DEBUG",
-                                "CONSENSUS",
-                                Some(self.node_id.clone()),
-                                &format!(
-                                    "请求高度 {} 的缺失证明: {}",
-                                    height,
-                                    newly_requested.join(", ")
-                                ),
-                            );
-                            self.gossip(
-                                serde_json::json!({
-                                    "type": "proof_request",
-                                    "height": height,
-                                    "requested_by": self.node_id,
-                                    "proof_hashes": newly_requested,
-                                }),
-                                true,
-                            );
-                        }
-                        continue;
-                    }
-
-                    // 选举领导者：获胜证明集合中哈希最小的证明的创建者
-                    let mut winning: Vec<BobtailProof> = self
-                        .proof_pool
-                        .get(&height)
-                        .map(|m| {
-                            m.values()
-                                .filter(|p| proof_set.contains(&p.proof_hash))
-                                .cloned()
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    if winning.len() < self.bobtail_k {
-                        continue;
-                    }
-                    winning.sort_by(|a, b| a.proof_hash.cmp(&b.proof_hash));
-                    let leader_id = winning[0].node_id.clone();
-
-                    // 如果自己是领导者，则创建区块
-                    if leader_id == self.node_id {
-                        self.create_block(height, winning);
-                    }
-
-                    // 标记当前高度的选举已结束
-                    self.election_concluded_for.insert(height);
-                    self.last_preprepare_broadcast.remove(&height);
-                    return; // 选举结束，退出函数
-                }
-            }
-        }
+        self.evaluate_consensus_for_height(height);
     }
 
     /// 创建新区块（仅由领导者调用）
@@ -1920,9 +1391,6 @@ impl Node {
 
         // 清理当前高度的共识状态
         self.proof_pool.remove(&expected_height);
-        self.preprepare_signals.remove(&expected_height);
-        self.sent_preprepare_signal_at.remove(&expected_height);
-        self.last_preprepare_broadcast.remove(&expected_height);
         self.outstanding_proof_requests.remove(&expected_height);
         self.election_concluded_for.insert(expected_height);
 
