@@ -1510,14 +1510,18 @@ impl Node {
                                 .unwrap_or(Value::Null),
                         }
                     });
-                    if send_json_line(addr, &payload).is_none() {
-                        log_msg(
-                            "WARN",
-                            "P2P_NET",
-                            Some(self.node_id.clone()),
-                            &format!("向文件所有者发送文件 {} 最终证明失败", fid),
-                        );
-                    }
+                    let node_id = self.node_id.clone();
+                    let file_id = fid.clone();
+                    thread::spawn(move || {
+                        if send_json_line(addr, &payload).is_none() {
+                            log_msg(
+                                "WARN",
+                                "P2P_NET",
+                                Some(node_id),
+                                &format!("向文件所有者发送文件 {} 最终证明失败", file_id),
+                            );
+                        }
+                    });
                 }
             }
         }
