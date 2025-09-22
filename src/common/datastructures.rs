@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use indexmap::IndexMap;
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::utils::h_join;
 
@@ -25,6 +26,8 @@ pub struct BlockBody {
     pub proofs_merkle_tree: IndexMap<String, Vec<String>>,
     #[serde(default)]
     pub dpdp_challenges: HashMap<String, HashMap<String, Vec<ChallengeEntry>>>,
+    #[serde(default)]
+    pub dpdp_proofs: HashMap<String, HashMap<String, Value>>,
 }
 
 impl Default for BlockBody {
@@ -34,6 +37,7 @@ impl Default for BlockBody {
             coinbase_splits: HashMap::new(),
             proofs_merkle_tree: IndexMap::new(),
             dpdp_challenges: HashMap::new(),
+            dpdp_proofs: HashMap::new(),
         }
     }
 }

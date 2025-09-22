@@ -1,5 +1,4 @@
 use std::collections::{HashMap, VecDeque};
-use std::net::SocketAddr;
 
 use ark_bn254::{G1Projective, G2Projective};
 use ark_ec::PrimeGroup;
@@ -24,8 +23,6 @@ struct StorageManagerInner {
     files: HashMap<String, HashMap<usize, (Vec<u8>, Vec<u8>)>>,
     file_pk_beta: HashMap<String, Vec<u8>>,
     file_cycles: HashMap<String, FileCycleState>,
-    file_owner_addrs: HashMap<String, SocketAddr>,
-    file_final_proof_addrs: HashMap<String, SocketAddr>,
 }
 
 #[derive(Debug, Clone)]
@@ -105,8 +102,6 @@ impl StorageManager {
             files: HashMap::new(),
             file_pk_beta: HashMap::new(),
             file_cycles: HashMap::new(),
-            file_owner_addrs: HashMap::new(),
-            file_final_proof_addrs: HashMap::new(),
         };
         Self {
             node_id,
@@ -151,22 +146,12 @@ impl StorageManager {
         file_id: &str,
         storage_period: usize,
         challenge_size: usize,
-        owner_addr: Option<SocketAddr>,
-        final_proof_addr: Option<SocketAddr>,
     ) {
         let mut inner = self.inner.lock();
         inner
             .file_cycles
             .entry(file_id.to_string())
             .or_insert_with(|| FileCycleState::new(storage_period, challenge_size));
-        if let Some(addr) = owner_addr {
-            inner.file_owner_addrs.insert(file_id.to_string(), addr);
-        }
-        if let Some(addr) = final_proof_addr {
-            inner
-                .file_final_proof_addrs
-                .insert(file_id.to_string(), addr);
-        }
     }
 
     pub fn finalize_commitments(&self) {
@@ -232,17 +217,6 @@ impl StorageManager {
         let inner = self.inner.lock();
         inner.file_pk_beta.get(file_id).cloned()
     }
-
-    pub fn owner_addr_for(&self, file_id: &str) -> Option<SocketAddr> {
-        let inner = self.inner.lock();
-        inner.file_owner_addrs.get(file_id).copied()
-    }
-
-    pub fn final_proof_addr_for(&self, file_id: &str) -> Option<SocketAddr> {
-        let inner = self.inner.lock();
-        inner.file_final_proof_addrs.get(file_id).copied()
-    }
-
     pub fn challenge_size_for(&self, file_id: &str) -> Option<usize> {
         let inner = self.inner.lock();
         inner
