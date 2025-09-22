@@ -865,11 +865,24 @@ impl Node {
     fn process_new_block_buffer(&mut self) {
         loop {
             let expected_height = self.chain.height() + 1;
-            let Some(pos) = self
-                .new_block_buffer
-                .iter()
-                .position(|block| block.height as usize == expected_height)
-            else {
+            let mut candidate_pos: Option<usize> = None;
+            let mut best_timestamp: Option<u128> = None;
+
+            for (idx, block) in self.new_block_buffer.iter().enumerate() {
+                if block.height as usize != expected_height {
+                    continue;
+                }
+
+                match best_timestamp {
+                    Some(ts) if block.timestamp >= ts => {}
+                    _ => {
+                        best_timestamp = Some(block.timestamp);
+                        candidate_pos = Some(idx);
+                    }
+                }
+            }
+
+            let Some(pos) = candidate_pos else {
                 break;
             };
 
