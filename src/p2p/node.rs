@@ -832,6 +832,7 @@ impl Node {
                                     self.outstanding_proof_requests.remove(&height);
                                 }
                             }
+                            self.on_proof_pool_updated(height);
                         }
                     }
                 }
@@ -964,6 +965,7 @@ impl Node {
                     }),
                     true,
                 );
+                self.on_proof_pool_updated(height);
             }
         }
     }
@@ -1148,16 +1150,17 @@ impl Node {
     fn dispatch_preprepare_sync(
         &mut self,
         height: usize,
-        signals_snapshot: HashMap<String, Vec<String>>,
+        signals_snapshot: &HashMap<String, Vec<String>>,
     ) {
         self.ensure_proposal_sync_thread();
 
         let node_id = self.node_id.clone();
+        let snapshot_for_record = signals_snapshot.clone();
         let mut payload = serde_json::json!({
             "type": "preprepare_sync",
             "height": height,
             "sender_id": node_id.clone(),
-            "signals": signals_snapshot,
+            "signals": signals_snapshot.clone(),
         });
         let gossip_id = format!(
             "{}:{}",
@@ -1195,6 +1198,70 @@ impl Node {
                 "提案同步线程尚未启动，无法广播提案",
             );
         }
+
+        self.last_preprepare_broadcast
+            .insert(height, snapshot_for_record);
+    }
+
+    /// 证明池发生变化时刷新本地提案
+    fn on_proof_pool_updated(&mut self, height: usize) {
+        if let Some(snapshot) = self.refresh_local_proposal(height) {
+            self.dispatch_preprepare_sync(height, &snapshot);
+        }
+    }
+
+    /// 根据最新的证明池重新选择本地提案的证明集合
+    fn refresh_local_proposal(&mut self, height: usize) -> Option<HashMap<String, Vec<String>>> {
+        if !self.sent_preprepare_signal_at.contains_key(&height) {
+            return None;
+        }
+
+        let mut proofs: Vec<BobtailProof> = self
+            .proof_pool
+            .get(&height)
+            .map(|m| m.values().cloned().collect())
+            .unwrap_or_default();
+
+        if proofs.len() < self.bobtail_k + self.prepare_margin {
+            return None;
+        }
+
+        proofs.sort_by(|a, b| a.proof_hash.cmp(&b.proof_hash));
+        let selected = proofs[..self.bobtail_k].to_vec();
+        let avg_hash = selected
+            .iter()
+            .map(|p| BigUint::parse_bytes(p.proof_hash.as_bytes(), 16).unwrap_or_default())
+            .fold(BigUint::from(0u32), |acc, x| acc + x)
+            / BigUint::from(self.bobtail_k as u32);
+
+        if avg_hash > self.difficulty_threshold {
+            return None;
+        }
+
+        let new_hashes: Vec<String> = selected.iter().map(|p| p.proof_hash.clone()).collect();
+        let entry = self.preprepare_signals.entry(height).or_default();
+
+        if let Some(existing) = entry.get(&self.node_id) {
+            if *existing == new_hashes {
+                return None;
+            }
+        }
+
+        log_msg(
+            "DEBUG",
+            "CONSENSUS",
+            Some(self.node_id.clone()),
+            &format!(
+                "高度 {} 的本地提案更新为新的证明集合: {}",
+                height,
+                new_hashes.join(", ")
+            ),
+        );
+
+        entry.insert(self.node_id.clone(), new_hashes.clone());
+        self.sent_preprepare_signal_at.insert(height, new_hashes);
+
+        Some(entry.clone())
     }
 
     /// 尝试进行共识
@@ -1275,9 +1342,7 @@ impl Node {
                     None => true,
                 };
                 if should_broadcast {
-                    self.dispatch_preprepare_sync(height, signals_snapshot.clone());
-                    self.last_preprepare_broadcast
-                        .insert(height, signals_snapshot.clone());
+                    self.dispatch_preprepare_sync(height, &signals_snapshot);
                 }
             }
 
