@@ -76,6 +76,7 @@ pub struct Node {
     miner: Miner,                       // 矿工，负责挖矿（生成Bobtail证明）
     peers: HashMap<String, SocketAddr>, // 对等节点列表 <node_id, addr>
     mempool: VecDeque<Value>,           // 内存池，暂存待处理的gossip消息
+    new_block_buffer: VecDeque<Block>,  // 新区块消息缓冲区
     proof_pool: HashMap<usize, HashMap<String, BobtailProof>>, // 证明池 <height, <node_id, proof>>
     seen_gossip_ids: HashSet<String>,   // 已见过的gossip消息ID，防止重复处理
     chain: Blockchain,                  // 节点的区块链实例
@@ -154,6 +155,7 @@ impl Node {
             mining_stop_flag: None,
             current_mining_height: None,
             mining_window_size: 10_000,
+            new_block_buffer: VecDeque::new(),
         }
     }
 
@@ -275,7 +277,8 @@ impl Node {
                 }
             }
 
-            // 2. 处理内存池中的消息
+            // 2. 处理新区块缓冲区和内存池中的消息
+            self.process_new_block_buffer();
             if !self.mempool.is_empty() {
                 // log_msg("DEBUG", "SN", Some(self.node_id.clone()), "process_mempool");
                 self.process_mempool();
@@ -696,9 +699,26 @@ impl Node {
                         }
                     }
                 }
-                "bobtail_proof" | "preprepare_sync" | "new_block" => {
+                "bobtail_proof" | "preprepare_sync" => {
                     // 将共识相关的消息放入内存池等待处理
                     self.mempool.push_back(data.clone());
+                }
+                "new_block" => {
+                    if let Some(block_val) = data.get("block") {
+                        match serde_json::from_value::<Block>(block_val.clone()) {
+                            Ok(block) => {
+                                self.new_block_buffer.push_back(block);
+                            }
+                            Err(e) => {
+                                log_msg(
+                                    "WARN",
+                                    "BLOCKCHAIN",
+                                    Some(self.node_id.clone()),
+                                    &format!("无法解析新区块消息: {}", e),
+                                );
+                            }
+                        }
+                    }
                 }
                 "tst_update" => {
                     // 处理时间状态树（TST）更新消息
@@ -762,35 +782,6 @@ impl Node {
 
     /// 处理内存池中的消息
     fn process_mempool(&mut self) {
-        let next_height = self.chain.height() + 1;
-
-        // 优先处理新区块消息
-        if let Some(pos) = self.mempool.iter().position(|msg| {
-            msg.get("type").and_then(Value::as_str) == Some("new_block")
-                && msg
-                    .get("height")
-                    .and_then(Value::as_u64)
-                    .map(|h| h as usize)
-                    == Some(next_height)
-        }) {
-            if let Some(msg) = self.mempool.remove(pos) {
-                if let Some(block_val) = msg.get("block") {
-                    if let Ok(block) = serde_json::from_value::<Block>(block_val.clone()) {
-                        // 验证并添加新区块
-                        if !self.accept_block(block) {
-                            log_msg(
-                                "WARN",
-                                "BLOCKCHAIN",
-                                Some(self.node_id.clone()),
-                                &format!("忽略高度 {} 的无效区块", next_height),
-                            );
-                        }
-                    }
-                }
-            }
-            return; // 优先处理完区块后直接返回
-        }
-
         // 处理其他共识消息
         if let Some(msg) = self.mempool.pop_front() {
             let height = msg
@@ -834,6 +825,35 @@ impl Node {
                 _ => {}
             }
         }
+    }
+
+    /// 处理新区块缓冲区
+    fn process_new_block_buffer(&mut self) {
+        loop {
+            let expected_height = self.chain.height() + 1;
+            let Some(pos) = self
+                .new_block_buffer
+                .iter()
+                .position(|block| block.height as usize == expected_height)
+            else {
+                break;
+            };
+
+            if let Some(block) = self.new_block_buffer.remove(pos) {
+                if !self.accept_block(block) {
+                    log_msg(
+                        "WARN",
+                        "BLOCKCHAIN",
+                        Some(self.node_id.clone()),
+                        &format!("忽略高度 {} 的无效区块", expected_height),
+                    );
+                }
+            }
+        }
+
+        let current_height = self.chain.height();
+        self.new_block_buffer
+            .retain(|block| block.height as usize > current_height);
     }
 
     /// 处理挖矿线程上报的证明
@@ -986,6 +1006,8 @@ impl Node {
 
     /// 尝试进行共识
     fn attempt_consensus(&mut self) {
+        self.process_new_block_buffer();
+
         // 如果没有存储文件，则不参与共识
         if self.storage_manager.get_num_files() == 0 {
             self.stop_mining_thread();
