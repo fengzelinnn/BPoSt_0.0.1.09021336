@@ -87,7 +87,8 @@ pub struct Node {
     broadcast_threshold: BigUint,       // 广播阈值，略高于全局难度
     preprepare_signals: HashMap<usize, HashMap<String, Vec<String>>>, // 预备信号 <height, <sender_id, proof_hashes>>
     sent_preprepare_signal_at: HashMap<usize, Vec<String>>, // 记录在某个高度已发送的预备信号
-    election_concluded_for: HashSet<usize>,                 // 记录已完成领导者选举的高度
+    last_preprepare_broadcast: HashMap<usize, HashMap<String, Vec<String>>>, // 记录最近广播的提案快照
+    election_concluded_for: HashSet<usize>, // 记录已完成领导者选举的高度
     round_tst_updates: HashMap<usize, HashMap<String, RoundUpdate>>, // 轮次状态更新 <height, <node_id, update>>
     stop_flag: Arc<AtomicBool>,                                      // 优雅停机的标志
     report_sender: Sender<NodeReport>,                               // 用于发送节点状态报告的通道
@@ -146,6 +147,7 @@ impl Node {
             broadcast_threshold,
             preprepare_signals: HashMap::new(),
             sent_preprepare_signal_at: HashMap::new(),
+            last_preprepare_broadcast: HashMap::new(),
             election_concluded_for: HashSet::new(),
             round_tst_updates: HashMap::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
@@ -828,7 +830,7 @@ impl Node {
                                     .iter()
                                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
                                     .collect();
-                                entry.entry(sender.clone()).or_insert(hashes);
+                                entry.insert(sender.clone(), hashes);
                             }
                         }
                     }
@@ -1073,11 +1075,7 @@ impl Node {
             return;
         }
 
-        if !self.sent_preprepare_signal_at.contains_key(&height) {
-            self.ensure_mining_thread(height);
-        } else {
-            self.stop_mining_thread();
-        }
+        self.ensure_mining_thread(height);
 
         // 2. 尝试选举领导者
         self.try_elect_leader(height);
@@ -1110,7 +1108,6 @@ impl Node {
 
                 // 如果平均哈希满足难度要求
                 if avg_hash <= self.difficulty_threshold {
-                    self.stop_mining_thread();
                     let proof_hashes: Vec<String> =
                         selected.iter().map(|p| p.proof_hash.clone()).collect();
                     // 记录自己发送的预备信号
@@ -1134,16 +1131,25 @@ impl Node {
         // 阶段2: 准备/提交 (Prepare/Commit)
         // 如果已经发送了预备信号，则开始同步和计票
         if let Some(signals_snapshot) = self.preprepare_signals.get(&height).cloned() {
-            // 将自己的信号gossip出去，以便其他节点同步
-            self.gossip(
-                serde_json::json!({
-                    "type": "preprepare_sync",
-                    "height": height,
-                    "sender_id": self.node_id,
-                    "signals": signals_snapshot,
-                }),
-                true,
-            );
+            if !signals_snapshot.is_empty() {
+                let should_broadcast = match self.last_preprepare_broadcast.get(&height) {
+                    Some(prev) => prev != &signals_snapshot,
+                    None => true,
+                };
+                if should_broadcast {
+                    self.gossip(
+                        serde_json::json!({
+                            "type": "preprepare_sync",
+                            "height": height,
+                            "sender_id": self.node_id,
+                            "signals": signals_snapshot.clone(),
+                        }),
+                        true,
+                    );
+                    self.last_preprepare_broadcast
+                        .insert(height, signals_snapshot.clone());
+                }
+            }
 
             // 对收到的所有提案（信号）进行计票
             let mut votes: HashMap<Vec<String>, Vec<String>> = HashMap::new();
@@ -1157,6 +1163,7 @@ impl Node {
             // 检查是否有提案获得了足够的票数（k票）
             for (proof_set, voters) in votes {
                 if voters.len() >= self.bobtail_k {
+                    self.stop_mining_thread();
                     log_msg(
                         "INFO",
                         "CONSENSUS",
@@ -1241,6 +1248,7 @@ impl Node {
 
                     // 标记当前高度的选举已结束
                     self.election_concluded_for.insert(height);
+                    self.last_preprepare_broadcast.remove(&height);
                     return; // 选举结束，退出函数
                 }
             }
@@ -1509,6 +1517,7 @@ impl Node {
         self.proof_pool.remove(&expected_height);
         self.preprepare_signals.remove(&expected_height);
         self.sent_preprepare_signal_at.remove(&expected_height);
+        self.last_preprepare_broadcast.remove(&expected_height);
         self.outstanding_proof_requests.remove(&expected_height);
         self.election_concluded_for.insert(expected_height);
 
