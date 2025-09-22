@@ -172,12 +172,12 @@ impl StorageManager {
     pub fn finalize_commitments(&self) {
         let mut inner = self.inner.lock();
         inner.storage.build_state();
-        crate::utils::log_msg(
-            "INFO",
-            "COMMIT",
-            Some(self.node_id.clone()),
-            "已为接收的文件块构建状态树",
-        );
+        // crate::utils::log_msg(
+        //     "INFO",
+        //     "COMMIT",
+        //     Some(self.node_id.clone()),
+        //     "已为接收的文件块构建状态树",
+        // );
     }
 
     pub fn get_storage_root(&self) -> String {

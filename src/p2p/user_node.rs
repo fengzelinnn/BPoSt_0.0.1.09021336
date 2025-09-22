@@ -241,13 +241,13 @@ impl UserNode {
                 "storage_bid" => {
                     let response = self.handle_storage_bid(&req.data);
                     if !response.ok {
-                        let detail = response.error.unwrap_or_else(|| String::from("未知错误"));
-                        log_msg(
-                            "WARN",
-                            "USER_NODE",
-                            Some(self.owner.owner_id.clone()),
-                            &format!("异步处理存储竞标失败: {}", detail),
-                        );
+                        // let detail = response.error.unwrap_or_else(|| String::from("未知错误"));
+                        // log_msg(
+                        //     "WARN",
+                        //     "USER_NODE",
+                        //     Some(self.owner.owner_id.clone()),
+                        //     &format!("异步处理存储竞标失败: {}", detail),
+                        // );
                     }
                 }
                 "final_proof" => {
@@ -470,10 +470,10 @@ impl UserNode {
                                 provider, file_id
                             ),
                         );
-                        println!(
-                            "文件 {} 的最终 Nova 证明已成功验证（来自 {}）。",
-                            file_id, provider
-                        );
+                        // println!(
+                        //     "文件 {} 的最终 Nova 证明已成功验证（来自 {}）。",
+                        //     file_id, provider
+                        // );
                     }
                     {
                         let mut map = stored_files.lock();
