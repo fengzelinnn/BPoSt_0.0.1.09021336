@@ -435,6 +435,7 @@ impl Node {
                 }
             }
             "dpdp_challenge" => self.handle_dpdp_challenge(&req.data), // 处理dPDP挑战请求
+            "query_final_proof" => self.handle_query_final_proof(&req.data),
             _ => CommandResponse {
                 ok: false,
                 error: Some(String::from("未知命令")),
@@ -466,28 +467,6 @@ impl Node {
                     .set_file_pk_beta(&chunk.file_id, pk_bytes);
             }
         }
-        let owner_addr = data
-            .get("owner_addr")
-            .and_then(|v| v.as_array())
-            .and_then(|arr| {
-                if arr.len() != 2 {
-                    return None;
-                }
-                let host = arr.get(0)?.as_str()?;
-                let port = arr.get(1)?.as_u64()? as u16;
-                host.parse().ok().map(|ip| SocketAddr::new(ip, port))
-            });
-        let final_proof_addr = data
-            .get("final_proof_addr")
-            .and_then(|v| v.as_array())
-            .and_then(|arr| {
-                if arr.len() != 2 {
-                    return None;
-                }
-                let host = arr.get(0)?.as_str()?;
-                let port = arr.get(1)?.as_u64()? as u16;
-                host.parse().ok().map(|ip| SocketAddr::new(ip, port))
-            });
         if ok {
             if let (Some(period), Some(ch_size)) = (
                 data.get("storage_period").and_then(Value::as_u64),
@@ -497,8 +476,6 @@ impl Node {
                     &chunk.file_id,
                     period as usize,
                     ch_size as usize,
-                    owner_addr,
-                    final_proof_addr,
                 );
             }
         }
@@ -573,6 +550,62 @@ impl Node {
             ok: true,
             error: None,
             extra,
+        }
+    }
+
+    fn handle_query_final_proof(&self, data: &Value) -> CommandResponse {
+        let file_id = data
+            .get("file_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if file_id.is_empty() {
+            return CommandResponse {
+                ok: false,
+                error: Some(String::from("缺少 file_id")),
+                extra: HashMap::new(),
+            };
+        }
+
+        let mut result: Option<(u64, String, Value, Value, bool)> = None;
+        'outer: for block in self.chain.blocks.iter().rev() {
+            for (provider_id, files) in &block.body.dpdp_proofs {
+                if let Some(pkg) = files.get(&file_id) {
+                    let final_fold = pkg.get("final_fold").cloned().unwrap_or(Value::Null);
+                    let has_final = !final_fold.is_null();
+                    result = Some((
+                        block.height,
+                        provider_id.clone(),
+                        pkg.clone(),
+                        final_fold,
+                        has_final,
+                    ));
+                    if has_final {
+                        break 'outer;
+                    }
+                }
+            }
+        }
+
+        match result {
+            Some((height, provider_id, package, final_fold, has_final)) => {
+                let mut extra = HashMap::new();
+                extra.insert(String::from("block_height"), Value::from(height));
+                extra.insert(String::from("provider_id"), Value::String(provider_id));
+                extra.insert(String::from("package"), package);
+                extra.insert(String::from("final_fold"), final_fold);
+                extra.insert(String::from("has_final_proof"), Value::Bool(has_final));
+                CommandResponse {
+                    ok: true,
+                    error: None,
+                    extra,
+                }
+            }
+            None => CommandResponse {
+                ok: false,
+                error: Some(String::from("未找到对应的最终证明")),
+                extra: HashMap::new(),
+            },
         }
     }
 
@@ -1337,6 +1370,7 @@ impl Node {
                 .collect(),
             proofs_merkle_tree,
             dpdp_challenges,
+            dpdp_proofs,
         };
 
         // 构造完整区块
@@ -1466,48 +1500,6 @@ impl Node {
 
         let mut pending_rounds = self.storage_manager.drain_pending_rounds();
         let mut final_folds = self.storage_manager.take_final_folds();
-        for (fid, fold_val) in final_folds.iter() {
-            let target_addr = self
-                .storage_manager
-                .final_proof_addr_for(fid)
-                .or_else(|| self.storage_manager.owner_addr_for(fid));
-            if let Some(addr) = target_addr {
-                if let Some(obj) = fold_val.as_object() {
-                    let payload = serde_json::json!({
-                        "cmd": "final_proof",
-                        "data": {
-                            "file_id": fid,
-                            "provider_id": self.node_id,
-                            "accumulator": obj
-                                .get("accumulator")
-                                .cloned()
-                                .unwrap_or(Value::Null),
-                            "steps": obj.get("steps").cloned().unwrap_or(Value::Null),
-                            "compressed_snark": obj
-                                .get("compressed_snark")
-                                .cloned()
-                                .unwrap_or(Value::Null),
-                            "verifier_key": obj
-                                .get("verifier_key")
-                                .cloned()
-                                .unwrap_or(Value::Null),
-                        }
-                    });
-                    let node_id = self.node_id.clone();
-                    let file_id = fid.clone();
-                    thread::spawn(move || {
-                        if send_json_line(addr, &payload).is_none() {
-                            log_msg(
-                                "WARN",
-                                "P2P_NET",
-                                Some(node_id),
-                                &format!("向文件所有者发送文件 {} 最终证明失败", file_id),
-                            );
-                        }
-                    });
-                }
-            }
-        }
         let mut dpdp_proofs_by_file: HashMap<String, Value> = HashMap::new();
         for fid in &file_ids {
             let pk_hex = self

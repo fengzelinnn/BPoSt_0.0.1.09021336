@@ -1174,6 +1174,7 @@ mod tests {
             coinbase_splits: HashMap::new(),
             proofs_merkle_tree: IndexMap::new(),
             dpdp_challenges: HashMap::new(),
+            dpdp_proofs: HashMap::new(),
         };
         let block = Block {
             height: 1,

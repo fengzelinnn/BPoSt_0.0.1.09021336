@@ -1,7 +1,7 @@
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -39,7 +39,6 @@ struct StoredFileRecord {
     _num_chunks: usize,
     required_rounds: usize,
     final_verified: bool,
-    _final_listener_addr: Option<SocketAddr>,
 }
 
 pub struct UserNode {
@@ -202,6 +201,7 @@ impl UserNode {
         // 主线程：仅负责尝试发起存储与随机睡眠
         while !self.stop_flag.load(Ordering::SeqCst) {
             self.drain_broadcast_buffer();
+            self.poll_blockchain_for_final_proofs();
             let should_try = {
                 let active_empty = self.active_requests.lock().is_empty();
                 active_empty && rand::thread_rng().gen_bool(0.3)
@@ -210,6 +210,7 @@ impl UserNode {
                 self.try_store_file();
             }
             self.drain_broadcast_buffer();
+            self.poll_blockchain_for_final_proofs();
             // 随机休眠 3~7 秒
             let ms = rand::thread_rng().gen_range(3000..=7000);
             let mut remaining = ms;
@@ -217,6 +218,7 @@ impl UserNode {
                 let step = std::cmp::min(remaining, 500);
                 thread::sleep(Duration::from_millis(step as u64));
                 self.drain_broadcast_buffer();
+                self.poll_blockchain_for_final_proofs();
                 remaining -= step;
             }
         }
@@ -248,22 +250,6 @@ impl UserNode {
                         //     Some(self.owner.owner_id.clone()),
                         //     &format!("异步处理存储竞标失败: {}", detail),
                         // );
-                    }
-                }
-                "final_proof" => {
-                    let response = Self::process_final_proof_command(
-                        &self.stored_files,
-                        &self.owner.owner_id,
-                        &req.data,
-                    );
-                    if !response.ok {
-                        let detail = response.error.unwrap_or_else(|| String::from("未知错误"));
-                        log_msg(
-                            "WARN",
-                            "USER_NODE",
-                            Some(self.owner.owner_id.clone()),
-                            &format!("异步处理最终证明失败: {}", detail),
-                        );
                     }
                 }
                 other => {
@@ -340,88 +326,15 @@ impl UserNode {
         }
     }
 
-    fn process_final_proof_command(
-        stored_files: &Arc<Mutex<HashMap<String, StoredFileRecord>>>,
-        owner_id: &str,
-        data: &Value,
-    ) -> CommandResponse {
-        let mut response = CommandResponse {
-            ok: false,
-            error: Some(String::from("未知命令")),
-            extra: HashMap::new(),
-        };
-
-        let file_id = data
-            .get("file_id")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let steps = data.get("steps").and_then(Value::as_u64).unwrap_or(0) as usize;
-        let accumulator = data
-            .get("accumulator")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let compressed_hex = data
-            .get("compressed_snark")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let vk_hex = data
-            .get("verifier_key")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let provider = data
-            .get("provider_id")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            .to_string();
-
-        if file_id.is_empty()
-            || accumulator.is_empty()
-            || compressed_hex.is_empty()
-            || vk_hex.is_empty()
-        {
-            response.error = Some(String::from("参数缺失或未知文件"));
-            return response;
-        }
-
-        let verification = with_cpu_heavy_limit(|| {
-            Self::verify_final_proof(
-                stored_files,
-                owner_id,
-                &file_id,
-                steps,
-                &accumulator,
-                &compressed_hex,
-                &vk_hex,
-                &provider,
-            )
-        });
-
-        match verification {
-            Ok(_) => {
-                response.ok = true;
-                response.error = None;
-            }
-            Err(err) => {
-                response.error = Some(err);
-            }
-        }
-
-        response
-    }
-
     fn verify_final_proof(
         stored_files: &Arc<Mutex<HashMap<String, StoredFileRecord>>>,
         owner_id: &str,
         file_id: &str,
-        steps: usize,
+        provider: &str,
         accumulator: &str,
+        steps: usize,
         compressed_hex: &str,
         vk_hex: &str,
-        provider: &str,
     ) -> Result<(), String> {
         let (record_opt, already_verified) = {
             let map = stored_files.lock();
@@ -507,188 +420,101 @@ impl UserNode {
         }
     }
 
-    fn setup_final_proof_listener(&self, file_id: String) -> Option<SocketAddr> {
-        let ip: IpAddr = match self.host.parse() {
-            Ok(ip) => ip,
-            Err(err) => {
-                log_msg(
-                    "ERROR",
-                    "USER_NODE",
-                    Some(self.owner.owner_id.clone()),
-                    &format!("解析用于最终证明监听的主机地址失败: {}", err),
-                );
-                return None;
-            }
-        };
-
-        let listener = match TcpListener::bind(SocketAddr::new(ip, 0)) {
-            Ok(l) => l,
-            Err(err) => {
-                log_msg(
-                    "ERROR",
-                    "USER_NODE",
-                    Some(self.owner.owner_id.clone()),
-                    &format!("为文件 {} 启动最终证明监听失败: {}", file_id, err),
-                );
-                return None;
-            }
-        };
-        let local_addr = match listener.local_addr() {
-            Ok(addr) => addr,
-            Err(err) => {
-                log_msg(
-                    "ERROR",
-                    "USER_NODE",
-                    Some(self.owner.owner_id.clone()),
-                    &format!("获取文件 {} 最终证明监听地址失败: {}", file_id, err),
-                );
-                return None;
-            }
-        };
-
-        let stored_files = Arc::clone(&self.stored_files);
-        let stop_flag = Arc::clone(&self.stop_flag);
-        let owner_id = self.owner.owner_id.clone();
-        let broadcast_buffer = Arc::clone(&self.broadcast_buffer);
-        thread::spawn(move || {
-            Self::run_final_proof_listener(
-                listener,
-                file_id,
-                stored_files,
-                broadcast_buffer,
-                stop_flag,
-                owner_id,
-            );
-        });
-
-        Some(local_addr)
-    }
-
-    fn run_final_proof_listener(
-        listener: TcpListener,
-        file_id: String,
-        stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
-        broadcast_buffer: Arc<Mutex<VecDeque<CommandRequest>>>,
-        stop_flag: Arc<AtomicBool>,
-        owner_id: String,
-    ) {
-        if let Err(err) = listener.set_nonblocking(true) {
-            log_msg(
-                "ERROR",
-                "USER_NODE",
-                Some(owner_id.clone()),
-                &format!("设置文件 {} 的最终证明监听非阻塞失败: {}", file_id, err),
-            );
-            return;
-        }
-
-        loop {
-            if stop_flag.load(Ordering::SeqCst) {
-                break;
-            }
-
-            let final_status = {
-                let map = stored_files.lock();
-                map.get(&file_id).map(|record| record.final_verified)
-            };
-            match final_status {
-                Some(true) => break,
-                Some(false) => {}
-                None => {
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
-                }
-            }
-
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    if let Err(err) = Self::handle_final_proof_stream(
-                        stream,
-                        Arc::clone(&broadcast_buffer),
-                        owner_id.clone(),
-                    ) {
-                        log_msg(
-                            "ERROR",
-                            "USER_NODE",
-                            Some(owner_id.clone()),
-                            &format!("处理文件 {} 最终证明连接失败: {}", file_id, err),
-                        );
+    fn poll_blockchain_for_final_proofs(&mut self) {
+        let pending: Vec<String> = {
+            let records = self.stored_files.lock();
+            records
+                .iter()
+                .filter_map(|(file_id, record)| {
+                    if record.final_verified {
+                        None
+                    } else {
+                        Some(file_id.clone())
                     }
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(200));
-                }
-                Err(err) => {
-                    log_msg(
-                        "ERROR",
-                        "USER_NODE",
-                        Some(owner_id.clone()),
-                        &format!("接受文件 {} 最终证明连接失败: {}", file_id, err),
-                    );
-                    thread::sleep(Duration::from_millis(200));
-                }
-            }
-        }
-
-        log_msg(
-            "DEBUG",
-            "USER_NODE",
-            Some(owner_id.clone()),
-            &format!("文件 {} 的最终证明监听线程退出。", file_id),
-        );
-    }
-
-    fn handle_final_proof_stream(
-        mut stream: TcpStream,
-        broadcast_buffer: Arc<Mutex<VecDeque<CommandRequest>>>,
-        _owner_id: String,
-    ) -> std::io::Result<()> {
-        // On Windows, sockets accepted from a non-blocking listener inherit the
-        // non-blocking mode. Subsequent read/write operations will then return
-        // `WouldBlock` (WSAEWOULDBLOCK) instead of waiting for data, which breaks
-        // the synchronous protocol we use to receive the final proof. To avoid
-        // this, force the accepted stream back into blocking mode before
-        // applying read/write timeouts. This keeps the listener responsive while
-        // still allowing the proof exchange to behave like a normal blocking
-        // connection.
-
-        stream.set_nonblocking(false)?;
-        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(2)))?;
-        let mut reader = BufReader::new(stream.try_clone()?);
-        let mut line = String::new();
-        reader.read_line(&mut line)?;
-        if line.trim().is_empty() {
-            return Ok(());
-        }
-        let req: CommandRequest = serde_json::from_str(&line).unwrap_or(CommandRequest {
-            cmd: String::new(),
-            data: Value::Null,
-        });
-        let response = match req.cmd.as_str() {
-            "final_proof" => {
-                {
-                    let mut buffer = broadcast_buffer.lock();
-                    buffer.push_back(req.clone());
-                }
-                let mut extra = HashMap::new();
-                extra.insert(String::from("queued"), Value::Bool(true));
-                CommandResponse {
-                    ok: true,
-                    error: None,
-                    extra,
-                }
-            }
-            _ => CommandResponse {
-                ok: false,
-                error: Some(String::from("未知命令")),
-                extra: HashMap::new(),
-            },
+                })
+                .collect()
         };
-        let resp_json = serde_json::to_string(&response).unwrap();
-        stream.write_all(resp_json.as_bytes())?;
-        stream.write_all(b"\n")?;
-        Ok(())
+
+        for file_id in pending {
+            let payload = serde_json::json!({
+                "cmd": "query_final_proof",
+                "data": { "file_id": file_id },
+            });
+
+            let Some(resp_val) = super::node::send_json_line(self.bootstrap_addr, &payload) else {
+                continue;
+            };
+
+            let Ok(response) = serde_json::from_value::<CommandResponse>(resp_val) else {
+                continue;
+            };
+
+            if !response.ok {
+                continue;
+            }
+
+            let has_final = response
+                .extra
+                .get("has_final_proof")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if !has_final {
+                continue;
+            }
+
+            let provider = response
+                .extra
+                .get("provider_id")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            let Some(final_val) = response.extra.get("final_fold") else {
+                continue;
+            };
+            if final_val.is_null() {
+                continue;
+            }
+            let Some(final_obj) = final_val.as_object() else {
+                continue;
+            };
+
+            let accumulator = match final_obj.get("accumulator").and_then(Value::as_str) {
+                Some(val) if !val.is_empty() => val.to_string(),
+                _ => continue,
+            };
+            let steps = final_obj.get("steps").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let compressed_hex = match final_obj.get("compressed_snark").and_then(Value::as_str) {
+                Some(val) if !val.is_empty() => val.to_string(),
+                _ => continue,
+            };
+            let vk_hex = match final_obj.get("verifier_key").and_then(Value::as_str) {
+                Some(val) if !val.is_empty() => val.to_string(),
+                _ => continue,
+            };
+
+            let owner_id = self.owner.owner_id.clone();
+            let stored_files = Arc::clone(&self.stored_files);
+            let verification = with_cpu_heavy_limit(|| {
+                Self::verify_final_proof(
+                    &stored_files,
+                    &owner_id,
+                    &file_id,
+                    provider,
+                    &accumulator,
+                    steps,
+                    &compressed_hex,
+                    &vk_hex,
+                )
+            });
+
+            if let Err(err) = verification {
+                log_msg(
+                    "WARN",
+                    "USER_NODE",
+                    Some(owner_id),
+                    &format!("链上验证文件 {} 最终证明失败: {}", file_id, err),
+                );
+            }
+        }
     }
 
     fn try_store_file(&mut self) {
@@ -781,7 +607,6 @@ impl UserNode {
                     Some(SocketAddr::new(host.parse().ok()?, port))
                 })
                 .collect();
-            let final_listener_addr = self.setup_final_proof_listener(self.owner.file_id.clone());
             log_msg(
                 "SUCCESS",
                 "USER_NODE",
@@ -797,7 +622,6 @@ impl UserNode {
                         _num_chunks: chunks.len(),
                         required_rounds: storage_rounds,
                         final_verified: false,
-                        _final_listener_addr: final_listener_addr,
                     },
                 );
             }
@@ -806,21 +630,13 @@ impl UserNode {
             for chunk in &chunks {
                 let chunk_json = serde_json::to_value(chunk).unwrap();
                 for addr in &addrs {
-                    let mut data = serde_json::json!({
+                    let data = serde_json::json!({
                         "chunk": chunk_json.clone(),
                         "owner_pk_beta": owner_pk_beta_hex,
                         "storage_period": storage_rounds,
                         "challenge_size": challenge_size,
                         "owner_addr": [self.host, self.port],
                     });
-                    if let Some(final_addr) = final_listener_addr {
-                        if let Some(obj) = data.as_object_mut() {
-                            obj.insert(
-                                String::from("final_proof_addr"),
-                                serde_json::json!([final_addr.ip().to_string(), final_addr.port()]),
-                            );
-                        }
-                    }
                     let payload = serde_json::json!({
                         "cmd": "chunk_distribute",
                         "data": data,
