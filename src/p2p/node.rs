@@ -8,6 +8,7 @@ use std::time::{Duration, Instant}; // 时间相关操作
 
 use crossbeam_channel::{unbounded, Receiver, Sender}; // 高性能的并发消息通道
 use num_bigint::BigUint; // 大整数处理
+use num_traits::{ops::checked::CheckedSub, Zero};
 use rand::Rng; // 随机数生成
 use serde::{Deserialize, Serialize}; // 序列化和反序列化
 use serde_json::{Map, Value}; // JSON处理
@@ -63,6 +64,13 @@ struct RoundUpdate {
     file_roots: HashMap<String, String>, // 文件根哈希的集合
     challenges: HashMap<String, Vec<ChallengeEntry>>, // dPDP挑战的集合
     dpdp_proofs: HashMap<String, Value>, // dPDP证明的集合
+}
+
+/// 处理新区块时的结果
+enum BlockHandlingResult {
+    Accepted,
+    Deferred(Block),
+    Ignored,
 }
 
 /// P2P网络中的核心节点结构体
@@ -896,44 +904,58 @@ impl Node {
 
     /// 处理新区块缓冲区
     fn process_new_block_buffer(&mut self) {
-        loop {
-            let expected_height = self.chain.height() + 1;
-            let mut candidate_pos: Option<usize> = None;
-            let mut best_timestamp: Option<u128> = None;
+        let mut pending = std::mem::take(&mut self.new_block_buffer);
+        let mut progress = true;
 
-            for (idx, block) in self.new_block_buffer.iter().enumerate() {
-                if block.height as usize != expected_height {
-                    continue;
-                }
+        while progress {
+            progress = false;
+            let mut next_round = VecDeque::new();
 
-                match best_timestamp {
-                    Some(ts) if block.timestamp >= ts => {}
-                    _ => {
-                        best_timestamp = Some(block.timestamp);
-                        candidate_pos = Some(idx);
+            while let Some(block) = pending.pop_front() {
+                match self.try_process_block(block) {
+                    BlockHandlingResult::Accepted => {
+                        progress = true;
                     }
+                    BlockHandlingResult::Deferred(block) => {
+                        next_round.push_back(block);
+                    }
+                    BlockHandlingResult::Ignored => {}
                 }
             }
 
-            let Some(pos) = candidate_pos else {
-                break;
-            };
-
-            if let Some(block) = self.new_block_buffer.remove(pos) {
-                if !self.accept_block(block) {
-                    log_msg(
-                        "WARN",
-                        "BLOCKCHAIN",
-                        Some(self.node_id.clone()),
-                        &format!("忽略高度 {} 的无效区块", expected_height),
-                    );
-                }
-            }
+            pending = next_round;
         }
 
+        self.new_block_buffer = pending;
         let current_height = self.chain.height();
         self.new_block_buffer
             .retain(|block| block.height as usize > current_height);
+    }
+
+    fn try_process_block(&mut self, block: Block) -> BlockHandlingResult {
+        let current_height = self.chain.height();
+        let block_height = block.height as usize;
+
+        if block_height == current_height + 1 {
+            if block.prev_hash != self.chain.last_hash() {
+                return BlockHandlingResult::Ignored;
+            }
+            if self.accept_block(block) {
+                BlockHandlingResult::Accepted
+            } else {
+                BlockHandlingResult::Ignored
+            }
+        } else if block_height == current_height {
+            if self.accept_block(block) {
+                BlockHandlingResult::Accepted
+            } else {
+                BlockHandlingResult::Ignored
+            }
+        } else if block_height > current_height + 1 {
+            BlockHandlingResult::Deferred(block)
+        } else {
+            BlockHandlingResult::Ignored
+        }
     }
 
     /// 处理挖矿线程上报的证明
@@ -1414,8 +1436,61 @@ impl Node {
 
     /// 接受一个新区块并更新本地区块链状态
     fn accept_block(&mut self, block: Block) -> bool {
-        let expected_height = self.chain.height() + 1;
-        if block.prev_hash != self.chain.last_hash() || block.height as usize != expected_height {
+        let current_height = self.chain.height();
+        let block_height = block.height as usize;
+
+        if block_height == current_height + 1 {
+            if block.prev_hash != self.chain.last_hash() {
+                return false;
+            }
+
+            self.stop_mining_thread();
+
+            let block_for_processing = block.clone();
+            let leader_id = block_for_processing.leader_id.clone();
+
+            self.chain.add_block(block, None);
+            log_msg(
+                "INFO",
+                "BLOCKCHAIN",
+                Some(self.node_id.clone()),
+                &format!("接受了来自 {} 的区块 {}", leader_id, block_height),
+            );
+
+            self.perform_dpdp_round(&block_for_processing);
+
+            self.proof_pool.remove(&block_height);
+            self.outstanding_proof_requests.remove(&block_height);
+            self.election_concluded_for.insert(block_height);
+
+            return true;
+        }
+
+        if block_height != current_height || current_height == 0 {
+            return false;
+        }
+
+        let Some(prev_block) = self.chain.blocks.get(current_height - 1) else {
+            return false;
+        };
+        if block.prev_hash != prev_block.header_hash() {
+            return false;
+        }
+
+        let current_work = Self::compute_chain_work(&self.chain.blocks);
+        let current_tip_work = self
+            .chain
+            .blocks
+            .last()
+            .and_then(Self::block_work)
+            .unwrap_or_else(|| BigUint::zero());
+        let candidate_tip_work = Self::block_work(&block).unwrap_or_else(|| BigUint::zero());
+        let mut candidate_work = current_work
+            .checked_sub(&current_tip_work)
+            .unwrap_or_else(|| BigUint::zero());
+        candidate_work += candidate_tip_work;
+
+        if candidate_work <= current_work {
             return false;
         }
 
@@ -1423,25 +1498,58 @@ impl Node {
 
         let block_for_processing = block.clone();
         let leader_id = block_for_processing.leader_id.clone();
-        let block_height = block_for_processing.height;
 
+        self.chain.blocks.pop();
         self.chain.add_block(block, None);
+
         log_msg(
             "INFO",
             "BLOCKCHAIN",
             Some(self.node_id.clone()),
-            &format!("接受了来自 {} 的区块 {}", leader_id, block_height),
+            &format!(
+                "检测到高度 {} 的分叉，切换至来自 {} 的区块。总聚合工作量 {} -> {}",
+                block_height, leader_id, current_work, candidate_work
+            ),
         );
 
-        // 区块接受后，执行dPDP轮次
         self.perform_dpdp_round(&block_for_processing);
 
-        // 清理当前高度的共识状态
-        self.proof_pool.remove(&expected_height);
-        self.outstanding_proof_requests.remove(&expected_height);
-        self.election_concluded_for.insert(expected_height);
+        self.proof_pool.remove(&block_height);
+        self.outstanding_proof_requests.remove(&block_height);
+        self.election_concluded_for.insert(block_height);
 
         true
+    }
+
+    fn block_average_proof(block: &Block) -> Option<BigUint> {
+        if block.body.selected_k_proofs.is_empty() {
+            return None;
+        }
+
+        let mut total = BigUint::zero();
+        for summary in &block.body.selected_k_proofs {
+            let value = BigUint::parse_bytes(summary.proof_hash.as_bytes(), 16)?;
+            total += value;
+        }
+
+        let divisor = BigUint::from(block.body.selected_k_proofs.len() as u64);
+        Some(total / divisor)
+    }
+
+    fn block_work(block: &Block) -> Option<BigUint> {
+        let avg = Self::block_average_proof(block)?;
+        let target = BigUint::parse_bytes(block.bobtail_target.as_bytes(), 16)?;
+        Some(target.checked_sub(&avg).unwrap_or_else(|| BigUint::zero()))
+    }
+
+    fn compute_chain_work(blocks: &[Block]) -> BigUint {
+        let mut total = BigUint::zero();
+        for block in blocks {
+            if let Some(work) = Self::block_work(block) {
+                total += work;
+            }
+        }
+        total
     }
 
     /// 在接受一个新区块后，执行dPDP轮次
