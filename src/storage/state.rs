@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -98,12 +98,17 @@ impl ServerStorage {
             .insert(index, commitment);
     }
 
-    pub fn build_state(&mut self) {
+    pub fn build_state(&mut self, include_only: Option<&HashSet<String>>) {
         for tst in self.time_trees.values_mut() {
             tst.build();
         }
         let mut file_roots = HashMap::new();
         for (fid, tst) in &self.time_trees {
+            if let Some(filter) = include_only {
+                if !filter.contains(fid) {
+                    continue;
+                }
+            }
             file_roots.insert(fid.clone(), tst.root());
         }
         let mut storage_tree = StorageStateTree {
