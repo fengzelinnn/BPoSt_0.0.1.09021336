@@ -26,7 +26,11 @@ impl Miner {
     }
 
     /// 执行挖矿操作，尝试找到一个符合条件的 Bobtail 证明
-    /// 挖矿的本质是寻找一个 nonce（随机数），使得组合了各种信息后的哈希值最小
+    /// 挖矿的本质是寻找一个 nonce（随机数），使得组合了各种信息后的哈希值最小。
+    ///
+    /// 为了体现“存储越多、机会越多”的机制，此处会针对节点持有的每个文件状态树根
+    /// 生成一套独立的挖矿种子 `prev_hash + file_root + nonce`，从而让拥有更多文件的节点
+    /// 能够在同样的窗口内尝试更多的哈希组合。
     pub fn mine(
         &self,
         seed: &str,         // 挖矿种子，通常来自前一个区块的哈希，确保不可预测性
@@ -55,12 +59,24 @@ impl Miner {
             return None;
         }
 
-        let mut best_hash = String::new();
+        let mut best_hash: Option<String> = None;
         let mut best_nonce: Option<u64> = None;
+        let mut best_root_idx: Option<usize> = None;
 
         // 避免在计算 end_nonce 时发生溢出
         let end_nonce = start_nonce.saturating_add(window_size);
         if end_nonce == start_nonce {
+            return None;
+        }
+
+        let candidate_roots: Vec<String> = if file_roots.is_empty() {
+            // 当文件根为空时退化为使用整体存储根，保持兼容性
+            vec![storage_root.to_string()]
+        } else {
+            file_roots.values().cloned().collect()
+        };
+
+        if candidate_roots.is_empty() {
             return None;
         }
 
@@ -73,16 +89,18 @@ impl Miner {
                 break;
             }
 
-            let inputs: Vec<Vec<u8>> = (0..len)
-                .map(|i| {
-                    let nonce = start + i as u64;
-                    format!(
-                        "bobtail|{}|{}|{}|{}",
-                        seed, storage_root, self.node_id, nonce
-                    )
-                    .into_bytes()
-                })
-                .collect();
+            let mut inputs: Vec<Vec<u8>> = Vec::with_capacity(len * candidate_roots.len());
+            let mut metadata: Vec<(usize, u64)> = Vec::with_capacity(len * candidate_roots.len());
+            for (root_idx, file_root) in candidate_roots.iter().enumerate() {
+                for offset in 0..len {
+                    let nonce = start + offset as u64;
+                    inputs.push(
+                        format!("bobtail|{}|{}|{}|{}", seed, file_root, self.node_id, nonce)
+                            .into_bytes(),
+                    );
+                    metadata.push((root_idx, nonce));
+                }
+            }
 
             let hashes: Vec<String> = if let Some(hs) = try_gpu_poseidon_hash_hex_batch(&inputs) {
                 hs
@@ -90,11 +108,11 @@ impl Miner {
                 cpu_poseidon_hash_hex_batch(&inputs)
             };
 
-            for (i, h) in hashes.into_iter().enumerate() {
-                let nonce = start + i as u64;
-                if best_hash.is_empty() || h < best_hash {
-                    best_hash = h;
+            for ((root_idx, nonce), hash) in metadata.into_iter().zip(hashes.into_iter()) {
+                if best_hash.as_ref().map_or(true, |current| hash < *current) {
+                    best_root_idx = Some(root_idx);
                     best_nonce = Some(nonce);
+                    best_hash = Some(hash);
                 }
             }
 
@@ -104,14 +122,17 @@ impl Miner {
             start = end;
         }
 
-        best_nonce.map(|nonce| BobtailProof {
-            node_id: self.node_id.clone(),
-            address: self.reward_address.clone(),
-            root: storage_root.to_string(),
-            file_roots: file_roots.clone(),
-            nonce: nonce.to_string(),
-            proof_hash: best_hash,
-            lots: num_files.max(1).to_string(),
-        })
+        match (best_hash, best_nonce, best_root_idx) {
+            (Some(hash), Some(nonce), Some(root_idx)) => Some(BobtailProof {
+                node_id: self.node_id.clone(),
+                address: self.reward_address.clone(),
+                root: candidate_roots[root_idx].clone(),
+                file_roots: file_roots.clone(),
+                nonce: nonce.to_string(),
+                proof_hash: hash,
+                lots: num_files.max(1).to_string(),
+            }),
+            _ => None,
+        }
     }
 }
