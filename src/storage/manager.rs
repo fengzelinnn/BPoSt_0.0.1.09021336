@@ -48,6 +48,7 @@ struct FileCycleState {
     pending_rounds: VecDeque<StoredRoundRecord>,
     final_artifact: Option<FinalFoldArtifact>,
     final_sent: bool,
+    released: bool,
 }
 
 impl FileCycleState {
@@ -59,6 +60,7 @@ impl FileCycleState {
             pending_rounds: VecDeque::new(),
             final_artifact: None,
             final_sent: false,
+            released: false,
         }
     }
 
@@ -84,6 +86,10 @@ impl FileCycleState {
             verifier_key: hex::encode(&proof.verifier_key),
         });
         self.final_sent = false;
+    }
+
+    fn is_expired(&self) -> bool {
+        self.final_artifact.is_some()
     }
 }
 
@@ -151,6 +157,11 @@ impl StorageManager {
         inner
             .file_cycles
             .entry(file_id.to_string())
+            .and_modify(|cycle| {
+                if cycle.released {
+                    *cycle = FileCycleState::new(storage_period, challenge_size);
+                }
+            })
             .or_insert_with(|| FileCycleState::new(storage_period, challenge_size));
     }
 
@@ -187,16 +198,38 @@ impl StorageManager {
 
     pub fn list_file_ids(&self) -> Vec<String> {
         let inner = self.inner.lock();
-        inner.files.keys().cloned().collect()
+        inner
+            .files
+            .iter()
+            .filter_map(|(fid, _)| {
+                if inner
+                    .file_cycles
+                    .get(fid)
+                    .map(|cycle| cycle.is_expired())
+                    .unwrap_or(false)
+                {
+                    None
+                } else {
+                    Some(fid.clone())
+                }
+            })
+            .collect()
     }
 
-    pub fn get_file_data_for_proof(&self, file_id: &str) -> (HashMap<usize, Vec<u8>>, DPDPTags) {
+    pub fn get_file_data_for_proof(
+        &self,
+        file_id: &str,
+    ) -> Option<(HashMap<usize, Vec<u8>>, DPDPTags)> {
         let inner = self.inner.lock();
-        let file_data = inner
-            .files
+        if inner
+            .file_cycles
             .get(file_id)
-            .cloned()
-            .unwrap_or_else(|| panic!("文件 {} 未找到", file_id));
+            .map(|cycle| cycle.is_expired())
+            .unwrap_or(false)
+        {
+            return None;
+        }
+        let file_data = inner.files.get(file_id)?.clone();
         let mut chunks = HashMap::new();
         let mut tags = Vec::new();
         let mut sorted: Vec<(usize, (Vec<u8>, Vec<u8>))> = file_data.into_iter().collect();
@@ -205,7 +238,7 @@ impl StorageManager {
             chunks.insert(idx, data);
             tags.push(tag);
         }
-        (chunks, DPDPTags { tags })
+        Some((chunks, DPDPTags { tags }))
     }
 
     pub fn set_file_pk_beta(&self, file_id: &str, pk_beta: Vec<u8>) {
@@ -216,6 +249,66 @@ impl StorageManager {
     pub fn get_file_pk_beta(&self, file_id: &str) -> Option<Vec<u8>> {
         let inner = self.inner.lock();
         inner.file_pk_beta.get(file_id).cloned()
+    }
+
+    pub fn has_file(&self, file_id: &str) -> bool {
+        let inner = self.inner.lock();
+        inner.files.contains_key(file_id)
+    }
+
+    pub fn is_file_expired(&self, file_id: &str) -> bool {
+        let inner = self.inner.lock();
+        inner
+            .file_cycles
+            .get(file_id)
+            .map(|cycle| cycle.is_expired())
+            .unwrap_or(false)
+    }
+
+    pub fn cleanup_completed_files(&self) -> Vec<(String, usize)> {
+        let mut inner = self.inner.lock();
+        let mut released = Vec::new();
+        let chunk_size = inner.chunk_size;
+
+        let completed: Vec<String> = inner
+            .file_cycles
+            .iter()
+            .filter_map(|(fid, cycle)| {
+                if cycle.final_artifact.is_some() && !cycle.released {
+                    Some(fid.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if completed.is_empty() {
+            return released;
+        }
+
+        for fid in completed {
+            let mut freed_bytes = 0usize;
+            if let Some(chunks) = inner.files.remove(&fid) {
+                let chunk_count = chunks.len();
+                freed_bytes = chunk_count.saturating_mul(chunk_size);
+                inner.used_space = inner.used_space.saturating_sub(freed_bytes);
+            }
+            inner.file_pk_beta.remove(&fid);
+            inner.storage.time_trees.remove(&fid);
+            if let Some(tree) = inner.storage.storage_tree.as_mut() {
+                tree.file_roots.remove(&fid);
+            }
+            if let Some(cycle) = inner.file_cycles.get_mut(&fid) {
+                cycle.released = true;
+            }
+            released.push((fid, freed_bytes));
+        }
+
+        if !released.is_empty() {
+            inner.storage.build_state();
+        }
+
+        released
     }
     pub fn challenge_size_for(&self, file_id: &str) -> Option<usize> {
         let inner = self.inner.lock();
@@ -235,6 +328,20 @@ impl StorageManager {
         round_salt: &str,
     ) -> Option<NovaRoundResult> {
         let mut inner = self.inner.lock();
+        if inner
+            .file_cycles
+            .get(file_id)
+            .map(|cycle| cycle.is_expired())
+            .unwrap_or(false)
+        {
+            crate::utils::log_msg(
+                "DEBUG",
+                "Nova",
+                Some(self.node_id.clone()),
+                &format!("文件 {} 的存储周期已完成，跳过新的折叠轮次。", file_id),
+            );
+            return None;
+        }
         let pk_bytes = inner.file_pk_beta.get(file_id)?.clone();
         let expected_challenge = match inner.file_cycles.get(file_id) {
             Some(cycle) => cycle.challenge_size,
