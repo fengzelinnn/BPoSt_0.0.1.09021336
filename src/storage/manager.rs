@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::net::SocketAddr;
 
 use ark_bn254::{G1Projective, G2Projective};
 use ark_ec::PrimeGroup;
@@ -21,8 +22,10 @@ struct StorageManagerInner {
     used_space: usize,
     storage: ServerStorage,
     files: HashMap<String, HashMap<usize, (Vec<u8>, Vec<u8>)>>,
+    file_expected_chunks: HashMap<String, usize>,
     file_pk_beta: HashMap<String, Vec<u8>>,
     file_cycles: HashMap<String, FileCycleState>,
+    file_owner_contacts: HashMap<String, SocketAddr>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +42,13 @@ pub struct FinalFoldArtifact {
     pub steps: usize,
     pub compressed_snark: String,
     pub verifier_key: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum FileDataError {
+    NotFound,
+    Expired,
+    Incomplete { missing_indices: Vec<usize> },
 }
 
 struct FileCycleState {
@@ -106,8 +116,10 @@ impl StorageManager {
             used_space: 0,
             storage: ServerStorage::default(),
             files: HashMap::new(),
+            file_expected_chunks: HashMap::new(),
             file_pk_beta: HashMap::new(),
             file_cycles: HashMap::new(),
+            file_owner_contacts: HashMap::new(),
         };
         Self {
             node_id,
@@ -120,7 +132,7 @@ impl StorageManager {
         inner.used_space + size <= inner.max_storage
     }
 
-    pub fn receive_chunk(&self, chunk: &FileChunk) -> bool {
+    pub fn receive_chunk(&self, chunk: &FileChunk, total_chunks: Option<usize>) -> bool {
         let mut inner = self.inner.lock();
         if inner.used_space + inner.chunk_size > inner.max_storage {
             crate::utils::log_msg(
@@ -134,17 +146,48 @@ impl StorageManager {
             );
             return false;
         }
-        inner
-            .files
-            .entry(chunk.file_id.clone())
-            .or_default()
-            .insert(chunk.index, (chunk.data.clone(), chunk.tag.clone()));
+        if let Some(expected) = total_chunks {
+            let entry = inner
+                .file_expected_chunks
+                .entry(chunk.file_id.clone())
+                .or_insert(expected);
+            if *entry != expected {
+                crate::utils::log_msg(
+                    "WARN",
+                    "STORE",
+                    Some(self.node_id.clone()),
+                    &format!(
+                        "文件 {} 的期望块数从 {} 调整为 {}。",
+                        chunk.file_id, *entry, expected
+                    ),
+                );
+                *entry = expected;
+            }
+        }
+        let file_entry = inner.files.entry(chunk.file_id.clone()).or_default();
+        let is_new_chunk = !file_entry.contains_key(&chunk.index);
+        file_entry.insert(chunk.index, (chunk.data.clone(), chunk.tag.clone()));
         let commitment = h_join(["commit", &hex::encode(&chunk.tag), &sha256_hex(&chunk.data)]);
         inner
             .storage
             .add_chunk_commitment(&chunk.file_id, chunk.index, commitment);
-        inner.used_space += inner.chunk_size;
+        if is_new_chunk {
+            inner.used_space += inner.chunk_size;
+        }
         true
+    }
+
+    pub fn set_file_owner_contact(&self, file_id: &str, addr: SocketAddr) {
+        let mut inner = self.inner.lock();
+        inner
+            .file_owner_contacts
+            .entry(file_id.to_string())
+            .or_insert(addr);
+    }
+
+    pub fn get_file_owner_contact(&self, file_id: &str) -> Option<SocketAddr> {
+        let inner = self.inner.lock();
+        inner.file_owner_contacts.get(file_id).copied()
     }
 
     pub fn ensure_cycle_metadata(
@@ -219,7 +262,7 @@ impl StorageManager {
     pub fn get_file_data_for_proof(
         &self,
         file_id: &str,
-    ) -> Option<(HashMap<usize, Vec<u8>>, DPDPTags)> {
+    ) -> Result<(HashMap<usize, Vec<u8>>, DPDPTags), FileDataError> {
         let inner = self.inner.lock();
         if inner
             .file_cycles
@@ -227,9 +270,31 @@ impl StorageManager {
             .map(|cycle| cycle.is_expired())
             .unwrap_or(false)
         {
-            return None;
+            return Err(FileDataError::Expired);
         }
-        let file_data = inner.files.get(file_id)?.clone();
+        let file_data = inner
+            .files
+            .get(file_id)
+            .cloned()
+            .ok_or(FileDataError::NotFound)?;
+        let expected = inner
+            .file_expected_chunks
+            .get(file_id)
+            .copied()
+            .ok_or_else(|| FileDataError::Incomplete {
+                missing_indices: Vec::new(),
+            })?;
+        let mut missing = Vec::new();
+        for idx in 0..expected {
+            if !file_data.contains_key(&idx) {
+                missing.push(idx);
+            }
+        }
+        if !missing.is_empty() {
+            return Err(FileDataError::Incomplete {
+                missing_indices: missing,
+            });
+        }
         let mut chunks = HashMap::new();
         let mut tags = Vec::new();
         let mut sorted: Vec<(usize, (Vec<u8>, Vec<u8>))> = file_data.into_iter().collect();
@@ -238,7 +303,7 @@ impl StorageManager {
             chunks.insert(idx, data);
             tags.push(tag);
         }
-        Some((chunks, DPDPTags { tags }))
+        Ok((chunks, DPDPTags { tags }))
     }
 
     pub fn set_file_pk_beta(&self, file_id: &str, pk_beta: Vec<u8>) {
@@ -294,6 +359,8 @@ impl StorageManager {
                 inner.used_space = inner.used_space.saturating_sub(freed_bytes);
             }
             inner.file_pk_beta.remove(&fid);
+            inner.file_expected_chunks.remove(&fid);
+            inner.file_owner_contacts.remove(&fid);
             inner.storage.time_trees.remove(&fid);
             if let Some(tree) = inner.storage.storage_tree.as_mut() {
                 tree.file_roots.remove(&fid);

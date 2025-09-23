@@ -25,7 +25,7 @@ use crate::crypto::deserialize_g2; // G2点反序列化工具
 use crate::crypto::dpdp::DPDP; // dPDP 密码学逻辑
 use crate::roles::miner::Miner; // 矿工角色
 use crate::roles::prover::Prover; // 证明者角色
-use crate::storage::manager::StorageManager; // 存储管理器
+use crate::storage::manager::{FileDataError, StorageManager}; // 存储管理器
 use crate::utils::{build_merkle_tree, h_join, log_msg, with_cpu_heavy_limit}; // 工具函数
 
 /// 节点状态报告结构体，用于向外部报告节点的当前状态
@@ -472,8 +472,12 @@ impl Node {
                 };
             }
         };
+        let total_chunks = data
+            .get("total_chunks")
+            .and_then(Value::as_u64)
+            .map(|v| v as usize);
         // 存储管理器接收并存储文件块
-        let ok = self.storage_manager.receive_chunk(&chunk);
+        let ok = self.storage_manager.receive_chunk(&chunk, total_chunks);
         // 如果提供了文件所有者的公钥，则保存
         if let Some(pk_hex) = data.get("owner_pk_beta").and_then(Value::as_str) {
             let pk_bytes = hex::decode(pk_hex).unwrap_or_default();
@@ -481,6 +485,21 @@ impl Node {
                 self.storage_manager
                     .set_file_pk_beta(&chunk.file_id, pk_bytes);
             }
+        }
+        if let Some(owner_addr) = data
+            .get("owner_addr")
+            .and_then(Value::as_array)
+            .and_then(|arr| {
+                if arr.len() != 2 {
+                    return None;
+                }
+                let host = arr.get(0)?.as_str()?;
+                let port = arr.get(1)?.as_u64()? as u16;
+                Some(SocketAddr::new(host.parse().ok()?, port))
+            })
+        {
+            self.storage_manager
+                .set_file_owner_contact(&chunk.file_id, owner_addr);
         }
         if ok {
             if let (Some(period), Some(ch_size)) = (
@@ -544,8 +563,33 @@ impl Node {
             .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
 
         let (chunks, tags) = match self.storage_manager.get_file_data_for_proof(file_id) {
-            Some(data) => data,
-            None => {
+            Ok(data) => data,
+            Err(FileDataError::Incomplete { missing_indices }) => {
+                self.request_missing_chunks(file_id, &missing_indices);
+                let mut extra = HashMap::new();
+                extra.insert(
+                    String::from("missing_indices"),
+                    Value::from(
+                        missing_indices
+                            .iter()
+                            .map(|idx| Value::from(*idx as u64))
+                            .collect::<Vec<_>>(),
+                    ),
+                );
+                return CommandResponse {
+                    ok: false,
+                    error: Some(String::from("文件数据不完整，已请求补发缺失块")),
+                    extra,
+                };
+            }
+            Err(FileDataError::Expired) => {
+                return CommandResponse {
+                    ok: false,
+                    error: Some(String::from("文件存储周期已结束，停止生成证明")),
+                    extra: HashMap::new(),
+                };
+            }
+            Err(FileDataError::NotFound) => {
                 return CommandResponse {
                     ok: false,
                     error: Some(String::from("文件数据不可用")),
@@ -588,6 +632,51 @@ impl Node {
             ok: true,
             error: None,
             extra,
+        }
+    }
+
+    fn request_missing_chunks(&self, file_id: &str, missing_indices: &[usize]) {
+        if missing_indices.is_empty() {
+            return;
+        }
+        let Some(owner_addr) = self.storage_manager.get_file_owner_contact(file_id) else {
+            log_msg(
+                "WARN",
+                "STORE",
+                Some(self.node_id.clone()),
+                &format!("无法请求补发文件 {} 的缺失块：未记录所有者地址。", file_id),
+            );
+            return;
+        };
+        let payload = serde_json::json!({
+            "cmd": "request_missing_chunks",
+            "data": {
+                "file_id": file_id,
+                "missing_indices": missing_indices.iter().map(|i| *i as u64).collect::<Vec<_>>(),
+                "provider_id": self.node_id,
+                "provider_addr": [self.host.clone(), self.port],
+            }
+        });
+        if send_json_line(owner_addr, &payload).is_some() {
+            log_msg(
+                "INFO",
+                "STORE",
+                Some(self.node_id.clone()),
+                &format!(
+                    "已向文件 {} 的所有者请求补发缺失块：{:?}",
+                    file_id, missing_indices
+                ),
+            );
+        } else {
+            log_msg(
+                "WARN",
+                "STORE",
+                Some(self.node_id.clone()),
+                &format!(
+                    "请求文件 {} 缺失块失败，无法联系所有者 {}。",
+                    file_id, owner_addr
+                ),
+            );
         }
     }
 
@@ -1644,14 +1733,33 @@ impl Node {
 
         // 为自己存储的每个文件生成dPDP证明
         for fid in &file_ids {
-            let Some((chunks, tags)) = self.storage_manager.get_file_data_for_proof(fid) else {
-                log_msg(
-                    "DEBUG",
-                    "dPDP_PROVE",
-                    Some(self.node_id.clone()),
-                    &format!("文件 {} 的数据不可用，跳过证明。", fid),
-                );
-                continue;
+            let (chunks, tags) = match self.storage_manager.get_file_data_for_proof(fid) {
+                Ok(data) => data,
+                Err(FileDataError::Incomplete { missing_indices }) => {
+                    log_msg(
+                        "WARN",
+                        "dPDP_PROVE",
+                        Some(self.node_id.clone()),
+                        &format!(
+                            "文件 {} 数据缺失，跳过证明并请求补发缺失块 {:?}。",
+                            fid, missing_indices
+                        ),
+                    );
+                    self.request_missing_chunks(fid, &missing_indices);
+                    continue;
+                }
+                Err(FileDataError::Expired) => {
+                    continue;
+                }
+                Err(FileDataError::NotFound) => {
+                    log_msg(
+                        "DEBUG",
+                        "dPDP_PROVE",
+                        Some(self.node_id.clone()),
+                        &format!("文件 {} 的数据不可用，跳过证明。", fid),
+                    );
+                    continue;
+                }
             };
             let challenge_len = self
                 .storage_manager
