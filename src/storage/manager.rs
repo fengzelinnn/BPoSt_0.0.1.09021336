@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 
 use ark_bn254::{G1Projective, G2Projective};
@@ -23,6 +23,7 @@ struct StorageManagerInner {
     storage: ServerStorage,
     files: HashMap<String, HashMap<usize, (Vec<u8>, Vec<u8>)>>,
     file_expected_chunks: HashMap<String, usize>,
+    file_completed: HashSet<String>,
     file_pk_beta: HashMap<String, Vec<u8>>,
     file_cycles: HashMap<String, FileCycleState>,
     file_owner_contacts: HashMap<String, SocketAddr>,
@@ -103,6 +104,45 @@ impl FileCycleState {
     }
 }
 
+impl StorageManagerInner {
+    fn recompute_file_completion(&mut self, file_id: &str) -> bool {
+        let expected = match self.file_expected_chunks.get(file_id).copied() {
+            Some(v) if v > 0 => v,
+            _ => {
+                self.file_completed.remove(file_id);
+                return false;
+            }
+        };
+        let chunks = match self.files.get(file_id) {
+            Some(chunks) => chunks,
+            None => {
+                self.file_completed.remove(file_id);
+                return false;
+            }
+        };
+        if chunks.len() != expected {
+            self.file_completed.remove(file_id);
+            return false;
+        }
+        for idx in 0..expected {
+            if !chunks.contains_key(&idx) {
+                self.file_completed.remove(file_id);
+                return false;
+            }
+        }
+        self.file_completed.insert(file_id.to_string());
+        true
+    }
+
+    fn recompute_all_completions(&mut self) {
+        let file_ids: Vec<String> = self.files.keys().cloned().collect();
+        self.file_completed.clear();
+        for fid in file_ids {
+            self.recompute_file_completion(&fid);
+        }
+    }
+}
+
 pub struct StorageManager {
     node_id: String,
     inner: Mutex<StorageManagerInner>,
@@ -117,6 +157,7 @@ impl StorageManager {
             storage: ServerStorage::default(),
             files: HashMap::new(),
             file_expected_chunks: HashMap::new(),
+            file_completed: HashSet::new(),
             file_pk_beta: HashMap::new(),
             file_cycles: HashMap::new(),
             file_owner_contacts: HashMap::new(),
@@ -171,6 +212,7 @@ impl StorageManager {
         inner
             .storage
             .add_chunk_commitment(&chunk.file_id, chunk.index, commitment);
+        inner.recompute_file_completion(&chunk.file_id);
         if is_new_chunk {
             inner.used_space += inner.chunk_size;
         }
@@ -210,7 +252,9 @@ impl StorageManager {
 
     pub fn finalize_commitments(&self) {
         let mut inner = self.inner.lock();
-        inner.storage.build_state();
+        inner.recompute_all_completions();
+        let completed = inner.file_completed.clone();
+        inner.storage.build_state(Some(&completed));
         // crate::utils::log_msg(
         //     "INFO",
         //     "COMMIT",
@@ -226,17 +270,20 @@ impl StorageManager {
 
     pub fn get_file_roots(&self) -> HashMap<String, String> {
         let inner = self.inner.lock();
-        inner
-            .storage
-            .storage_tree
-            .as_ref()
-            .map(|tree| tree.file_roots.clone())
-            .unwrap_or_default()
+        let mut filtered = HashMap::new();
+        if let Some(tree) = inner.storage.storage_tree.as_ref() {
+            for (fid, root) in &tree.file_roots {
+                if inner.file_completed.contains(fid) {
+                    filtered.insert(fid.clone(), root.clone());
+                }
+            }
+        }
+        filtered
     }
 
     pub fn get_num_files(&self) -> usize {
         let inner = self.inner.lock();
-        inner.storage.num_files()
+        inner.file_completed.len()
     }
 
     pub fn list_file_ids(&self) -> Vec<String> {
@@ -368,11 +415,13 @@ impl StorageManager {
             if let Some(cycle) = inner.file_cycles.get_mut(&fid) {
                 cycle.released = true;
             }
+            inner.file_completed.remove(&fid);
             released.push((fid, freed_bytes));
         }
 
         if !released.is_empty() {
-            inner.storage.build_state();
+            let completed = inner.file_completed.clone();
+            inner.storage.build_state(Some(&completed));
         }
 
         released
@@ -456,7 +505,8 @@ impl StorageManager {
         for (idx, new_leaf) in pending_leaf_updates {
             inner.storage.add_chunk_commitment(file_id, idx, new_leaf);
         }
-        inner.storage.build_state();
+        let completed = inner.file_completed.clone();
+        inner.storage.build_state(Some(&completed));
 
         let after_state = inner.storage.storage_tree.clone().unwrap_or_default();
         let claimed_root = after_state
