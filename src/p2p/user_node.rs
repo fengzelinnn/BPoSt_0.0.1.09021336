@@ -12,6 +12,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::common::datastructures::FileChunk;
 use crate::config::P2PSimConfig;
 use crate::crypto::{folding::NovaFoldingCycle, serialize_g2};
 use crate::roles::file_owner::FileOwner;
@@ -41,8 +42,9 @@ struct ProviderAssignment {
 
 #[derive(Debug, Clone)]
 struct StoredFileRecord {
-    _num_chunks: usize,
+    chunks: Vec<FileChunk>,
     required_rounds: usize,
+    challenge_size: usize,
     final_verified: bool,
     round_assignments: HashMap<usize, Vec<ProviderAssignment>>,
 }
@@ -271,6 +273,9 @@ impl UserNode {
                         // );
                     }
                 }
+                "request_missing_chunks" => {
+                    self.handle_missing_chunk_request(&req.data);
+                }
                 other => {
                     log_msg(
                         "DEBUG",
@@ -342,6 +347,129 @@ impl UserNode {
                 error: Some(String::from("请求不活跃")),
                 extra: HashMap::new(),
             }
+        }
+    }
+
+    fn handle_missing_chunk_request(&mut self, data: &Value) {
+        let file_id = data
+            .get("file_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let missing_indices: Vec<usize> = data
+            .get("missing_indices")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_u64().map(|u| u as usize))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if file_id.is_empty() || missing_indices.is_empty() {
+            log_msg(
+                "WARN",
+                "USER_NODE",
+                Some(self.owner.owner_id.clone()),
+                "收到缺少必要信息的补块请求，已忽略。",
+            );
+            return;
+        }
+        let provider_id = data
+            .get("provider_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let provider_addr = data
+            .get("provider_addr")
+            .and_then(Value::as_array)
+            .and_then(|arr| {
+                if arr.len() != 2 {
+                    return None;
+                }
+                let host = arr.get(0)?.as_str()?;
+                let port = arr.get(1)?.as_u64()? as u16;
+                Some(SocketAddr::new(host.parse().ok()?, port))
+            });
+
+        let record_opt = {
+            let records = self.stored_files.lock();
+            records.get(&file_id).cloned()
+        };
+        let Some(record) = record_opt else {
+            log_msg(
+                "WARN",
+                "USER_NODE",
+                Some(self.owner.owner_id.clone()),
+                &format!("无法响应文件 {} 的补块请求：未知的文件记录。", file_id),
+            );
+            return;
+        };
+
+        let target_addr = if let Some(addr) = provider_addr {
+            Some(addr)
+        } else {
+            record
+                .round_assignments
+                .values()
+                .flat_map(|assignments| assignments.iter())
+                .find(|assignment| assignment.provider_id == provider_id)
+                .map(|assignment| assignment.addr)
+        };
+        let Some(target_addr) = target_addr else {
+            log_msg(
+                "WARN",
+                "USER_NODE",
+                Some(self.owner.owner_id.clone()),
+                &format!("无法定位请求补块的节点 {}，文件 {}。", provider_id, file_id),
+            );
+            return;
+        };
+
+        let owner_pk_beta_hex = hex::encode(serialize_g2(&self.owner.get_dpdp_params().pk_beta));
+        let total_chunks = record.chunks.len();
+        let mut resend_count = 0usize;
+        for idx in &missing_indices {
+            if let Some(chunk) = record.chunks.iter().find(|c| c.index == *idx) {
+                let chunk_json = serde_json::to_value(chunk).unwrap_or_default();
+                let data = serde_json::json!({
+                    "chunk": chunk_json,
+                    "owner_pk_beta": owner_pk_beta_hex,
+                    "storage_period": record.required_rounds,
+                    "challenge_size": record.challenge_size,
+                    "owner_addr": [self.host, self.port],
+                    "total_chunks": total_chunks,
+                });
+                let payload = serde_json::json!({
+                    "cmd": "chunk_distribute",
+                    "data": data,
+                });
+                let _ = super::node::send_json_line(target_addr, &payload);
+                resend_count += 1;
+            } else {
+                log_msg(
+                    "ERROR",
+                    "USER_NODE",
+                    Some(self.owner.owner_id.clone()),
+                    &format!("缺失文件 {} 的第 {} 块内容，无法补发。", file_id, idx),
+                );
+            }
+        }
+
+        if resend_count > 0 {
+            let payload = serde_json::json!({
+                "cmd": "finalize_storage",
+                "data": {"file_id": file_id.clone()},
+            });
+            let _ = super::node::send_json_line(target_addr, &payload);
+            log_msg(
+                "INFO",
+                "USER_NODE",
+                Some(self.owner.owner_id.clone()),
+                &format!(
+                    "已向节点 {} 重新发送文件 {} 的 {} 个缺失数据块。",
+                    provider_id, file_id, resend_count
+                ),
+            );
         }
     }
 
@@ -687,8 +815,9 @@ impl UserNode {
                         records.insert(
                             file_id.clone(),
                             StoredFileRecord {
-                                _num_chunks: chunks.len(),
+                                chunks: chunks.clone(),
                                 required_rounds: storage_rounds,
+                                challenge_size,
                                 final_verified: false,
                                 round_assignments,
                             },
@@ -722,6 +851,7 @@ impl UserNode {
                                 "storage_period": storage_rounds,
                                 "challenge_size": challenge_size,
                                 "owner_addr": [self.host, self.port],
+                                "total_chunks": chunks.len(),
                             });
                             let payload = serde_json::json!({
                                 "cmd": "chunk_distribute",
