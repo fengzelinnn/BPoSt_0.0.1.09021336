@@ -520,6 +520,20 @@ impl Node {
                 extra: HashMap::new(),
             };
         }
+        if !self.storage_manager.has_file(file_id) {
+            return CommandResponse {
+                ok: false,
+                error: Some(String::from("文件未存储或已完成任务")),
+                extra: HashMap::new(),
+            };
+        }
+        if self.storage_manager.is_file_expired(file_id) {
+            return CommandResponse {
+                ok: false,
+                error: Some(String::from("文件存储周期已结束，停止生成证明")),
+                extra: HashMap::new(),
+            };
+        }
         // 获取生成证明所需的上下文信息
         let prev_hash = self.chain.last_hash();
         let timestamp = self
@@ -529,7 +543,16 @@ impl Node {
             .map(|b| (b.timestamp / 1_000_000_000) as u64)
             .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
 
-        let (chunks, tags) = self.storage_manager.get_file_data_for_proof(file_id);
+        let (chunks, tags) = match self.storage_manager.get_file_data_for_proof(file_id) {
+            Some(data) => data,
+            None => {
+                return CommandResponse {
+                    ok: false,
+                    error: Some(String::from("文件数据不可用")),
+                    extra: HashMap::new(),
+                };
+            }
+        };
         // 调用Prover生成证明
         let challenge_len = self
             .storage_manager
@@ -1621,7 +1644,15 @@ impl Node {
 
         // 为自己存储的每个文件生成dPDP证明
         for fid in &file_ids {
-            let (chunks, tags) = self.storage_manager.get_file_data_for_proof(fid);
+            let Some((chunks, tags)) = self.storage_manager.get_file_data_for_proof(fid) else {
+                log_msg(
+                    "DEBUG",
+                    "dPDP_PROVE",
+                    Some(self.node_id.clone()),
+                    &format!("文件 {} 的数据不可用，跳过证明。", fid),
+                );
+                continue;
+            };
             let challenge_len = self
                 .storage_manager
                 .challenge_size_for(fid)
@@ -1711,6 +1742,19 @@ impl Node {
             .entry(accepted_block.height as usize)
             .or_default()
             .insert(self.node_id.clone(), update);
+
+        let released = self.storage_manager.cleanup_completed_files();
+        for (fid, freed_bytes) in released {
+            log_msg(
+                "INFO",
+                "STORE",
+                Some(self.node_id.clone()),
+                &format!(
+                    "文件 {} 的存储周期已完成，自动释放空间 {} 字节。",
+                    fid, freed_bytes
+                ),
+            );
+        }
     }
 }
 
