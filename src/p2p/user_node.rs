@@ -34,11 +34,30 @@ struct CommandResponse {
 }
 
 #[derive(Debug, Clone)]
+struct ProviderAssignment {
+    provider_id: String,
+    addr: SocketAddr,
+}
+
+#[derive(Debug, Clone)]
 struct StoredFileRecord {
-    _nodes: Vec<SocketAddr>,
     _num_chunks: usize,
     required_rounds: usize,
     final_verified: bool,
+    round_assignments: HashMap<usize, Vec<ProviderAssignment>>,
+}
+
+impl StoredFileRecord {
+    fn provider_assigned_for_round(&self, provider_id: &str, round: usize) -> bool {
+        self.round_assignments
+            .get(&round)
+            .map(|providers| {
+                providers
+                    .iter()
+                    .any(|assignment| assignment.provider_id == provider_id)
+            })
+            .unwrap_or(false)
+    }
 }
 
 pub struct UserNode {
@@ -349,6 +368,19 @@ impl UserNode {
             None => return Err(String::from("参数缺失或未知文件")),
         };
 
+        if !record.provider_assigned_for_round(provider, record.required_rounds) {
+            log_msg(
+                "WARN",
+                "USER_NODE",
+                Some(owner_id.to_string()),
+                &format!(
+                    "文件 {} 的最终证明由未在第 {} 轮登记的节点 {} 提供。",
+                    file_id, record.required_rounds, provider
+                ),
+            );
+            return Err(String::from("最终证明提供者与记录不符"));
+        }
+
         if steps != record.required_rounds {
             log_msg(
                 "WARN",
@@ -538,7 +570,8 @@ impl UserNode {
         );
         let challenge_size = std::cmp::max(1, std::cmp::min(chunks.len(), 4));
         let total_size = chunks.len() * self.config.chunk_size;
-        let request_id = format!("req-{}", self.owner.file_id);
+        let file_id = self.owner.file_id.clone();
+        let request_id = format!("req-{}", file_id);
         {
             let mut active = self.active_requests.lock();
             active.insert(request_id.clone());
@@ -549,7 +582,7 @@ impl UserNode {
             Some(self.owner.owner_id.clone()),
             &format!(
                 "为文件 {} ({}KB) 发起存储，需要 {} 个节点，要求存储 {} 轮。",
-                self.owner.file_id,
+                file_id,
                 total_size / 1024,
                 num_nodes_required,
                 storage_rounds
@@ -559,8 +592,8 @@ impl UserNode {
             "cmd": "inject_gossip",
             "data": {
                 "type": "storage_offer",
-                "request_id": request_id,
-                "file_id": self.owner.file_id,
+                "request_id": request_id.clone(),
+                "file_id": file_id.clone(),
                 "total_size": total_size,
                 "reply_addr": [self.host, self.port],
                 "storage_rounds": storage_rounds,
@@ -598,62 +631,120 @@ impl UserNode {
             for idx in indices.into_iter().take(num_nodes_required) {
                 winners.push(bids[idx].clone());
             }
-            let addrs: Vec<SocketAddr> = winners
+            let provider_assignments: Vec<ProviderAssignment> = winners
                 .iter()
                 .filter_map(|bid| {
+                    let provider_id = bid.get("bidder_id")?.as_str()?.to_string();
                     let addr_arr = bid.get("bidder_addr")?.as_array()?;
                     let host = addr_arr.get(0)?.as_str()?;
                     let port = addr_arr.get(1)?.as_u64()? as u16;
-                    Some(SocketAddr::new(host.parse().ok()?, port))
+                    let ip = host.parse().ok()?;
+                    Some(ProviderAssignment {
+                        provider_id,
+                        addr: SocketAddr::new(ip, port),
+                    })
                 })
                 .collect();
-            log_msg(
-                "SUCCESS",
-                "USER_NODE",
-                Some(self.owner.owner_id.clone()),
-                &format!("文件 {} 的存储竞标完成。", self.owner.file_id),
-            );
-            {
-                let mut records = self.stored_files.lock();
-                records.insert(
-                    self.owner.file_id.clone(),
-                    StoredFileRecord {
-                        _nodes: addrs.clone(),
-                        _num_chunks: chunks.len(),
-                        required_rounds: storage_rounds,
-                        final_verified: false,
-                    },
+            if provider_assignments.len() < num_nodes_required {
+                log_msg(
+                    "WARN",
+                    "USER_NODE",
+                    Some(self.owner.owner_id.clone()),
+                    &format!(
+                        "文件 {} 的竞标信息不完整，预期 {} 个节点实际有效 {} 个。",
+                        file_id,
+                        num_nodes_required,
+                        provider_assignments.len()
+                    ),
                 );
-            }
-            let owner_pk_beta_hex =
-                hex::encode(serialize_g2(&self.owner.get_dpdp_params().pk_beta));
-            for chunk in &chunks {
-                let chunk_json = serde_json::to_value(chunk).unwrap();
-                for addr in &addrs {
-                    let data = serde_json::json!({
-                        "chunk": chunk_json.clone(),
-                        "owner_pk_beta": owner_pk_beta_hex,
-                        "storage_period": storage_rounds,
-                        "challenge_size": challenge_size,
-                        "owner_addr": [self.host, self.port],
-                    });
-                    let payload = serde_json::json!({
-                        "cmd": "chunk_distribute",
-                        "data": data,
-                    });
-                    let _ = super::node::send_json_line(*addr, &payload);
+            } else {
+                let addrs: Vec<SocketAddr> = provider_assignments
+                    .iter()
+                    .map(|assignment| assignment.addr)
+                    .collect();
+                log_msg(
+                    "SUCCESS",
+                    "USER_NODE",
+                    Some(self.owner.owner_id.clone()),
+                    &format!("文件 {} 的存储竞标完成。", file_id),
+                );
+                let mut round_assignments = HashMap::new();
+                for round in 1..=storage_rounds {
+                    round_assignments.insert(round, provider_assignments.clone());
                 }
-            }
-            for addr in &addrs {
-                let payload = serde_json::json!({"cmd": "finalize_storage", "data": {"file_id": self.owner.file_id}});
-                let _ = super::node::send_json_line(*addr, &payload);
+                let mut allow_distribution = true;
+                {
+                    let mut records = self.stored_files.lock();
+                    if records.contains_key(&file_id) {
+                        log_msg(
+                            "WARN",
+                            "USER_NODE",
+                            Some(self.owner.owner_id.clone()),
+                            &format!("file_id {} 已存在，跳过覆盖旧的分发表。", file_id),
+                        );
+                        allow_distribution = false;
+                    } else {
+                        records.insert(
+                            file_id.clone(),
+                            StoredFileRecord {
+                                _num_chunks: chunks.len(),
+                                required_rounds: storage_rounds,
+                                final_verified: false,
+                                round_assignments,
+                            },
+                        );
+                    }
+                }
+                if allow_distribution {
+                    let summary: Vec<String> = provider_assignments
+                        .iter()
+                        .map(|assignment| format!("{}@{}", assignment.provider_id, assignment.addr))
+                        .collect();
+                    log_msg(
+                        "INFO",
+                        "USER_NODE",
+                        Some(self.owner.owner_id.clone()),
+                        &format!(
+                            "文件 {} 的分发表: 存储轮次 {}，参与者 {}。",
+                            file_id,
+                            storage_rounds,
+                            summary.join(", ")
+                        ),
+                    );
+                    let owner_pk_beta_hex =
+                        hex::encode(serialize_g2(&self.owner.get_dpdp_params().pk_beta));
+                    for chunk in &chunks {
+                        let chunk_json = serde_json::to_value(chunk).unwrap();
+                        for addr in &addrs {
+                            let data = serde_json::json!({
+                                "chunk": chunk_json.clone(),
+                                "owner_pk_beta": owner_pk_beta_hex,
+                                "storage_period": storage_rounds,
+                                "challenge_size": challenge_size,
+                                "owner_addr": [self.host, self.port],
+                            });
+                            let payload = serde_json::json!({
+                                "cmd": "chunk_distribute",
+                                "data": data,
+                            });
+                            let _ = super::node::send_json_line(*addr, &payload);
+                        }
+                    }
+                    for addr in &addrs {
+                        let payload = serde_json::json!({
+                            "cmd": "finalize_storage",
+                            "data": {"file_id": file_id.clone()},
+                        });
+                        let _ = super::node::send_json_line(*addr, &payload);
+                    }
+                }
             }
         } else {
             log_msg(
                 "WARN",
                 "USER_NODE",
                 Some(self.owner.owner_id.clone()),
-                &format!("文件 {} 的存储请求失败。竞标数量不足。", self.owner.file_id),
+                &format!("文件 {} 的存储请求失败。竞标数量不足。", file_id),
             );
         }
         {

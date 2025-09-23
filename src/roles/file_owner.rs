@@ -26,6 +26,10 @@ pub struct FileOwner {
 }
 
 impl FileOwner {
+    fn generate_file_id(owner_id: &str) -> String {
+        format!("file_{}_{}", owner_id, rand::random::<u64>())
+    }
+
     /// 创建一个新的 FileOwner 实例
     pub fn new(owner_id: String, chunk_size: usize) -> Self {
         // 1. 生成 dPDP 密钥对
@@ -33,7 +37,7 @@ impl FileOwner {
         // 2. 初始化一个空的标签集合
         let tags = DPDPTags { tags: Vec::new() };
         // 3. 创建一个唯一的 file_id
-        let file_id = format!("file_{}_{}", owner_id, rand::random::<u64>());
+        let file_id = Self::generate_file_id(&owner_id);
         Self {
             owner_id,
             chunk_size,
@@ -98,6 +102,8 @@ impl FileOwner {
         max_size_bytes: usize, // 随机生成文件的最大尺寸
         num_nodes: usize,      // 期望存储该文件的节点数量（当前实现中未直接使用，但可用于分发策略）
     ) -> (Vec<FileChunk>, usize) {
+        // 在发起新的存储请求前生成一个全新的文件 ID，避免重复使用导致冲突
+        self.file_id = Self::generate_file_id(&self.owner_id);
         // 1. 在指定范围内随机确定文件大小
         let file_size = rand::thread_rng().gen_range(min_size_bytes..=max_size_bytes);
         // 2. 创建具有该大小的随机文件内容
