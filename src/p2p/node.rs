@@ -26,7 +26,7 @@ use crate::crypto::dpdp::DPDP; // dPDP 密码学逻辑
 use crate::roles::miner::Miner; // 矿工角色
 use crate::roles::prover::Prover; // 证明者角色
 use crate::storage::manager::StorageManager; // 存储管理器
-use crate::utils::{build_merkle_tree, log_msg, with_cpu_heavy_limit}; // 工具函数
+use crate::utils::{build_merkle_tree, h_join, log_msg, with_cpu_heavy_limit}; // 工具函数
 
 /// 节点状态报告结构体，用于向外部报告节点的当前状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +73,11 @@ enum BlockHandlingResult {
     Ignored,
 }
 
+enum BranchBuildError {
+    MissingAncestor,
+    Invalid,
+}
+
 /// P2P网络中的核心节点结构体
 pub struct Node {
     pub node_id: String,                                         // 节点的唯一标识符
@@ -87,6 +92,7 @@ pub struct Node {
     new_block_buffer: VecDeque<Block>,  // 新区块消息缓冲区
     outstanding_proof_requests: HashMap<usize, HashSet<String>>, // 尚未满足的证明请求
     proof_pool: HashMap<usize, HashMap<String, BobtailProof>>, // 证明池 <height, <node_id, proof>>
+    known_blocks: HashMap<String, Block>, // 已知区块索引
     seen_gossip_ids: HashSet<String>,   // 已见过的gossip消息ID，防止重复处理
     chain: Blockchain,                  // 节点的区块链实例
     bobtail_k: usize,                   // Bobtail共识算法中的k参数
@@ -143,6 +149,7 @@ impl Node {
             peers: HashMap::new(),
             mempool: VecDeque::new(),
             proof_pool: HashMap::new(),
+            known_blocks: HashMap::new(),
             seen_gossip_ids: HashSet::new(),
             chain: Blockchain::new(),
             bobtail_k,
@@ -933,29 +940,7 @@ impl Node {
     }
 
     fn try_process_block(&mut self, block: Block) -> BlockHandlingResult {
-        let current_height = self.chain.height();
-        let block_height = block.height as usize;
-
-        if block_height == current_height + 1 {
-            if block.prev_hash != self.chain.last_hash() {
-                return BlockHandlingResult::Ignored;
-            }
-            if self.accept_block(block) {
-                BlockHandlingResult::Accepted
-            } else {
-                BlockHandlingResult::Ignored
-            }
-        } else if block_height == current_height {
-            if self.accept_block(block) {
-                BlockHandlingResult::Accepted
-            } else {
-                BlockHandlingResult::Ignored
-            }
-        } else if block_height > current_height + 1 {
-            BlockHandlingResult::Deferred(block)
-        } else {
-            BlockHandlingResult::Ignored
-        }
+        self.accept_block(block)
     }
 
     /// 处理挖矿线程上报的证明
@@ -1413,7 +1398,7 @@ impl Node {
 
         // 领导者首先更新自己的链，避免等待gossip反馈
         let gossip_block = new_block.clone();
-        if !self.accept_block(new_block) {
+        if !matches!(self.accept_block(new_block), BlockHandlingResult::Accepted) {
             log_msg(
                 "ERROR",
                 "BLOCKCHAIN",
@@ -1434,91 +1419,164 @@ impl Node {
         );
     }
 
-    /// 接受一个新区块并更新本地区块链状态
-    fn accept_block(&mut self, block: Block) -> bool {
-        let current_height = self.chain.height();
-        let block_height = block.height as usize;
+    fn register_known_block(&mut self, block: &Block) {
+        let hash = block.header_hash();
+        self.known_blocks
+            .entry(hash)
+            .or_insert_with(|| block.clone());
+    }
 
-        if block_height == current_height + 1 {
-            if block.prev_hash != self.chain.last_hash() {
-                return false;
+    fn collect_branch(&self, block: &Block) -> Result<(usize, Vec<Block>), BranchBuildError> {
+        let mut branch = Vec::new();
+        let mut current = block.clone();
+        let mut visited = HashSet::new();
+        let genesis_hash = h_join(["genesis"]);
+
+        loop {
+            let hash = current.header_hash();
+            if !visited.insert(hash.clone()) {
+                return Err(BranchBuildError::Invalid);
             }
 
-            self.stop_mining_thread();
+            branch.push(current.clone());
+            let parent_hash = current.prev_hash.clone();
 
-            let block_for_processing = block.clone();
-            let leader_id = block_for_processing.leader_id.clone();
+            if parent_hash == genesis_hash {
+                branch.reverse();
+                return Ok((0, branch));
+            }
 
-            self.chain.add_block(block, None);
-            log_msg(
-                "INFO",
-                "BLOCKCHAIN",
-                Some(self.node_id.clone()),
-                &format!("接受了来自 {} 的区块 {}", leader_id, block_height),
-            );
+            if let Some((idx, parent_block)) = self
+                .chain
+                .blocks
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, b)| b.header_hash() == parent_hash)
+            {
+                if parent_block.height + 1 != current.height {
+                    return Err(BranchBuildError::Invalid);
+                }
+                branch.reverse();
+                return Ok((idx + 1, branch));
+            }
 
-            self.perform_dpdp_round(&block_for_processing);
+            if let Some(parent_block) = self.known_blocks.get(&parent_hash) {
+                if parent_block.height + 1 != current.height {
+                    return Err(BranchBuildError::Invalid);
+                }
+                current = parent_block.clone();
+                continue;
+            }
 
-            self.proof_pool.remove(&block_height);
-            self.outstanding_proof_requests.remove(&block_height);
-            self.election_concluded_for.insert(block_height);
-
-            return true;
+            return Err(BranchBuildError::MissingAncestor);
         }
+    }
 
-        if block_height != current_height || current_height == 0 {
-            return false;
-        }
-
-        let Some(prev_block) = self.chain.blocks.get(current_height - 1) else {
-            return false;
-        };
-        if block.prev_hash != prev_block.header_hash() {
-            return false;
-        }
-
-        let current_work = Self::compute_chain_work(&self.chain.blocks);
-        let current_tip_work = self
-            .chain
-            .blocks
-            .last()
-            .and_then(Self::block_work)
-            .unwrap_or_else(|| BigUint::zero());
-        let candidate_tip_work = Self::block_work(&block).unwrap_or_else(|| BigUint::zero());
-        let mut candidate_work = current_work
-            .checked_sub(&current_tip_work)
-            .unwrap_or_else(|| BigUint::zero());
-        candidate_work += candidate_tip_work;
-
-        if candidate_work <= current_work {
-            return false;
-        }
+    fn apply_branch(
+        &mut self,
+        prefix_len: usize,
+        branch: Vec<Block>,
+        previous_height: usize,
+        current_work: &BigUint,
+        candidate_work: &BigUint,
+    ) {
+        let is_reorg = prefix_len < previous_height;
 
         self.stop_mining_thread();
 
-        let block_for_processing = block.clone();
-        let leader_id = block_for_processing.leader_id.clone();
+        while self.chain.blocks.len() > prefix_len {
+            self.chain.blocks.pop();
+        }
 
-        self.chain.blocks.pop();
-        self.chain.add_block(block, None);
+        for block in &branch {
+            self.register_known_block(block);
+            self.chain.add_block(block.clone(), None);
+            self.perform_dpdp_round(block);
 
-        log_msg(
-            "INFO",
-            "BLOCKCHAIN",
-            Some(self.node_id.clone()),
-            &format!(
-                "检测到高度 {} 的分叉，切换至来自 {} 的区块。总聚合工作量 {} -> {}",
-                block_height, leader_id, current_work, candidate_work
-            ),
+            let height = block.height as usize;
+            self.proof_pool.remove(&height);
+            self.outstanding_proof_requests.remove(&height);
+            self.election_concluded_for.insert(height);
+        }
+
+        if let Some(tip) = branch.last() {
+            let leader_id = tip.leader_id.clone();
+            if is_reorg {
+                log_msg(
+                    "INFO",
+                    "BLOCKCHAIN",
+                    Some(self.node_id.clone()),
+                    &format!(
+                        "检测到高度 {} 的分叉，切换至来自 {} 的区块。总聚合工作量 {} -> {}",
+                        tip.height, leader_id, current_work, candidate_work
+                    ),
+                );
+            } else {
+                log_msg(
+                    "INFO",
+                    "BLOCKCHAIN",
+                    Some(self.node_id.clone()),
+                    &format!("接受了来自 {} 的区块 {}", leader_id, tip.height),
+                );
+            }
+        }
+    }
+
+    /// 接受一个新区块并更新本地区块链状态
+    fn accept_block(&mut self, block: Block) -> BlockHandlingResult {
+        let block_hash = block.header_hash();
+        self.register_known_block(&block);
+
+        if self
+            .chain
+            .blocks
+            .iter()
+            .any(|existing| existing.header_hash() == block_hash)
+        {
+            return BlockHandlingResult::Ignored;
+        }
+
+        let (prefix_len, branch) = match self.collect_branch(&block) {
+            Ok(result) => result,
+            Err(BranchBuildError::MissingAncestor) => {
+                return BlockHandlingResult::Deferred(block);
+            }
+            Err(BranchBuildError::Invalid) => {
+                self.known_blocks.remove(&block_hash);
+                return BlockHandlingResult::Ignored;
+            }
+        };
+
+        if branch.is_empty() {
+            return BlockHandlingResult::Ignored;
+        }
+
+        let previous_height = self.chain.height();
+        if prefix_len > previous_height {
+            return BlockHandlingResult::Ignored;
+        }
+
+        let current_work = Self::compute_chain_work(&self.chain.blocks);
+        let prefix_work = Self::compute_chain_work(&self.chain.blocks[..prefix_len]);
+        let branch_work = Self::compute_chain_work(&branch);
+        let mut candidate_work = prefix_work;
+        candidate_work += branch_work;
+
+        let extends_tip = prefix_len == previous_height;
+        if !extends_tip && candidate_work <= current_work {
+            return BlockHandlingResult::Ignored;
+        }
+
+        self.apply_branch(
+            prefix_len,
+            branch,
+            previous_height,
+            &current_work,
+            &candidate_work,
         );
 
-        self.perform_dpdp_round(&block_for_processing);
-
-        self.proof_pool.remove(&block_height);
-        self.outstanding_proof_requests.remove(&block_height);
-        self.election_concluded_for.insert(block_height);
-
-        true
+        BlockHandlingResult::Accepted
     }
 
     fn block_average_proof(block: &Block) -> Option<BigUint> {
