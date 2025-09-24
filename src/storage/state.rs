@@ -5,20 +5,11 @@ use serde::{Deserialize, Serialize};
 use crate::merkle::MerkleTree;
 use crate::utils::h_join;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TimeStateTree {
     pub leaves: HashMap<usize, String>,
     #[serde(skip)]
     pub merkle: Option<MerkleTree>,
-}
-
-impl Default for TimeStateTree {
-    fn default() -> Self {
-        Self {
-            leaves: HashMap::new(),
-            merkle: None,
-        }
-    }
 }
 
 impl TimeStateTree {
@@ -47,20 +38,11 @@ impl TimeStateTree {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StorageStateTree {
     pub file_roots: HashMap<String, String>,
     #[serde(skip)]
     pub merkle: Option<MerkleTree>,
-}
-
-impl Default for StorageStateTree {
-    fn default() -> Self {
-        Self {
-            file_roots: HashMap::new(),
-            merkle: None,
-        }
-    }
 }
 
 impl StorageStateTree {

@@ -223,16 +223,13 @@ pub fn cpu_poseidon_hash_hex_batch(inputs: &[Vec<u8>]) -> Vec<String> {
     outputs
 }
 
-/// 预留 GPU 批量哈希入口：启用 gpu-icicle 特性时尝试走 GPU；不可用时返回 None
+/// 预留的 GPU 批量哈希入口。
+///
+/// 早期版本尝试通过可选的 `gpu-icicle` 特性调用 CUDA 库，但在没有 GPU 的开发环境中
+/// 会导致编译失败。为了保持项目的可移植性，我们直接返回 `None`，提醒调用方回退到
+/// CPU 版本。未来如果需要重新引入 GPU 支持，可以在不影响主流程的情况下填充这里的
+/// 实现。
 pub fn try_gpu_poseidon_hash_hex_batch(_inputs: &[Vec<u8>]) -> Option<Vec<String>> {
-    #[cfg(feature = "gpu-icicle")]
-    {
-        // 这里预留与 icicle/cuda 集成点：
-        // - 实际工程中可将 _inputs 编码为 field elements，然后调用 GPU kernel 批量计算 Poseidon。
-        // - 当前实现暂不提供内核，返回 None 以触发安全回退至 CPU 并行版本。
-        return None;
-    }
-    #[allow(unreachable_code)]
     None
 }
 
@@ -258,7 +255,7 @@ pub fn build_merkle_root(mut leaf_hashes: Vec<String>) -> String {
     for pair in leaf_hashes.chunks(2) {
         let mut sorted = pair.to_vec();
         sorted.sort();
-        let combined = h_join(&[&sorted[0], &sorted[1]]);
+        let combined = h_join([&sorted[0], &sorted[1]]);
         next_level.push(combined);
     }
     build_merkle_root(next_level)
@@ -284,7 +281,7 @@ pub fn build_merkle_tree(leaf_hashes: &[String]) -> (String, IndexMap<String, Ve
             let (a, b) = (&pair[0], &pair[1]);
             let mut sorted = vec![a.clone(), b.clone()];
             sorted.sort();
-            let parent = h_join(&[&sorted[0], &sorted[1]]);
+            let parent = h_join([&sorted[0], &sorted[1]]);
             nodes.insert(parent.clone(), sorted.clone());
             next_level.push(parent);
         }

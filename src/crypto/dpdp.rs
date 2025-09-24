@@ -13,6 +13,13 @@ use crate::crypto::{curve_order, deserialize_g1, serialize_g1};
 use crate::merkle::MerkleTree;
 use crate::utils::{hash_to_field, sha256_hex};
 
+/// Merkle 证明路径，按从叶子到根的顺序存储相邻节点及其方向。
+pub type MerkleProofPath = Vec<(String, char)>;
+
+/// 挑战索引到数据块与 Merkle 证明的映射。
+pub type ChallengedChunkData = HashMap<usize, (Vec<u8>, MerkleProofPath)>;
+
+/// 将任意消息哈希到 BN254 G1 群，作为 dPDP 中的基点。
 pub fn hash_to_g1(message: &[u8]) -> G1Projective {
     let field_elem = hash_to_field(message);
     let mut bytes = field_elem.to_bytes_be();
@@ -33,6 +40,7 @@ pub fn hash_to_g1(message: &[u8]) -> G1Projective {
     point
 }
 
+/// 生成非零随机标量，用于模拟私钥或挑战系数。
 fn random_scalar() -> BigUint {
     let order = curve_order();
     let mut rng = rand::thread_rng();
@@ -46,6 +54,7 @@ fn random_scalar() -> BigUint {
     }
 }
 
+/// 将 `BigUint` 裁剪到曲线阶范围内并转换为 `Fr` 元素。
 fn biguint_to_fr(value: &BigUint) -> Fr {
     let mut bytes = value.to_bytes_be();
     if bytes.len() > 32 {
@@ -59,20 +68,25 @@ fn biguint_to_fr(value: &BigUint) -> Fr {
     Fr::from_be_bytes_mod_order(&bytes)
 }
 
+/// 将原始数据块映射到大整数，供 dPDP 计算使用。
 fn chunk_to_int(chunk: &[u8]) -> BigUint {
     let h = sha256_hex(chunk);
     BigUint::parse_bytes(h.as_bytes(), 16).unwrap_or_default()
 }
 
+/// dPDP 协议的高阶接口封装。
 pub struct DPDP;
 
 #[derive(Debug, Clone)]
 pub struct DPDPVerificationOutput {
+    /// 证明是否通过验证。
     pub valid: bool,
+    /// 供 Nova 折叠器继续递归的松弛 R1CS 描述。
     pub circuit: RelaxedR1CS<Fr>,
 }
 
 impl DPDP {
+    /// 生成 dPDP 公私钥参数。
     pub fn key_gen() -> DPDPParams {
         let sk_alpha = random_scalar();
         let g: G2Projective = G2Affine::generator().into();
@@ -87,6 +101,7 @@ impl DPDP {
         }
     }
 
+    /// 使用 dPDP 私钥为文件块生成标签。
     pub fn tag_file(params: &DPDPParams, file_chunks: &[Vec<u8>]) -> DPDPTags {
         let mut tags_bytes = Vec::with_capacity(file_chunks.len());
         let sk_fr = biguint_to_fr(&params.sk_alpha);
@@ -103,16 +118,17 @@ impl DPDP {
         DPDPTags { tags: tags_bytes }
     }
 
+    /// 根据链上状态生成挑战向量。
     pub fn gen_chal(
         prev_hash: &str,
         timestamp: u64,
         tags: &DPDPTags,
         m: Option<usize>,
     ) -> Vec<(usize, BigUint)> {
-        let n = tags.tags.len();
-        if n == 0 {
+        if tags.is_empty() {
             return Vec::new();
         }
+        let n = tags.tags.len();
         let count = if let Some(m) = m {
             m
         } else {
@@ -138,6 +154,7 @@ impl DPDP {
         challenges
     }
 
+    /// 针对挑战向量计算每个数据块的贡献值。
     pub fn gen_contributions(
         tags: &DPDPTags,
         file_chunks: &HashMap<usize, Vec<u8>>,
@@ -160,6 +177,7 @@ impl DPDP {
         contributions
     }
 
+    /// 聚合挑战，生成完整的 dPDP 证明。
     pub fn gen_proof(
         tags: &DPDPTags,
         file_chunks: &HashMap<usize, Vec<u8>>,
@@ -183,6 +201,7 @@ impl DPDP {
         }
     }
 
+    /// 仅检查证明是否有效。
     pub fn check_proof(
         params: &DPDPParams,
         proof: &DPDPProof,
@@ -191,6 +210,7 @@ impl DPDP {
         Self::check_proof_with_relaxed(params, proof, challenge).valid
     }
 
+    /// 返回验证结果及对应的松弛 R1CS 实例。
     pub fn check_proof_with_relaxed(
         params: &DPDPParams,
         proof: &DPDPProof,
@@ -209,11 +229,12 @@ impl DPDP {
         DPDPVerificationOutput { valid, circuit }
     }
 
+    /// 验证带有 Merkle 证明的 dPDP 响应。
     pub fn verify_with_merkle(
         params: &DPDPParams,
         proof: &DPDPProof,
         challenge: &[(usize, BigUint)],
-        challenged_data: &HashMap<usize, (Vec<u8>, Vec<(String, char)>)>,
+        challenged_data: &ChallengedChunkData,
         merkle_root: &str,
     ) -> bool {
         let order = curve_order();

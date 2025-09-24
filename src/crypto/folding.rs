@@ -272,6 +272,12 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
     }
 }
 
+impl<F: PrimeField> Default for RelaxedR1CSBuilder<F> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// 计算赋值向量的摘要。
 fn assignments_digest(assignments: &[Fr]) -> Fr {
     let mut acc = Fr::zero();
@@ -557,6 +563,12 @@ impl<F: PrimeField> IncrementalRelaxedCircuit<F> {
             .iter()
             .map(|circuit| circuit.num_constraints)
             .sum()
+    }
+}
+
+impl<F: PrimeField> Default for IncrementalRelaxedCircuit<F> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

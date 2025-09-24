@@ -69,7 +69,7 @@ struct RoundUpdate {
 /// 处理新区块时的结果
 enum BlockHandlingResult {
     Accepted,
-    Deferred(Block),
+    Deferred(Box<Block>),
     Ignored,
 }
 
@@ -490,10 +490,7 @@ impl Node {
             .get("owner_addr")
             .and_then(Value::as_array)
             .and_then(|arr| {
-                if arr.len() != 2 {
-                    return None;
-                }
-                let host = arr.get(0)?.as_str()?;
+                let host = arr.first()?.as_str()?;
                 let port = arr.get(1)?.as_u64()? as u16;
                 Some(SocketAddr::new(host.parse().ok()?, port))
             })
@@ -773,7 +770,7 @@ impl Node {
                             if let Some(addr_arr) = addr_val.as_array() {
                                 if addr_arr.len() == 2 {
                                     if let (Some(host), Some(port)) = (
-                                        addr_arr.get(0).and_then(Value::as_str),
+                                        addr_arr.first().and_then(Value::as_str),
                                         addr_arr.get(1).and_then(Value::as_u64),
                                     ) {
                                         if let Ok(ip) = host.parse() {
@@ -1036,7 +1033,7 @@ impl Node {
                         progress = true;
                     }
                     BlockHandlingResult::Deferred(block) => {
-                        next_round.push_back(block);
+                        next_round.push_back(*block);
                     }
                     BlockHandlingResult::Ignored => {}
                 }
@@ -1144,7 +1141,7 @@ impl Node {
                             BigUint::parse_bytes(proof.proof_hash.as_bytes(), 16)
                         {
                             if hash_val <= broadcast_threshold
-                                && best_seen.as_ref().map_or(true, |prev| hash_val < *prev)
+                                && best_seen.as_ref().is_none_or(|prev| hash_val < *prev)
                             {
                                 best_seen = Some(hash_val);
                                 if tx.send((height, proof)).is_err() {
@@ -1384,15 +1381,13 @@ impl Node {
                         .and_then(Value::as_array)
                         .cloned()
                         .unwrap_or_default();
-                    if pending_rounds.is_empty() {
-                        if pkg_obj.get("final_fold").is_none() {
-                            log_msg(
-                                "WARN",
-                                "CONSENSUS",
-                                Some(self.node_id.clone()),
-                                &format!("节点 {} 文件 {} 未提供任何待验证的折叠轮次。", nid, fid),
-                            );
-                        }
+                    if pending_rounds.is_empty() && pkg_obj.get("final_fold").is_none() {
+                        log_msg(
+                            "WARN",
+                            "CONSENSUS",
+                            Some(self.node_id.clone()),
+                            &format!("节点 {} 文件 {} 未提供任何待验证的折叠轮次。", nid, fid),
+                        );
                     }
 
                     for round_val in pending_rounds {
@@ -1652,7 +1647,7 @@ impl Node {
         let (prefix_len, branch) = match self.collect_branch(&block) {
             Ok(result) => result,
             Err(BranchBuildError::MissingAncestor) => {
-                return BlockHandlingResult::Deferred(block);
+                return BlockHandlingResult::Deferred(Box::new(block));
             }
             Err(BranchBuildError::Invalid) => {
                 self.known_blocks.remove(&block_hash);
@@ -1709,7 +1704,7 @@ impl Node {
     fn block_work(block: &Block) -> Option<BigUint> {
         let avg = Self::block_average_proof(block)?;
         let target = BigUint::parse_bytes(block.bobtail_target.as_bytes(), 16)?;
-        Some(target.checked_sub(&avg).unwrap_or_else(|| BigUint::zero()))
+        Some(target.checked_sub(&avg).unwrap_or_else(BigUint::zero))
     }
 
     fn compute_chain_work(blocks: &[Block]) -> BigUint {
@@ -1810,7 +1805,7 @@ impl Node {
             let pk_hex = self
                 .storage_manager
                 .get_file_pk_beta(fid)
-                .map(|bytes| hex::encode(bytes))
+                .map(hex::encode)
                 .unwrap_or_default();
             let pending = pending_rounds.remove(fid).unwrap_or_default();
             let final_fold = final_folds.remove(fid);
@@ -1884,7 +1879,6 @@ pub fn send_json_line_without_response(addr: SocketAddr, payload: &Value) -> boo
 }
 
 /// 同步发送JSON行数据，并等待响应
-
 pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
     let payload_bytes = serde_json::to_vec(payload).ok()?;
     let max_attempts = 5;
