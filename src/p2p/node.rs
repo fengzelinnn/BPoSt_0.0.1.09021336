@@ -94,6 +94,7 @@ pub struct Node {
     proof_pool: HashMap<usize, HashMap<String, BobtailProof>>, // 证明池 <height, <node_id, proof>>
     known_blocks: HashMap<String, Block>, // 已知区块索引
     seen_gossip_ids: HashSet<String>,   // 已见过的gossip消息ID，防止重复处理
+    seen_gossip_order: VecDeque<String>, // gossip消息ID的插入顺序，用于限制缓存大小
     chain: Blockchain,                  // 节点的区块链实例
     bobtail_k: usize,                   // Bobtail共识算法中的k参数
     difficulty_threshold: BigUint,      // 挖矿难度阈值
@@ -111,6 +112,23 @@ pub struct Node {
 }
 
 impl Node {
+    const MAX_SEEN_GOSSIP_IDS: usize = 50_000;
+
+    fn has_seen_gossip(&self, gossip_id: &str) -> bool {
+        self.seen_gossip_ids.contains(gossip_id)
+    }
+
+    fn record_seen_gossip_id(&mut self, gossip_id: String) {
+        if self.seen_gossip_ids.insert(gossip_id.clone()) {
+            self.seen_gossip_order.push_back(gossip_id);
+            if self.seen_gossip_order.len() > Self::MAX_SEEN_GOSSIP_IDS {
+                if let Some(oldest) = self.seen_gossip_order.pop_front() {
+                    self.seen_gossip_ids.remove(&oldest);
+                }
+            }
+        }
+    }
+
     /// 创建一个新的Node实例
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -151,6 +169,7 @@ impl Node {
             proof_pool: HashMap::new(),
             known_blocks: HashMap::new(),
             seen_gossip_ids: HashSet::new(),
+            seen_gossip_order: VecDeque::new(),
             chain: Blockchain::new(),
             bobtail_k,
             difficulty_threshold,
@@ -812,10 +831,10 @@ impl Node {
     fn handle_gossip(&mut self, data: &Value) {
         // 1. 检查是否已经处理过此消息
         if let Some(gossip_id) = data.get("gossip_id").and_then(Value::as_str) {
-            if self.seen_gossip_ids.contains(gossip_id) {
+            if self.has_seen_gossip(gossip_id) {
                 return; // 如果见过，则直接返回，避免循环和重复处理
             }
-            self.seen_gossip_ids.insert(gossip_id.to_string());
+            self.record_seen_gossip_id(gossip_id.to_string());
         }
 
         // 2. 根据消息类型进行处理
@@ -922,7 +941,7 @@ impl Node {
             if let Value::Object(map) = &mut message {
                 map.insert(String::from("gossip_id"), Value::from(gid.clone()));
             }
-            self.seen_gossip_ids.insert(gid);
+            self.record_seen_gossip_id(gid);
         }
         // 向所有对等节点发送gossip命令
         for addr in self.peers.values() {
