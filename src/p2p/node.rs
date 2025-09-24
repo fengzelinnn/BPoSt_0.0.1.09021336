@@ -28,6 +28,9 @@ use crate::roles::prover::Prover; // 证明者角色
 use crate::storage::manager::{FileDataError, StorageManager}; // 存储管理器
 use crate::utils::{build_merkle_tree, h_join, log_msg, with_cpu_heavy_limit}; // 工具函数
 
+pub const DEFAULT_DIFFICULTY_HEX: &str =
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
 /// 节点状态报告结构体，用于向外部报告节点的当前状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeReport {
@@ -139,22 +142,14 @@ impl Node {
         chunk_size: usize,
         max_storage: usize,
         bobtail_k: usize,
+        difficulty_override: Option<BigUint>,
         report_sender: Sender<NodeReport>,
     ) -> Self {
         // 初始化挖矿难度阈值
-        let difficulty_threshold = BigUint::parse_bytes(
-            b"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            16,
-        )
-        .unwrap();
-        let broadcast_threshold = {
-            let mut candidate =
-                (&difficulty_threshold * BigUint::from(11u32)) / BigUint::from(10u32);
-            if candidate <= difficulty_threshold {
-                candidate = &difficulty_threshold + BigUint::from(1u32);
-            }
-            candidate
-        };
+        let difficulty_threshold = difficulty_override.unwrap_or_else(|| {
+            BigUint::parse_bytes(DEFAULT_DIFFICULTY_HEX.as_bytes(), 16).unwrap()
+        });
+        let broadcast_threshold = Self::calculate_broadcast_threshold(&difficulty_threshold);
         let (mined_proof_tx, mined_proof_rx) = unbounded::<(usize, BobtailProof)>();
         Self {
             storage_manager: StorageManager::new(node_id.clone(), chunk_size, max_storage),
@@ -187,6 +182,15 @@ impl Node {
             new_block_buffer: VecDeque::new(),
             outstanding_proof_requests: HashMap::new(),
         }
+    }
+
+    fn calculate_broadcast_threshold(difficulty_threshold: &BigUint) -> BigUint {
+        let mut candidate =
+            (difficulty_threshold.clone() * BigUint::from(11u32)) / BigUint::from(10u32);
+        if candidate <= *difficulty_threshold {
+            candidate = difficulty_threshold.clone() + BigUint::from(1u32);
+        }
+        candidate
     }
 
     /// 获取节点的停止句柄，用于从外部停止节点

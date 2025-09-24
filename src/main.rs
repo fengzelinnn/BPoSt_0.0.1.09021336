@@ -1,8 +1,8 @@
-// 引入 bpst 项目中的 P2PSimConfig 配置模块
-use bpst::config::P2PSimConfig;
+// 引入 bpst 项目中的配置模块
+use bpst::config::{DeploymentConfig, P2PSimConfig};
 // 引入 bpst 项目中的 simulation 模块，包含运行节点、用户进程和P2P模拟的功能
 use bpst::simulation::{
-    run_node_process_from_args, run_observer_process_from_args, run_p2p_simulation,
+    run_deployment, run_node_process_from_args, run_observer_process_from_args, run_p2p_simulation,
     run_user_process_from_args,
 };
 
@@ -32,6 +32,21 @@ fn main() {
             }
             "observer" => {
                 run_observer_process_from_args(args);
+                return;
+            }
+            "deploy" => {
+                let config_path = args
+                    .next()
+                    .expect("缺少部署配置文件路径参数，例如: bpst deploy ./deployment/config.json");
+                let deployment_config =
+                    DeploymentConfig::from_path(&config_path).unwrap_or_else(|err| {
+                        eprintln!("无法加载部署配置文件 {config_path}: {err}");
+                        std::process::exit(1);
+                    });
+                if let Err(err) = run_deployment(deployment_config) {
+                    eprintln!("部署失败: {err}");
+                    std::process::exit(1);
+                }
                 return;
             }
             // 忽略其他子命令
