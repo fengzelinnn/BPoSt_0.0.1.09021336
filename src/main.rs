@@ -2,7 +2,8 @@
 use bpst::config::P2PSimConfig;
 // 引入 bpst 项目中的 simulation 模块，包含运行节点、用户进程和P2P模拟的功能
 use bpst::simulation::{
-    run_node_process_from_args, run_p2p_simulation, run_user_process_from_args,
+    run_node_process_from_args, run_observer_process_from_args, run_p2p_simulation,
+    run_user_process_from_args,
 };
 
 // Rust 程序的主入口函数
@@ -29,6 +30,10 @@ fn main() {
                 // 结束程序
                 return;
             }
+            "observer" => {
+                run_observer_process_from_args(args);
+                return;
+            }
             // 忽略其他子命令
             _ => {}
         }
@@ -37,19 +42,19 @@ fn main() {
     // 定义 P2P 模拟的配置
     let config = P2PSimConfig {
         num_nodes: 15,           // 节点数量
-        num_file_owners: 3,     // 文件所有者数量
+        num_file_owners: 3,      // 文件所有者数量
         sim_duration_sec: 90000, // 模拟持续时间（秒）
-        chunk_size: 64,         // 数据块大小
-        min_file_kb: 1,         // 最小文件大小 (KB)
-        max_file_kb: 1,         // 最大文件大小 (KB)
-        min_storage_nodes: 5,   // 最小存储节点数
-        max_storage_nodes: 9,   // 最大存储节点数
-        base_port: 62000,       // 基础端口号
-        bobtail_k: 7,           // Bobtail 参数 K
-        min_storage_kb: 128,    // 最小存储空间 (KB)
-        max_storage_kb: 256,    // 最大存储空间 (KB)
-        bid_wait_sec: 20,       // 投标等待时间（秒）
-        min_storage_rounds: 7,  // 最小存储轮次
+        chunk_size: 64,          // 数据块大小
+        min_file_kb: 1,          // 最小文件大小 (KB)
+        max_file_kb: 1,          // 最大文件大小 (KB)
+        min_storage_nodes: 5,    // 最小存储节点数
+        max_storage_nodes: 9,    // 最大存储节点数
+        base_port: 62000,        // 基础端口号
+        bobtail_k: 7,            // Bobtail 参数 K
+        min_storage_kb: 128,     // 最小存储空间 (KB)
+        max_storage_kb: 256,     // 最大存储空间 (KB)
+        bid_wait_sec: 20,        // 投标等待时间（秒）
+        min_storage_rounds: 7,   // 最小存储轮次
         max_storage_rounds: 10,  // 最大存储轮次
     };
     // 运行 P2P 网络模拟

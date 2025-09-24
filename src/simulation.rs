@@ -9,6 +9,7 @@ use rand::Rng;
 
 use crate::config::P2PSimConfig;
 use crate::p2p::node::Node;
+use crate::p2p::observer_node::ObserverNode;
 use crate::p2p::user_node::UserNode;
 use crate::roles::file_owner::FileOwner;
 use crate::utils::log_msg;
@@ -108,12 +109,42 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
         }
     }
 
+    let observer_id = String::from("OBS0");
+    let observer_port = current_port;
+    let mut observer_cmd = Command::new(&current_exe);
+    observer_cmd
+        .arg("observer")
+        .arg(observer_id.clone())
+        .arg(host.clone())
+        .arg(observer_port.to_string())
+        .arg(bootstrap_addr.to_string())
+        .env("P2P_SIM_CONFIG", config_json.clone());
+    match observer_cmd.spawn() {
+        Ok(child) => {
+            log_msg(
+                "INFO",
+                "SIMULATOR",
+                Some(String::from("MAIN")),
+                &format!("已启动观察者节点 {} 于端口 {}", observer_id, observer_port),
+            );
+            children.push((String::from("observer"), child));
+        }
+        Err(e) => {
+            log_msg(
+                "ERROR",
+                "SIMULATOR",
+                Some(String::from("MAIN")),
+                &format!("启动观察者节点失败: {}", e),
+            );
+        }
+    }
+
     log_msg(
         "INFO",
         "SIMULATOR",
         Some(String::from("MAIN")),
         &format!(
-            "已启动 {} 个存储节点和 {} 个用户节点。",
+            "已启动 {} 个存储节点、{} 个用户节点和 1 个观察者节点。",
             config.num_nodes, config.num_file_owners
         ),
     );
@@ -246,4 +277,25 @@ where
     let owner = FileOwner::new(owner_id, config.chunk_size);
     let user = Box::new(UserNode::new(owner, host, port, bootstrap, config.clone()));
     user.run();
+}
+
+pub fn run_observer_process_from_args<I>(mut args: I)
+where
+    I: Iterator<Item = String>,
+{
+    let observer_id = args.next().expect("缺少观察者ID参数");
+    let host = args.next().expect("缺少主机参数");
+    let port: u16 = args
+        .next()
+        .expect("缺少端口参数")
+        .parse()
+        .expect("无法解析端口");
+    let bootstrap: SocketAddr = args
+        .next()
+        .expect("缺少引导节点参数")
+        .parse()
+        .expect("无法解析引导节点地址");
+    let _config = load_config_from_env();
+    let observer = ObserverNode::new(observer_id, host, port, bootstrap, Duration::from_secs(15));
+    observer.run();
 }
