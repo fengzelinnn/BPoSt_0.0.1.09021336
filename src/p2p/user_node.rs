@@ -235,7 +235,7 @@ impl UserNode {
             self.poll_blockchain_for_final_proofs();
             let should_try = {
                 let active_empty = self.active_requests.lock().is_empty();
-                active_empty && rand::thread_rng().gen_bool(0.3)
+                active_empty && rand::thread_rng().gen_bool(0.1)
             };
             if should_try {
                 self.try_store_file();
@@ -536,11 +536,11 @@ impl UserNode {
                 if proof_acc == args.accumulator && args.steps == record.required_rounds {
                     if !already_verified {
                         log_msg(
-                            "SUCCESS",
-                            "USER_NODE",
+                            "INFO",
+                            "!USER_NODE",
                             Some(args.owner_id.to_string()),
                             &format!(
-                                "成功验证来自节点 {} 的文件 {} 最终 Nova 证明。",
+                                "!!!!!!!成功验证来自节点 {} 的文件 {} 最终 Nova 证明。",
                                 args.provider, args.file_id
                             ),
                         );
