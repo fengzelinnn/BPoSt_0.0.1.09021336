@@ -30,6 +30,7 @@ rayon = "1.10"
 nova-snark = "0.41"
 bincode = "1.3"
 ff = "0.13"
+ctrlc = "3.4"
 
 [features]
 default = []

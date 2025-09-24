@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  bpst-cluster:
+    build: ..
+    image: bpst:latest
+    container_name: bpst-cluster
+    environment:
+      - BPST_CONFIG=/etc/bpst/deployment.json
+    volumes:
+      - ./config.example.json:/etc/bpst/deployment.json:ro
+    ports:
+      - "62000:62000"
+      - "62001:62001"
+      - "62010:62010"
+      - "62020:62020"
+    restart: unless-stopped
