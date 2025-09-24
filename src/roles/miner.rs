@@ -109,7 +109,7 @@ impl Miner {
             };
 
             for ((root_idx, nonce), hash) in metadata.into_iter().zip(hashes.into_iter()) {
-                if best_hash.as_ref().map_or(true, |current| hash < *current) {
+                if best_hash.as_ref().is_none_or(|current| hash < *current) {
                     best_root_idx = Some(root_idx);
                     best_nonce = Some(nonce);
                     best_hash = Some(hash);

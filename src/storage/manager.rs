@@ -16,12 +16,16 @@ use crate::storage::state::ServerStorage;
 use crate::utils::{h_join, sha256_hex};
 use serde_json::Value as JsonValue;
 
+type ChunkReplica = (Vec<u8>, Vec<u8>);
+type FileChunkMap = HashMap<usize, ChunkReplica>;
+type FileReplicaStore = HashMap<String, FileChunkMap>;
+
 struct StorageManagerInner {
     chunk_size: usize,
     max_storage: usize,
     used_space: usize,
     storage: ServerStorage,
-    files: HashMap<String, HashMap<usize, (Vec<u8>, Vec<u8>)>>,
+    files: FileReplicaStore,
     file_expected_chunks: HashMap<String, usize>,
     file_completed: HashSet<String>,
     file_pk_beta: HashMap<String, Vec<u8>>,
@@ -344,7 +348,7 @@ impl StorageManager {
         }
         let mut chunks = HashMap::new();
         let mut tags = Vec::new();
-        let mut sorted: Vec<(usize, (Vec<u8>, Vec<u8>))> = file_data.into_iter().collect();
+        let mut sorted: Vec<(usize, ChunkReplica)> = file_data.into_iter().collect();
         sorted.sort_by_key(|(idx, _)| *idx);
         for (idx, (data, tag)) in sorted {
             chunks.insert(idx, data);

@@ -62,6 +62,16 @@ impl StoredFileRecord {
     }
 }
 
+struct FinalProofArgs<'a> {
+    owner_id: &'a str,
+    file_id: &'a str,
+    provider: &'a str,
+    accumulator: &'a str,
+    steps: usize,
+    compressed_hex: &'a str,
+    vk_hex: &'a str,
+}
+
 pub struct UserNode {
     owner: FileOwner,
     host: String,
@@ -383,10 +393,7 @@ impl UserNode {
             .get("provider_addr")
             .and_then(Value::as_array)
             .and_then(|arr| {
-                if arr.len() != 2 {
-                    return None;
-                }
-                let host = arr.get(0)?.as_str()?;
+                let host = arr.first()?.as_str()?;
                 let port = arr.get(1)?.as_u64()? as u16;
                 Some(SocketAddr::new(host.parse().ok()?, port))
             });
@@ -475,17 +482,11 @@ impl UserNode {
 
     fn verify_final_proof(
         stored_files: &Arc<Mutex<HashMap<String, StoredFileRecord>>>,
-        owner_id: &str,
-        file_id: &str,
-        provider: &str,
-        accumulator: &str,
-        steps: usize,
-        compressed_hex: &str,
-        vk_hex: &str,
+        args: FinalProofArgs<'_>,
     ) -> Result<(), String> {
         let (record_opt, already_verified) = {
             let map = stored_files.lock();
-            match map.get(file_id) {
+            match map.get(args.file_id) {
                 Some(record) => (Some(record.clone()), record.final_verified),
                 None => (None, false),
             }
@@ -496,51 +497,51 @@ impl UserNode {
             None => return Err(String::from("参数缺失或未知文件")),
         };
 
-        if !record.provider_assigned_for_round(provider, record.required_rounds) {
+        if !record.provider_assigned_for_round(args.provider, record.required_rounds) {
             log_msg(
                 "WARN",
                 "USER_NODE",
-                Some(owner_id.to_string()),
+                Some(args.owner_id.to_string()),
                 &format!(
                     "文件 {} 的最终证明由未在第 {} 轮登记的节点 {} 提供。",
-                    file_id, record.required_rounds, provider
+                    args.file_id, record.required_rounds, args.provider
                 ),
             );
             return Err(String::from("最终证明提供者与记录不符"));
         }
 
-        if steps != record.required_rounds {
+        if args.steps != record.required_rounds {
             log_msg(
                 "WARN",
                 "USER_NODE",
-                Some(owner_id.to_string()),
+                Some(args.owner_id.to_string()),
                 &format!(
                     "文件 {} 的最终证明步数 {} 与期望 {} 不符。",
-                    file_id, steps, record.required_rounds
+                    args.file_id, args.steps, record.required_rounds
                 ),
             );
         }
 
-        let compressed_bytes = match hex::decode(compressed_hex) {
+        let compressed_bytes = match hex::decode(args.compressed_hex) {
             Ok(bytes) => bytes,
             Err(_) => return Err(String::from("无法解析最终证明或验证密钥")),
         };
-        let vk_bytes = match hex::decode(vk_hex) {
+        let vk_bytes = match hex::decode(args.vk_hex) {
             Ok(bytes) => bytes,
             Err(_) => return Err(String::from("无法解析最终证明或验证密钥")),
         };
 
-        match NovaFoldingCycle::verify_final_accumulator(steps, &compressed_bytes, &vk_bytes) {
+        match NovaFoldingCycle::verify_final_accumulator(args.steps, &compressed_bytes, &vk_bytes) {
             Ok(proof_acc) => {
-                if proof_acc == accumulator && steps == record.required_rounds {
+                if proof_acc == args.accumulator && args.steps == record.required_rounds {
                     if !already_verified {
                         log_msg(
                             "SUCCESS",
                             "USER_NODE",
-                            Some(owner_id.to_string()),
+                            Some(args.owner_id.to_string()),
                             &format!(
                                 "成功验证来自节点 {} 的文件 {} 最终 Nova 证明。",
-                                provider, file_id
+                                args.provider, args.file_id
                             ),
                         );
                         // println!(
@@ -550,7 +551,7 @@ impl UserNode {
                     }
                     {
                         let mut map = stored_files.lock();
-                        if let Some(entry) = map.get_mut(file_id) {
+                        if let Some(entry) = map.get_mut(args.file_id) {
                             entry.final_verified = true;
                         }
                     }
@@ -559,10 +560,10 @@ impl UserNode {
                     log_msg(
                         "WARN",
                         "USER_NODE",
-                        Some(owner_id.to_string()),
+                        Some(args.owner_id.to_string()),
                         &format!(
                             "文件 {} 的最终证明通过验证但输出不匹配（acc={}, steps={})。",
-                            file_id, proof_acc, steps
+                            args.file_id, proof_acc, args.steps
                         ),
                     );
                     Err(String::from("最终证明输出不匹配"))
@@ -572,8 +573,8 @@ impl UserNode {
                 log_msg(
                     "ERROR",
                     "USER_NODE",
-                    Some(owner_id.to_string()),
-                    &format!("验证文件 {} 的最终 Nova 证明失败: {}", file_id, err),
+                    Some(args.owner_id.to_string()),
+                    &format!("验证文件 {} 的最终 Nova 证明失败: {}", args.file_id, err),
                 );
                 Err(String::from("最终证明验证失败"))
             }
@@ -656,13 +657,15 @@ impl UserNode {
             let verification = with_cpu_heavy_limit(|| {
                 Self::verify_final_proof(
                     &stored_files,
-                    &owner_id,
-                    &file_id,
-                    provider,
-                    &accumulator,
-                    steps,
-                    &compressed_hex,
-                    &vk_hex,
+                    FinalProofArgs {
+                        owner_id: &owner_id,
+                        file_id: &file_id,
+                        provider,
+                        accumulator: &accumulator,
+                        steps,
+                        compressed_hex: &compressed_hex,
+                        vk_hex: &vk_hex,
+                    },
                 )
             });
 
@@ -696,7 +699,7 @@ impl UserNode {
             rand::thread_rng()
                 .gen_range(self.config.min_storage_rounds..=self.config.max_storage_rounds),
         );
-        let challenge_size = std::cmp::max(1, std::cmp::min(chunks.len(), 4));
+        let challenge_size = chunks.len().clamp(1, 4);
         let total_size = chunks.len() * self.config.chunk_size;
         let file_id = self.owner.file_id.clone();
         let request_id = format!("req-{}", file_id);
@@ -764,7 +767,7 @@ impl UserNode {
                 .filter_map(|bid| {
                     let provider_id = bid.get("bidder_id")?.as_str()?.to_string();
                     let addr_arr = bid.get("bidder_addr")?.as_array()?;
-                    let host = addr_arr.get(0)?.as_str()?;
+                    let host = addr_arr.first()?.as_str()?;
                     let port = addr_arr.get(1)?.as_u64()? as u16;
                     let ip = host.parse().ok()?;
                     Some(ProviderAssignment {

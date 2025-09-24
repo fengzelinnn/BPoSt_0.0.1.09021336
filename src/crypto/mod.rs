@@ -6,13 +6,16 @@ use ark_ec::CurveGroup;
 use ark_ff::{BigInteger, One, PrimeField, Zero};
 use num_bigint::BigUint;
 
+/// BN254 曲线的阶，以十进制字符串表示。
 pub const CURVE_ORDER_STR: &str =
     "21888242871839275222246405745257275088548364400416034343698204186575808495617";
 
+/// 解析曲线阶为 `BigUint`，便于与随机标量进行模运算。
 pub fn curve_order() -> BigUint {
     BigUint::parse_bytes(CURVE_ORDER_STR.as_bytes(), 10).expect("invalid curve order")
 }
 
+/// 将有限域元素序列化为大端字节序。
 fn fq_to_bytes(f: &Fq) -> [u8; 32] {
     let bigint = f.into_bigint();
     let mut bytes = bigint.to_bytes_be();
@@ -26,6 +29,7 @@ fn fq_to_bytes(f: &Fq) -> [u8; 32] {
     out
 }
 
+/// BN254 Fq2 元素的序列化助手。
 fn fq2_to_bytes(f: &Fq2) -> [u8; 64] {
     let mut out = [0u8; 64];
     let c0 = fq_to_bytes(&f.c0);
@@ -35,6 +39,7 @@ fn fq2_to_bytes(f: &Fq2) -> [u8; 64] {
     out
 }
 
+/// 将 G1 群元素编码为 96 字节的非压缩表示。
 pub fn serialize_g1(point: &G1Projective) -> Vec<u8> {
     if point.is_zero() {
         return vec![0u8; 96];
@@ -47,6 +52,7 @@ pub fn serialize_g1(point: &G1Projective) -> Vec<u8> {
     out
 }
 
+/// 从 96 字节的非压缩表示恢复 G1 群元素。
 pub fn deserialize_g1(bytes: &[u8]) -> G1Projective {
     if bytes.len() != 96 {
         panic!("G1 serialization must be 96 bytes");
@@ -60,6 +66,7 @@ pub fn deserialize_g1(bytes: &[u8]) -> G1Projective {
     affine.into()
 }
 
+/// 将 G2 群元素编码为 192 字节的非压缩表示。
 pub fn serialize_g2(point: &G2Projective) -> Vec<u8> {
     if point.is_zero() {
         return vec![0u8; 192];
@@ -72,6 +79,7 @@ pub fn serialize_g2(point: &G2Projective) -> Vec<u8> {
     out
 }
 
+/// 从 192 字节的非压缩表示恢复 G2 群元素。
 pub fn deserialize_g2(bytes: &[u8]) -> G2Projective {
     if bytes.len() != 192 {
         panic!("G2 serialization must be 192 bytes");

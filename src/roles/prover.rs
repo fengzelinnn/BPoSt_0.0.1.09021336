@@ -9,6 +9,12 @@ use crate::common::datastructures::{DPDPProof, DPDPTags};
 use crate::crypto::dpdp::DPDP;
 use crate::utils::log_msg;
 
+/// dPDP 挑战向量类型别名，元素为 (块索引, 挑战系数)。
+pub type ChallengeVector = Vec<(usize, BigUint)>;
+
+/// 每个挑战对应的贡献值，包含块索引、加权系数和缩放后的标签。
+pub type ContributionVector = Vec<(usize, BigUint, Vec<u8>)>;
+
 /// Prover 结构体定义了证明者的角色
 /// 证明者的核心职责是响应 dPDP（动态可证明数据拥有权）挑战，
 /// 生成一个密码学证明，以证实自己确实存储了特定的文件数据。
@@ -46,11 +52,7 @@ impl Prover {
         prev_hash: &str,
         timestamp: u64,
         challenge_size: Option<usize>,
-    ) -> (
-        DPDPProof,
-        Vec<(usize, BigUint)>,
-        Vec<(usize, BigUint, Vec<u8>)>,
-    ) {
+    ) -> (DPDPProof, ChallengeVector, ContributionVector) {
         // 1. 根据上下文（前一个块哈希、时间戳）和文件标签生成一个确定性的随机挑战
         let challenge = DPDP::gen_chal(prev_hash, timestamp, file_tags, challenge_size);
 

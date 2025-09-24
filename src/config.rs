@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+/// 控制 P2P 模拟行为的一组参数。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct P2PSimConfig {
     pub num_nodes: usize,
@@ -20,6 +21,7 @@ pub struct P2PSimConfig {
 }
 
 impl Default for P2PSimConfig {
+    /// 提供模拟的参考默认值。
     fn default() -> Self {
         Self {
             num_nodes: 15,
