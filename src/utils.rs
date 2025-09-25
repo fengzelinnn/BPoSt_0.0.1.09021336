@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::io::Write as _;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+use chrono::Local;
 
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
@@ -13,6 +16,8 @@ use parking_lot::Mutex;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
+use std::fs::OpenOptions;
+use std::path::PathBuf;
 #[cfg(not(target_family = "wasm"))]
 use std::thread;
 
@@ -54,6 +59,17 @@ fn domain_to_field(domain: &[u8]) -> Fr {
 
 static LOGGER_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static LOGGER_GUARD: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+static LOG_FILE: Lazy<Mutex<std::fs::File>> = Lazy::new(|| {
+    let path = std::env::var("BPOST_LOG_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("bpst.log"));
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .unwrap_or_else(|err| panic!("failed to open log file {}: {}", path.display(), err));
+    Mutex::new(file)
+});
 
 struct CpuLimiter {
     sender: Sender<()>,
@@ -299,7 +315,17 @@ impl log::Log for SimpleLogger {
 
     fn log(&self, record: &Record<'_>) {
         if self.enabled(record.metadata()) {
-            println!("{} - {}", record.level(), record.args());
+            let timestamp = Local::now();
+            let formatted = format!(
+                "{} {:<5} - {}",
+                timestamp.format("%Y-%m-%d %H:%M:%S%.6f"),
+                record.level(),
+                record.args()
+            );
+            println!("{}", formatted);
+            let mut file = LOG_FILE.lock();
+            let _ = writeln!(&mut *file, "{}", formatted);
+            let _ = file.flush();
         }
     }
 
@@ -314,6 +340,7 @@ pub fn init_logging() {
     }
     let _guard = LOGGER_GUARD.lock();
     if !LOGGER_INITIALIZED.load(Ordering::SeqCst) {
+        Lazy::force(&LOG_FILE);
         log::set_logger(&LOGGER).expect("logger already set");
         log::set_max_level(LevelFilter::Debug);
         LOGGER_INITIALIZED.store(true, Ordering::SeqCst);
