@@ -1,14 +1,18 @@
-version: "3.9"
-
 services:
   bpst-cluster:
-    build: ..
+    build:
+      context: ..
+      dockerfile: Dockerfile
     image: bpst:latest
     container_name: bpst-cluster
     environment:
-      - BPST_CONFIG=/etc/bpst/deployment.json
+      BPST_CONFIG_TEMPLATE: /etc/bpst/config.template.json
+      BPST_CONFIG_OUTPUT: /etc/bpst/deployment.json
+      BPST_CONFIG: /etc/bpst/deployment.json
+      BPST_ADVERTISE_IP: ${BPST_ADVERTISE_IP:-127.0.0.1}
+      BPST_BOOTSTRAP_IP: ${BPST_BOOTSTRAP_IP:-127.0.0.1}
     volumes:
-      - ./config.example.json:/etc/bpst/deployment.json:ro
+      - ./config.template.json:/etc/bpst/config.template.json:ro
     ports:
       - "62000:62000"
       - "62001:62001"

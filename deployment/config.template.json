@@ -8,13 +8,13 @@
   "nodes": [
     {
       "node_id": "S0",
-      "host": "127.0.0.1",
+      "host": "${BPST_ADVERTISE_IP}",
       "port": 62000,
       "bootstrap": "none"
     },
     {
       "node_id": "S1",
-      "host": "127.0.0.1",
+      "host": "${BPST_ADVERTISE_IP}",
       "port": 62001,
       "storage_kb": 6144
     }
@@ -22,15 +22,15 @@
   "users": [
     {
       "user_id": "U0",
-      "host": "127.0.0.1",
+      "host": "${BPST_ADVERTISE_IP}",
       "port": 62010,
-      "bootstrap": "127.0.0.1:62000"
+      "bootstrap": "${BPST_BOOTSTRAP_IP}:62000"
     }
   ],
   "observer": {
     "observer_id": "OBS0",
-    "host": "127.0.0.1",
+    "host": "${BPST_ADVERTISE_IP}",
     "port": 62020,
-    "bootstrap": "127.0.0.1:62000"
+    "bootstrap": "${BPST_BOOTSTRAP_IP}:62000"
   }
 }
