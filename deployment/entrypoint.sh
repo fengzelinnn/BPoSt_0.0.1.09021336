@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-set -euo pipefail
+set -eu
 
 DEFAULT_TEMPLATE="/etc/bpst/config.template.json"
 DEFAULT_OUTPUT="/etc/bpst/deployment.json"

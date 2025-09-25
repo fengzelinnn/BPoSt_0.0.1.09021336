@@ -1,17 +1,16 @@
 # ---- Stage 1: Build -------------------------------------------------------
 # Use the latest stable Rust toolchain to compile the project.
+# ---- Stage 1: Build -------------------------------------------------------
 FROM rust:1-bookworm AS builder
-
-# Create a new empty shell project to cache dependencies.
 WORKDIR /usr/src/app
 
-# Install build dependencies required by crates that rely on OpenSSL or pkg-config.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends pkg-config libssl-dev clang \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy manifests first to leverage Docker layer caching.
+# Copy manifests AND .cargo config first
 COPY Cargo.toml Cargo.lock ./
+COPY .cargo ./.cargo
 COPY src ./src
 
 # Build the project in release mode.
