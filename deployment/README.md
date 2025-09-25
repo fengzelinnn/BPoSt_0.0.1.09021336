@@ -1,12 +1,13 @@
 # Docker 部署指南
 
-本目录提供了在 Linux 服务器上使用 Docker 一次性部署多个 BPoSt 节点的模板。部署时可显式指定每个节点监听的 IP、端口、存储容量、文件大小范围以及挖矿难度，避免再依赖额外的节点发现逻辑。
+本目录提供了在 Linux 服务器上使用 Docker 构建与运行 BPoSt 集群的模板。新的配置以云环境为目标，预留了显式指定公网 IP 的位置，同时在本地测试时默认使用 `127.0.0.1`。
 
 ## 目录结构
 
-- `config.example.json`：示例部署配置文件，定义存储节点、用户节点、观察者节点以及全局参数。
-- `docker-compose.yml`：使用单个容器运行集群的示例，容器内部由二进制的 `deploy` 子命令启动全部子进程。
-- `entrypoint.sh`：容器入口脚本，支持直接运行 `deploy` 配置，也支持基于环境变量启动单个节点。
+- `config.template.json`：部署模板，`entrypoint.sh` 会根据环境变量将其中的占位符替换为真实 IP 后生成最终配置。
+- `config.example.json`：使用 `127.0.0.1` 渲染后的示例配置，便于离线查看字段含义。
+- `docker-compose.yml`：单容器运行完整集群的 Compose 示例。
+- `entrypoint.sh`：容器入口脚本，会在启动时渲染模板并运行相应的子命令。
 
 ## 构建镜像
 
@@ -16,29 +17,33 @@
 docker build -t bpst:latest .
 ```
 
-镜像会在构建阶段编译 release 版本的二进制，并在运行时使用精简的 Debian 容器。
+镜像使用最新的 Rust 稳定版进行构建，运行阶段基于 `debian:bookworm-slim` 并附带 `gettext-base` 以支持模板渲染。
 
-## 使用部署配置一次性启动全部进程
+## 使用模板一次性启动全部进程
 
-1. 根据部署需要复制示例配置：
-   ```bash
-   cp deployment/config.example.json deployment/config.json
-   ```
-2. 编辑 `deployment/config.json`，为每个节点填写实际的 `host` 与 `port`（应使用服务器的对外 IP），以及可选的 `storage_kb`、`chunk_size`、`bobtail_k`、`mining_difficulty_hex` 等参数。
-   - `min_file_kb` / `max_file_kb` 决定文件生成的大小范围。
-   - `mining_difficulty_hex` 以 16 进制字符串指定全局挖矿难度，单个节点也可以通过 `nodes[*].mining_difficulty_hex` 覆盖。
-3. 根据节点暴露的端口调整 `deployment/docker-compose.yml` 中的 `ports` 映射。
-4. 启动：
+1. 根据部署需要复制或修改 `config.template.json`。模板中所有 `\${BPST_...}` 字段会在容器启动时被替换：
+   - `BPST_ADVERTISE_IP`：各节点对外公布的地址，默认值为 `127.0.0.1`，部署到云服务器时将其设置为服务器公网 IP。
+   - `BPST_BOOTSTRAP_IP`：用户与观察者连接的引导地址，默认与 `BPST_ADVERTISE_IP` 相同。
+2. 启动：
    ```bash
    cd deployment
    docker compose up -d
    ```
 
-容器会在启动后执行 `bpst deploy /etc/bpst/deployment.json`，并在日志中打印每个子进程的 IP、端口、文件大小、挖矿难度等信息。配置中的第一个存储节点默认作为引导节点，其余节点自动连接到该地址；若需要自定义，可在节点条目中设置 `"bootstrap"` 字段（支持 `none`）。
+   `docker-compose.yml` 会把模板挂载到容器内的 `/etc/bpst/config.template.json`，入口脚本会在启动时渲染为 `/etc/bpst/deployment.json` 并执行 `bpst deploy`。
+
+3. 若要在多台服务器之间复用该模板，可在部署前通过 `.env` 或环境变量覆盖 `BPST_ADVERTISE_IP` / `BPST_BOOTSTRAP_IP`：
+   ```bash
+   BPST_ADVERTISE_IP=203.0.113.10 \
+   BPST_BOOTSTRAP_IP=203.0.113.10 \
+   docker compose up -d
+   ```
+
+   如需为部分节点指定不同 IP，可直接编辑模板中对应节点的 `host` 字段。
 
 ## 通过环境变量启动单个节点
 
-若希望在同一服务器上以多个容器分别运行单个节点，可使用入口脚本的 `BPST_ROLE` 模式：
+入口脚本仍然支持旧的单节点模式，可在多容器部署时使用：
 
 ```bash
 docker run --rm \
@@ -46,11 +51,8 @@ docker run --rm \
   -e BPST_NODE_ID=S0 \
   -e BPST_HOST=0.0.0.0 \
   -e BPST_PORT=62000 \
-  -e BPST_BOOTSTRAP=none \
-  -e BPST_CHUNK_SIZE=1024 \
+  -e BPST_BOOTSTRAP_IP=203.0.113.10 \
   -e BPST_STORAGE_KB=4096 \
-  -e BPST_BOBTAIL_K=3 \
-  -e BPST_MINING_DIFFICULTY_HEX=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff \
   -p 62000:62000 \
   bpst:latest
 ```
@@ -60,62 +62,16 @@ docker run --rm \
 | 角色 (`BPST_ROLE`) | 必填变量 | 说明 |
 | --- | --- | --- |
 | `node` | `BPST_NODE_ID`, `BPST_HOST`, `BPST_PORT` | 其他可选：`BPST_BOOTSTRAP`、`BPST_CHUNK_SIZE`、`BPST_STORAGE_KB`、`BPST_BOBTAIL_K`、`BPST_MINING_DIFFICULTY_HEX` |
-| `user` | `BPST_USER_ID`, `BPST_HOST`, `BPST_PORT` | 可选：`BPST_BOOTSTRAP`（默认为 `127.0.0.1:62000`） |
-| `observer` | `BPST_OBSERVER_ID`, `BPST_HOST`, `BPST_PORT` | 可选：`BPST_BOOTSTRAP`（默认为 `127.0.0.1:62000`） |
+| `user` | `BPST_USER_ID`, `BPST_HOST`, `BPST_PORT` | 可选：`BPST_BOOTSTRAP`（默认使用 `BPST_BOOTSTRAP_IP:62000`） |
+| `observer` | `BPST_OBSERVER_ID`, `BPST_HOST`, `BPST_PORT` | 可选：`BPST_BOOTSTRAP`（默认使用 `BPST_BOOTSTRAP_IP:62000`） |
 
-若容器既没有命令参数也未设置 `BPST_ROLE`，则默认运行 `bpst` 主程序原有的模拟流程。
+当既未提供命令参数也没有 `BPST_ROLE` 时，脚本会使用渲染后的配置执行 `bpst deploy`，若配置缺失则回退到运行主程序默认流程。
 
 ## 日志与状态
 
-- 部署过程中会输出每个子进程监听的 IP/端口、文件大小范围、挖矿难度阈值，便于在多服务器场景下登记与共享。
-- 按下 `Ctrl+C` 或向容器发送 `SIGTERM` 时，`deploy` 命令会优雅地终止所有子进程。
+- 启动时会打印模板渲染后的配置路径，便于排查。
+- 终止容器或发送 `SIGTERM` 时，`deploy` 命令会优雅关闭所有子进程。
 
 ## 自定义配置格式
 
-部署配置文件使用 JSON 格式，对应 `src/config.rs` 中的 `DeploymentConfig` 结构：
-
-```json
-{
-  "chunk_size": 1024,
-  "min_file_kb": 16,
-  "max_file_kb": 64,
-  "bobtail_k": 3,
-  "default_storage_kb": 4096,
-  "mining_difficulty_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-  "nodes": [
-    {
-      "node_id": "S0",
-      "host": "203.0.113.10",
-      "port": 62000,
-      "bootstrap": "none"
-    },
-    {
-      "node_id": "S1",
-      "host": "203.0.113.10",
-      "port": 62001,
-      "storage_kb": 6144,
-      "mining_difficulty_hex": "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-    }
-  ],
-  "users": [
-    {
-      "user_id": "U0",
-      "host": "203.0.113.11",
-      "port": 62010,
-      "bootstrap": "203.0.113.10:62000"
-    }
-  ],
-  "observer": {
-    "observer_id": "OBS0",
-    "host": "203.0.113.12",
-    "port": 62020,
-    "bootstrap": "203.0.113.10:62000"
-  }
-}
-```
-
-- `nodes` 中首个条目默认作为引导节点；其 `bootstrap` 可留空或设置为 `"none"`。
-- 其余节点若未指定 `bootstrap`，会自动指向首个节点的地址。
-- `users`、`observer` 的 `bootstrap` 必须是有效的 `ip:port`，若省略则使用第一个节点的地址。
-
-通过上述配置即可在一个服务器上部署多个节点，并将监听地址（IP/端口）、文件大小范围与挖矿难度显式暴露给其他服务器或调度系统。
+部署配置文件为 JSON，字段与 `src/config.rs` 中的 `DeploymentConfig` 结构对应。可以在模板中使用任意 `\${...}` 占位符，以便通过环境变量或外部工具统一替换，从而适应多云服务器部署场景。
