@@ -608,6 +608,6 @@ where
         .parse()
         .expect("无法解析引导节点地址");
     let _config = load_config_from_env();
-    let observer = ObserverNode::new(observer_id, host, port, bootstrap, Duration::from_secs(15));
+    let observer = ObserverNode::new(observer_id, host, port, bootstrap, Duration::from_secs(60));
     observer.run();
 }
