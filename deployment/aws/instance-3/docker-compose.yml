@@ -1,9 +1,6 @@
 services:
   bpst-cluster-instance3:
-    build:
-      context: ../../..
-      dockerfile: ../../../Dockerfile
-    image: bpst:latest
+    image: fengzelinn/bpst:latest
     container_name: bpst-cluster-instance3
     environment:
       BPST_CONFIG_TEMPLATE: /etc/bpst/config.template.json
@@ -26,3 +23,4 @@ services:
       - "62006:62006"
       - "62100:62100"
     restart: unless-stopped
+    command: ["deploy", "/etc/bpst/deployment.json"]
