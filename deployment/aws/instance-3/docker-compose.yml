@@ -1,26 +1,18 @@
 services:
-  bpst-cluster-instance3:
+  bpst-cluster:
     image: fengzelinn/bpst:latest
-    container_name: bpst-cluster-instance3
+    container_name: bpst-cluster
     environment:
       BPST_CONFIG_TEMPLATE: /etc/bpst/config.template.json
       BPST_CONFIG_OUTPUT: /etc/bpst/deployment.json
       BPST_CONFIG: /etc/bpst/deployment.json
-      BPST_ADVERTISE_IP: ${INSTANCE3_IP}
-      BPST_BOOTSTRAP_IP: ${INSTANCE3_IP}
+      # 保留这些IP变量，因为 config.template.json 中的 peers 和 bootstrap 字段还需要它们
       INSTANCE1_IP: ${INSTANCE1_IP}
       INSTANCE2_IP: ${INSTANCE2_IP}
       INSTANCE3_IP: ${INSTANCE3_IP}
     volumes:
       - ./config.template.json:/etc/bpst/config.template.json:ro
-    ports:
-      - "62000:62000"
-      - "62001:62001"
-      - "62002:62002"
-      - "62003:62003"
-      - "62004:62004"
-      - "62005:62005"
-      - "62006:62006"
-      - "62100:62100"
     restart: unless-stopped
     command: ["deploy", "/etc/bpst/deployment.json"]
+    # --- 添加下面这行，并删除 ports 部分 ---
+    network_mode: "host"

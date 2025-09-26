@@ -8,7 +8,7 @@
   "nodes": [
     {
       "node_id": "S3N1",
-      "host": "${INSTANCE3_IP}",
+      "host": "0.0.0.0",
       "port": 62000,
       "storage_kb": 8192,
       "bootstrap": "none",
@@ -57,7 +57,7 @@
     },
     {
       "node_id": "S3N2",
-      "host": "${INSTANCE3_IP}",
+      "host": "0.0.0.0",
       "port": 62001,
       "storage_kb": 8192,
       "bootstrap": "none",
@@ -106,7 +106,7 @@
     },
     {
       "node_id": "S3N3",
-      "host": "${INSTANCE3_IP}",
+      "host": "0.0.0.0",
       "port": 62002,
       "storage_kb": 8192,
       "bootstrap": "none",
@@ -155,7 +155,7 @@
     },
     {
       "node_id": "S3N4",
-      "host": "${INSTANCE3_IP}",
+      "host": "0.0.0.0",
       "port": 62003,
       "storage_kb": 8192,
       "bootstrap": "none",
@@ -204,7 +204,7 @@
     },
     {
       "node_id": "S3N5",
-      "host": "${INSTANCE3_IP}",
+      "host": "0.0.0.0",
       "port": 62004,
       "storage_kb": 8192,
       "bootstrap": "none",
@@ -253,7 +253,7 @@
     },
     {
       "node_id": "S3N6",
-      "host": "${INSTANCE3_IP}",
+      "host": "0.0.0.0",
       "port": 62005,
       "storage_kb": 8192,
       "bootstrap": "none",
@@ -302,7 +302,7 @@
     },
     {
       "node_id": "S3N7",
-      "host": "${INSTANCE3_IP}",
+      "host": "0.0.0.0",
       "port": 62006,
       "storage_kb": 8192,
       "bootstrap": "none",
@@ -353,7 +353,7 @@
   "users": [
     {
       "user_id": "U3",
-      "host": "${INSTANCE3_IP}",
+      "host": "0.0.0.0",
       "port": 62100,
       "bootstrap": "${INSTANCE3_IP}:62000"
     }
