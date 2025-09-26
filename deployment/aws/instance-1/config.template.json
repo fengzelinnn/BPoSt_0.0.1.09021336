@@ -1,0 +1,361 @@
+{
+  "chunk_size": 1024,
+  "min_file_kb": 16,
+  "max_file_kb": 64,
+  "bobtail_k": 3,
+  "default_storage_kb": 8192,
+  "mining_difficulty_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "nodes": [
+    {
+      "node_id": "S1N1",
+      "host": "${INSTANCE1_IP}",
+      "port": 62000,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S1N2",
+          "host": "${INSTANCE1_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S1N3",
+          "host": "${INSTANCE1_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S1N4",
+          "host": "${INSTANCE1_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S1N5",
+          "host": "${INSTANCE1_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S1N6",
+          "host": "${INSTANCE1_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S1N7",
+          "host": "${INSTANCE1_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S1N2",
+      "host": "${INSTANCE1_IP}",
+      "port": 62001,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S1N3",
+          "host": "${INSTANCE1_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S1N4",
+          "host": "${INSTANCE1_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S1N5",
+          "host": "${INSTANCE1_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S1N6",
+          "host": "${INSTANCE1_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S1N7",
+          "host": "${INSTANCE1_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S1N3",
+      "host": "${INSTANCE1_IP}",
+      "port": 62002,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S1N2",
+          "host": "${INSTANCE1_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S1N4",
+          "host": "${INSTANCE1_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S1N5",
+          "host": "${INSTANCE1_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S1N6",
+          "host": "${INSTANCE1_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S1N7",
+          "host": "${INSTANCE1_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S1N4",
+      "host": "${INSTANCE1_IP}",
+      "port": 62003,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S1N2",
+          "host": "${INSTANCE1_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S1N3",
+          "host": "${INSTANCE1_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S1N5",
+          "host": "${INSTANCE1_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S1N6",
+          "host": "${INSTANCE1_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S1N7",
+          "host": "${INSTANCE1_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S1N5",
+      "host": "${INSTANCE1_IP}",
+      "port": 62004,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S1N2",
+          "host": "${INSTANCE1_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S1N3",
+          "host": "${INSTANCE1_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S1N4",
+          "host": "${INSTANCE1_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S1N6",
+          "host": "${INSTANCE1_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S1N7",
+          "host": "${INSTANCE1_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S1N6",
+      "host": "${INSTANCE1_IP}",
+      "port": 62005,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S1N2",
+          "host": "${INSTANCE1_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S1N3",
+          "host": "${INSTANCE1_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S1N4",
+          "host": "${INSTANCE1_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S1N5",
+          "host": "${INSTANCE1_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S1N7",
+          "host": "${INSTANCE1_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S1N7",
+      "host": "${INSTANCE1_IP}",
+      "port": 62006,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S1N2",
+          "host": "${INSTANCE1_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S1N3",
+          "host": "${INSTANCE1_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S1N4",
+          "host": "${INSTANCE1_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S1N5",
+          "host": "${INSTANCE1_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S1N6",
+          "host": "${INSTANCE1_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "user_id": "U1",
+      "host": "${INSTANCE1_IP}",
+      "port": 62100,
+      "bootstrap": "${INSTANCE1_IP}:62000"
+    }
+  ]
+}

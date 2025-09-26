@@ -1,0 +1,28 @@
+services:
+  bpst-cluster-instance2:
+    build:
+      context: ../../..
+      dockerfile: ../../../Dockerfile
+    image: bpst:latest
+    container_name: bpst-cluster-instance2
+    environment:
+      BPST_CONFIG_TEMPLATE: /etc/bpst/config.template.json
+      BPST_CONFIG_OUTPUT: /etc/bpst/deployment.json
+      BPST_CONFIG: /etc/bpst/deployment.json
+      BPST_ADVERTISE_IP: ${INSTANCE2_IP}
+      BPST_BOOTSTRAP_IP: ${INSTANCE2_IP}
+      INSTANCE1_IP: ${INSTANCE1_IP}
+      INSTANCE2_IP: ${INSTANCE2_IP}
+      INSTANCE3_IP: ${INSTANCE3_IP}
+    volumes:
+      - ./config.template.json:/etc/bpst/config.template.json:ro
+    ports:
+      - "62000:62000"
+      - "62001:62001"
+      - "62002:62002"
+      - "62003:62003"
+      - "62004:62004"
+      - "62005:62005"
+      - "62006:62006"
+      - "62100:62100"
+    restart: unless-stopped

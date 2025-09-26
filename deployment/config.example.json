@@ -10,13 +10,19 @@
       "node_id": "S0",
       "host": "127.0.0.1",
       "port": 62000,
-      "bootstrap": "none"
+      "bootstrap": "none",
+      "peers": [
+        { "node_id": "S1", "host": "127.0.0.1", "port": 62001 }
+      ]
     },
     {
       "node_id": "S1",
       "host": "127.0.0.1",
       "port": 62001,
-      "storage_kb": 6144
+      "storage_kb": 6144,
+      "peers": [
+        { "node_id": "S0", "host": "127.0.0.1", "port": 62000 }
+      ]
     }
   ],
   "users": [
