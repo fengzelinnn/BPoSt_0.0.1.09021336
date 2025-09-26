@@ -76,6 +76,7 @@ pub struct UserNode {
     owner: FileOwner,
     host: String,
     port: u16,
+    advertise_host: String,
     bootstrap_addr: SocketAddr,
     config: P2PSimConfig,
     stop_flag: Arc<AtomicBool>,
@@ -89,6 +90,7 @@ impl UserNode {
     pub fn new(
         owner: FileOwner,
         host: String,
+        advertise_host: String,
         port: u16,
         bootstrap_addr: SocketAddr,
         config: P2PSimConfig,
@@ -96,6 +98,7 @@ impl UserNode {
         Self {
             owner,
             host,
+            advertise_host,
             port,
             bootstrap_addr,
             config,
@@ -726,7 +729,7 @@ impl UserNode {
                 "request_id": request_id.clone(),
                 "file_id": file_id.clone(),
                 "total_size": total_size,
-                "reply_addr": [self.host, self.port],
+                "reply_addr": [self.advertise_host, self.port],
                 "storage_rounds": storage_rounds,
             }
         });

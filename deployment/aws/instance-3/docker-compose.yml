@@ -1,6 +1,6 @@
 services:
   bpst-cluster:
-    image: fengzelinn/bpst:latest
+    image: fengzelinn/bpost:latest
     container_name: bpst-cluster
     environment:
       BPST_CONFIG_TEMPLATE: /etc/bpst/config.template.json

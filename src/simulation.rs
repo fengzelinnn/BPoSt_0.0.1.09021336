@@ -634,8 +634,15 @@ where
         .parse()
         .expect("无法解析引导节点地址");
     let config = load_config_from_env();
+    // --- 新增逻辑 ---
+    // 从环境变量 BPST_ADVERTISE_IP 读取外部IP，如果不存在则回退为监听IP
+    let advertise_host = env::var("BPST_ADVERTISE_IP").unwrap_or_else(|_| host.clone());
+    // ----------------
+
     let owner = FileOwner::new(owner_id, config.chunk_size);
-    let user = Box::new(UserNode::new(owner, host, port, bootstrap, config.clone()));
+    // --- 将新的 advertise_host 传给构造函数 ---
+    let user = Box::new(UserNode::new(owner, host, advertise_host, port, bootstrap, config.clone()));
+    // ----------------------------------------
     user.run();
 }
 
