@@ -139,6 +139,7 @@ impl Node {
         host: String,
         port: u16,
         bootstrap_addr: Option<SocketAddr>,
+        initial_peers: Vec<(String, SocketAddr)>,
         chunk_size: usize,
         max_storage: usize,
         bobtail_k: usize,
@@ -159,7 +160,7 @@ impl Node {
             host,
             port,
             bootstrap_addr,
-            peers: HashMap::new(),
+            peers: initial_peers.into_iter().collect(),
             mempool: VecDeque::new(),
             proof_pool: HashMap::new(),
             known_blocks: HashMap::new(),
@@ -758,6 +759,16 @@ impl Node {
 
     /// 发现对等节点
     fn discover_peers(&mut self) {
+        if !self.peers.is_empty() {
+            log_msg(
+                "INFO",
+                "P2P_DISCOVERY",
+                Some(self.node_id.clone()),
+                &format!("已加载 {} 个静态配置的对等节点。", self.peers.len()),
+            );
+            return;
+        }
+
         if let Some(bootstrap) = self.bootstrap_addr {
             // 如果有引导节点地址，则联系引导节点
             log_msg(

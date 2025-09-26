@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::unbounded;
 use rand::Rng;
 
-use crate::config::{DeploymentConfig, DeploymentConfigError, NodeDeployment, P2PSimConfig};
+use crate::config::{
+    DeploymentConfig, DeploymentConfigError, NodeDeployment, P2PSimConfig, PeerConfig,
+};
 use crate::p2p::node::{Node, DEFAULT_DIFFICULTY_HEX};
 use crate::p2p::observer_node::ObserverNode;
 use crate::p2p::user_node::UserNode;
@@ -292,6 +294,12 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
             .arg(storage_bytes.to_string())
             .arg(bobtail_k.to_string())
             .env("P2P_SIM_CONFIG", config_json.clone());
+        cmd.env_remove("BPST_STATIC_PEERS");
+        if !node_cfg.peers.is_empty() {
+            let peers_json =
+                serde_json::to_string(&node_cfg.peers).expect("无法序列化静态对等节点配置");
+            cmd.env("BPST_STATIC_PEERS", peers_json);
+        }
         if let Some(diff_hex) = node_difficulty {
             cmd.env("BPST_MINING_DIFFICULTY_HEX", diff_hex);
         }
@@ -497,6 +505,44 @@ fn load_config_from_env() -> P2PSimConfig {
     serde_json::from_str(&raw).expect("无法解析 P2P_SIM_CONFIG")
 }
 
+fn load_static_peers_from_env() -> Vec<(String, SocketAddr)> {
+    let raw = match env::var("BPST_STATIC_PEERS") {
+        Ok(val) if !val.trim().is_empty() => val,
+        Ok(_) | Err(_) => return Vec::new(),
+    };
+
+    let peer_cfgs: Vec<PeerConfig> = match serde_json::from_str(&raw) {
+        Ok(cfgs) => cfgs,
+        Err(err) => {
+            log_msg(
+                "ERROR",
+                "CONFIG",
+                Some(String::from("STATIC_PEERS")),
+                &format!("无法解析 BPST_STATIC_PEERS 环境变量: {err}"),
+            );
+            return Vec::new();
+        }
+    };
+
+    let mut peers = Vec::new();
+    for peer in peer_cfgs {
+        let addr_str = format!("{}:{}", peer.host, peer.port);
+        match addr_str.parse::<SocketAddr>() {
+            Ok(addr) => peers.push((peer.node_id, addr)),
+            Err(err) => {
+                log_msg(
+                    "WARN",
+                    "CONFIG",
+                    Some(String::from("STATIC_PEERS")),
+                    &format!("忽略无效的静态对等节点地址 {}: {}", addr_str, err),
+                );
+            }
+        }
+    }
+
+    peers
+}
+
 fn load_difficulty_override_from_env() -> Option<BigUint> {
     match env::var("BPST_MINING_DIFFICULTY_HEX") {
         Ok(raw) => parse_difficulty_hex(&raw),
@@ -555,11 +601,13 @@ where
         .expect("无法解析 bobtail_k");
     let difficulty_override = load_difficulty_override_from_env();
     let (report_tx, _report_rx) = unbounded();
+    let static_peers = load_static_peers_from_env();
     let node = Box::new(Node::new(
         node_id,
         host,
         port,
         bootstrap_addr,
+        static_peers,
         chunk_size,
         max_storage,
         bobtail_k,

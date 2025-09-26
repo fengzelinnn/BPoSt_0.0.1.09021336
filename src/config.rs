@@ -65,6 +65,13 @@ pub struct DeploymentConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerConfig {
+    pub node_id: String,
+    pub host: String,
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeDeployment {
     pub node_id: String,
     pub host: String,
@@ -79,6 +86,8 @@ pub struct NodeDeployment {
     pub bootstrap: Option<String>,
     #[serde(default)]
     pub mining_difficulty_hex: Option<String>,
+    #[serde(default)]
+    pub peers: Vec<PeerConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
