@@ -44,6 +44,171 @@
           "port": 62006
         },
         {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
           "node_id": "S1N1",
           "host": "${INSTANCE1_IP}",
           "port": 62000
@@ -91,6 +256,171 @@
           "node_id": "S3N7",
           "host": "${INSTANCE3_IP}",
           "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
         },
         {
           "node_id": "S1N1",
@@ -142,6 +472,171 @@
           "port": 62006
         },
         {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
           "node_id": "S1N1",
           "host": "${INSTANCE1_IP}",
           "port": 62000
@@ -189,6 +684,171 @@
           "node_id": "S3N7",
           "host": "${INSTANCE3_IP}",
           "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
         },
         {
           "node_id": "S1N1",
@@ -240,6 +900,171 @@
           "port": 62006
         },
         {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
           "node_id": "S1N1",
           "host": "${INSTANCE1_IP}",
           "port": 62000
@@ -289,6 +1114,171 @@
           "port": 62006
         },
         {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
           "node_id": "S1N1",
           "host": "${INSTANCE1_IP}",
           "port": 62000
@@ -336,6 +1326,7233 @@
           "node_id": "S3N6",
           "host": "${INSTANCE3_IP}",
           "port": 62005
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N8",
+      "host": "0.0.0.0",
+      "port": 62007,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N9",
+      "host": "0.0.0.0",
+      "port": 62008,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N10",
+      "host": "0.0.0.0",
+      "port": 62009,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N11",
+      "host": "0.0.0.0",
+      "port": 62010,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N12",
+      "host": "0.0.0.0",
+      "port": 62011,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N13",
+      "host": "0.0.0.0",
+      "port": 62012,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N14",
+      "host": "0.0.0.0",
+      "port": 62013,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N15",
+      "host": "0.0.0.0",
+      "port": 62014,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N16",
+      "host": "0.0.0.0",
+      "port": 62015,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N17",
+      "host": "0.0.0.0",
+      "port": 62016,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N18",
+      "host": "0.0.0.0",
+      "port": 62017,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N19",
+      "host": "0.0.0.0",
+      "port": 62018,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N20",
+      "host": "0.0.0.0",
+      "port": 62019,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N21",
+      "host": "0.0.0.0",
+      "port": 62020,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N22",
+      "host": "0.0.0.0",
+      "port": 62021,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N23",
+      "host": "0.0.0.0",
+      "port": 62022,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N24",
+      "host": "0.0.0.0",
+      "port": 62023,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N25",
+      "host": "0.0.0.0",
+      "port": 62024,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N26",
+      "host": "0.0.0.0",
+      "port": 62025,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N27",
+      "host": "0.0.0.0",
+      "port": 62026,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N28",
+      "host": "0.0.0.0",
+      "port": 62027,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N29",
+      "host": "0.0.0.0",
+      "port": 62028,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N30",
+      "host": "0.0.0.0",
+      "port": 62029,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N31",
+      "host": "0.0.0.0",
+      "port": 62030,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N32",
+      "host": "0.0.0.0",
+      "port": 62031,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N33",
+      "host": "0.0.0.0",
+      "port": 62032,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N34",
+      "host": "0.0.0.0",
+      "port": 62033,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N35",
+      "host": "0.0.0.0",
+      "port": 62034,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N36",
+      "host": "0.0.0.0",
+      "port": 62035,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N37",
+      "host": "0.0.0.0",
+      "port": 62036,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N38",
+      "host": "0.0.0.0",
+      "port": 62037,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N39",
+      "host": "0.0.0.0",
+      "port": 62038,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N40",
+          "host": "${INSTANCE3_IP}",
+          "port": 62039
+        },
+        {
+          "node_id": "S1N1",
+          "host": "${INSTANCE1_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S2N1",
+          "host": "${INSTANCE2_IP}",
+          "port": 62000
+        }
+      ]
+    },
+    {
+      "node_id": "S3N40",
+      "host": "0.0.0.0",
+      "port": 62039,
+      "storage_kb": 8192,
+      "bootstrap": "none",
+      "peers": [
+        {
+          "node_id": "S3N1",
+          "host": "${INSTANCE3_IP}",
+          "port": 62000
+        },
+        {
+          "node_id": "S3N2",
+          "host": "${INSTANCE3_IP}",
+          "port": 62001
+        },
+        {
+          "node_id": "S3N3",
+          "host": "${INSTANCE3_IP}",
+          "port": 62002
+        },
+        {
+          "node_id": "S3N4",
+          "host": "${INSTANCE3_IP}",
+          "port": 62003
+        },
+        {
+          "node_id": "S3N5",
+          "host": "${INSTANCE3_IP}",
+          "port": 62004
+        },
+        {
+          "node_id": "S3N6",
+          "host": "${INSTANCE3_IP}",
+          "port": 62005
+        },
+        {
+          "node_id": "S3N7",
+          "host": "${INSTANCE3_IP}",
+          "port": 62006
+        },
+        {
+          "node_id": "S3N8",
+          "host": "${INSTANCE3_IP}",
+          "port": 62007
+        },
+        {
+          "node_id": "S3N9",
+          "host": "${INSTANCE3_IP}",
+          "port": 62008
+        },
+        {
+          "node_id": "S3N10",
+          "host": "${INSTANCE3_IP}",
+          "port": 62009
+        },
+        {
+          "node_id": "S3N11",
+          "host": "${INSTANCE3_IP}",
+          "port": 62010
+        },
+        {
+          "node_id": "S3N12",
+          "host": "${INSTANCE3_IP}",
+          "port": 62011
+        },
+        {
+          "node_id": "S3N13",
+          "host": "${INSTANCE3_IP}",
+          "port": 62012
+        },
+        {
+          "node_id": "S3N14",
+          "host": "${INSTANCE3_IP}",
+          "port": 62013
+        },
+        {
+          "node_id": "S3N15",
+          "host": "${INSTANCE3_IP}",
+          "port": 62014
+        },
+        {
+          "node_id": "S3N16",
+          "host": "${INSTANCE3_IP}",
+          "port": 62015
+        },
+        {
+          "node_id": "S3N17",
+          "host": "${INSTANCE3_IP}",
+          "port": 62016
+        },
+        {
+          "node_id": "S3N18",
+          "host": "${INSTANCE3_IP}",
+          "port": 62017
+        },
+        {
+          "node_id": "S3N19",
+          "host": "${INSTANCE3_IP}",
+          "port": 62018
+        },
+        {
+          "node_id": "S3N20",
+          "host": "${INSTANCE3_IP}",
+          "port": 62019
+        },
+        {
+          "node_id": "S3N21",
+          "host": "${INSTANCE3_IP}",
+          "port": 62020
+        },
+        {
+          "node_id": "S3N22",
+          "host": "${INSTANCE3_IP}",
+          "port": 62021
+        },
+        {
+          "node_id": "S3N23",
+          "host": "${INSTANCE3_IP}",
+          "port": 62022
+        },
+        {
+          "node_id": "S3N24",
+          "host": "${INSTANCE3_IP}",
+          "port": 62023
+        },
+        {
+          "node_id": "S3N25",
+          "host": "${INSTANCE3_IP}",
+          "port": 62024
+        },
+        {
+          "node_id": "S3N26",
+          "host": "${INSTANCE3_IP}",
+          "port": 62025
+        },
+        {
+          "node_id": "S3N27",
+          "host": "${INSTANCE3_IP}",
+          "port": 62026
+        },
+        {
+          "node_id": "S3N28",
+          "host": "${INSTANCE3_IP}",
+          "port": 62027
+        },
+        {
+          "node_id": "S3N29",
+          "host": "${INSTANCE3_IP}",
+          "port": 62028
+        },
+        {
+          "node_id": "S3N30",
+          "host": "${INSTANCE3_IP}",
+          "port": 62029
+        },
+        {
+          "node_id": "S3N31",
+          "host": "${INSTANCE3_IP}",
+          "port": 62030
+        },
+        {
+          "node_id": "S3N32",
+          "host": "${INSTANCE3_IP}",
+          "port": 62031
+        },
+        {
+          "node_id": "S3N33",
+          "host": "${INSTANCE3_IP}",
+          "port": 62032
+        },
+        {
+          "node_id": "S3N34",
+          "host": "${INSTANCE3_IP}",
+          "port": 62033
+        },
+        {
+          "node_id": "S3N35",
+          "host": "${INSTANCE3_IP}",
+          "port": 62034
+        },
+        {
+          "node_id": "S3N36",
+          "host": "${INSTANCE3_IP}",
+          "port": 62035
+        },
+        {
+          "node_id": "S3N37",
+          "host": "${INSTANCE3_IP}",
+          "port": 62036
+        },
+        {
+          "node_id": "S3N38",
+          "host": "${INSTANCE3_IP}",
+          "port": 62037
+        },
+        {
+          "node_id": "S3N39",
+          "host": "${INSTANCE3_IP}",
+          "port": 62038
         },
         {
           "node_id": "S1N1",
