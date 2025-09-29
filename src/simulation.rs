@@ -114,42 +114,12 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
         }
     }
 
-    let observer_id = String::from("OBS0");
-    let observer_port = current_port;
-    let mut observer_cmd = Command::new(&current_exe);
-    observer_cmd
-        .arg("observer")
-        .arg(observer_id.clone())
-        .arg(host.clone())
-        .arg(observer_port.to_string())
-        .arg(bootstrap_addr.to_string())
-        .env("P2P_SIM_CONFIG", config_json.clone());
-    match observer_cmd.spawn() {
-        Ok(child) => {
-            log_msg(
-                "INFO",
-                "SIMULATOR",
-                Some(String::from("MAIN")),
-                &format!("已启动观察者节点 {} 于端口 {}", observer_id, observer_port),
-            );
-            children.push((String::from("observer"), child));
-        }
-        Err(e) => {
-            log_msg(
-                "ERROR",
-                "SIMULATOR",
-                Some(String::from("MAIN")),
-                &format!("启动观察者节点失败: {}", e),
-            );
-        }
-    }
-
     log_msg(
         "INFO",
         "SIMULATOR",
         Some(String::from("MAIN")),
         &format!(
-            "已启动 {} 个存储节点、{} 个用户节点和 1 个观察者节点。",
+            "已启动 {} 个存储节点和 {} 个用户节点 (观察者角色已禁用)。",
             config.num_nodes, config.num_file_owners
         ),
     );
@@ -368,47 +338,13 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
         }
     }
 
-    if let Some(observer_cfg) = config.observer.as_ref() {
-        let bootstrap = if let Some(override_bootstrap) = observer_cfg.bootstrap.as_ref() {
-            normalize_bootstrap_addr(override_bootstrap, false)?
-        } else {
-            default_bootstrap.clone()
-        };
+    if config.observer.is_some() {
         log_msg(
-            "INFO",
+            "WARN",
             "DEPLOY",
-            Some(observer_cfg.observer_id.clone()),
-            &format!(
-                "观察者节点监听 {}:{}，连接引导节点 {}",
-                observer_cfg.host, observer_cfg.port, bootstrap
-            ),
+            Some(String::from("CONFIG")),
+            "检测到观察者配置，但观察者角色已禁用，此配置将被忽略。",
         );
-        let mut cmd = Command::new(&current_exe);
-        cmd.arg("observer")
-            .arg(observer_cfg.observer_id.clone())
-            .arg(observer_cfg.host.clone())
-            .arg(observer_cfg.port.to_string())
-            .arg(bootstrap)
-            .env("P2P_SIM_CONFIG", config_json);
-        match cmd.spawn() {
-            Ok(child) => {
-                log_msg(
-                    "INFO",
-                    "DEPLOY",
-                    Some(observer_cfg.observer_id.clone()),
-                    &format!("已启动观察者进程，PID = {}", child.id()),
-                );
-                children.push((String::from("observer"), child));
-            }
-            Err(e) => {
-                log_msg(
-                    "ERROR",
-                    "DEPLOY",
-                    Some(observer_cfg.observer_id.clone()),
-                    &format!("启动观察者节点失败: {e}"),
-                );
-            }
-        }
     }
 
     let running = Arc::new(AtomicBool::new(true));
@@ -641,7 +577,14 @@ where
 
     let owner = FileOwner::new(owner_id, config.chunk_size);
     // --- 将新的 advertise_host 传给构造函数 ---
-    let user = Box::new(UserNode::new(owner, host, advertise_host, port, bootstrap, config.clone()));
+    let user = Box::new(UserNode::new(
+        owner,
+        host,
+        advertise_host,
+        port,
+        bootstrap,
+        config.clone(),
+    ));
     // ----------------------------------------
     user.run();
 }

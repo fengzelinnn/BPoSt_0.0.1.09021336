@@ -4,8 +4,7 @@ use bpst::config::{DeploymentConfig, P2PSimConfig};
 use bpst::utils::init_logging;
 // 引入 bpst 项目中的 simulation 模块，包含运行节点、用户进程和P2P模拟的功能
 use bpst::simulation::{
-    run_deployment, run_node_process_from_args, run_observer_process_from_args, run_p2p_simulation,
-    run_user_process_from_args,
+    run_deployment, run_node_process_from_args, run_p2p_simulation, run_user_process_from_args,
 };
 use log::error;
 
@@ -33,10 +32,6 @@ fn main() {
                 // 从参数运行用户进程
                 run_user_process_from_args(args);
                 // 结束程序
-                return;
-            }
-            "observer" => {
-                run_observer_process_from_args(args);
                 return;
             }
             "deploy" => {
