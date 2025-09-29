@@ -59,10 +59,28 @@ fn domain_to_field(domain: &[u8]) -> Fr {
 
 static LOGGER_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static LOGGER_GUARD: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+fn resolve_log_path() -> PathBuf {
+    if let Ok(path) = std::env::var("BPST_LOG_PATH") {
+        return PathBuf::from(path);
+    }
+    if let Ok(path) = std::env::var("BPOST_LOG_PATH") {
+        // 兼容旧的环境变量名称
+        return PathBuf::from(path);
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bpst.log")
+}
+
 static LOG_FILE: Lazy<Mutex<std::fs::File>> = Lazy::new(|| {
-    let path = std::env::var("BPOST_LOG_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("bpst.log"));
+    let path = resolve_log_path();
+    if let Some(parent) = path.parent() {
+        if let Err(err) = std::fs::create_dir_all(parent) {
+            panic!(
+                "failed to create log directory {}: {}",
+                parent.display(),
+                err
+            );
+        }
+    }
     let file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -316,10 +334,24 @@ impl log::Log for SimpleLogger {
     fn log(&self, record: &Record<'_>) {
         if self.enabled(record.metadata()) {
             let timestamp = Local::now();
+            let module = record.module_path().unwrap_or_else(|| record.target());
+            let file = record.file().unwrap_or("unknown");
+            let line = record
+                .line()
+                .map(|line| line.to_string())
+                .unwrap_or_else(|| String::from("-"));
+            let thread = std::thread::current();
+            let thread_name = thread.name().unwrap_or("unnamed");
+            let thread_id = format!("{:?}", thread.id());
             let formatted = format!(
-                "{} {:<5} - {}",
+                "{} {:<5} [{}:{}:{}] [thread {} {}] - {}",
                 timestamp.format("%Y-%m-%d %H:%M:%S%.6f"),
                 record.level(),
+                module,
+                file,
+                line,
+                thread_name,
+                thread_id,
                 record.args()
             );
             println!("{}", formatted);
@@ -342,7 +374,7 @@ pub fn init_logging() {
     if !LOGGER_INITIALIZED.load(Ordering::SeqCst) {
         Lazy::force(&LOG_FILE);
         log::set_logger(&LOGGER).expect("logger already set");
-        log::set_max_level(LevelFilter::Debug);
+        log::set_max_level(LevelFilter::Trace);
         LOGGER_INITIALIZED.store(true, Ordering::SeqCst);
     }
 }
