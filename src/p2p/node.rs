@@ -1,6 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque}; // 集合类型
-use std::io::{BufRead, BufReader, Write}; // IO 操作
-use std::net::{SocketAddr, TcpListener, TcpStream}; // 网络地址和TCP流
+use std::io::{self, BufRead, BufReader, Write}; // IO 操作
+use std::net::{SocketAddr, TcpListener, TcpStream as StdTcpStream}; // 网络地址和TCP流
 use std::sync::atomic::{AtomicBool, Ordering}; // 原子布尔值，用于线程安全地停止节点
 use std::sync::Arc; // 原子引用计数，用于多线程共享数据
 use std::thread; // 线程操作
@@ -12,9 +12,15 @@ use num_traits::{ops::checked::CheckedSub, Zero};
 use rand::Rng; // 随机数生成
 use serde::{Deserialize, Serialize}; // 序列化和反序列化
 use serde_json::{Map, Value}; // JSON处理
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+use tokio::net::TcpStream as TokioTcpStream;
+use tokio::runtime::{Builder as TokioRuntimeBuilder, Runtime as TokioRuntime};
+use tokio::time::{sleep as tokio_sleep, timeout};
 
 use ark_bn254::{G1Affine, G2Affine}; // BN254椭圆曲线上的点
 use ark_ec::AffineRepr; // 椭圆曲线点的仿射表示
+
+use once_cell::sync::Lazy;
 
 // 导入项目内部模块
 use crate::common::datastructures::{
@@ -30,6 +36,14 @@ use crate::utils::{build_merkle_tree, h_join, log_msg, with_cpu_heavy_limit}; //
 
 pub const DEFAULT_DIFFICULTY_HEX: &str =
     "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+
+static TOKIO_RUNTIME: Lazy<TokioRuntime> = Lazy::new(|| {
+    TokioRuntimeBuilder::new_multi_thread()
+        .thread_name("bpst-async")
+        .enable_all()
+        .build()
+        .expect("failed to build Tokio runtime")
+});
 
 /// 节点状态报告结构体，用于向外部报告节点的当前状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -227,7 +241,7 @@ impl Node {
         listener.set_nonblocking(true).expect("set nonblocking");
 
         // 创建一个通道用于从监听线程接收新的TCP连接
-        let (conn_tx, conn_rx) = unbounded::<TcpStream>();
+        let (conn_tx, conn_rx) = unbounded::<StdTcpStream>();
         let listener_stop = Arc::clone(&self.stop_flag);
         let node_id_for_thread = self.node_id.clone();
 
@@ -374,7 +388,7 @@ impl Node {
     }
 
     /// 处理单个TCP连接
-    fn handle_connection(&mut self, stream: TcpStream) -> std::io::Result<()> {
+    fn handle_connection(&mut self, stream: StdTcpStream) -> std::io::Result<()> {
         // Windows sockets inherit the listener's non-blocking flag. Force the
         // per-connection stream back into blocking mode before layering
         // timeouts so that synchronous reads/writes behave consistently with
@@ -1903,83 +1917,119 @@ fn parse_announce(data: &Value) -> Option<(String, SocketAddr)> {
     Some((node_id, SocketAddr::new(host.parse().ok()?, port)))
 }
 
-/// 异步发送JSON行数据，不等待响应
+/// 异步发送JSON行数据，并忽略响应结果
 pub fn send_json_line_without_response(addr: SocketAddr, payload: &Value) -> bool {
     let payload_clone = payload.clone();
-    thread::spawn(move || {
-        let _ = send_json_line(addr, &payload_clone);
+    TOKIO_RUNTIME.spawn(async move {
+        let _ = send_json_line_async(addr, payload_clone).await;
     });
     true
 }
 
 /// 同步发送JSON行数据，并等待响应
 pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
-    let payload_bytes = serde_json::to_vec(payload).ok()?;
-    let max_attempts = 5;
+    let payload_clone = payload.clone();
+    TOKIO_RUNTIME.block_on(send_json_line_async(addr, payload_clone))
+}
+
+async fn send_json_line_async(addr: SocketAddr, payload: Value) -> Option<Value> {
+    let payload_bytes = serde_json::to_vec(&payload).ok()?;
+    let max_attempts = 5usize;
     let connect_timeout = Duration::from_secs(2);
+    let write_timeout = Duration::from_secs(8);
+    let read_timeout = Duration::from_secs(30);
 
     for attempt in 0..max_attempts {
-        match TcpStream::connect_timeout(&addr, connect_timeout) {
-            Ok(mut stream) => {
-                let _ = stream.set_write_timeout(Some(Duration::from_secs(8)));
-                // Verifying the Nova proof can be CPU intensive on the user
-                // side, especially on Windows. Allow a generous timeout while
-                // we wait for the response so we do not abort the exchange
-                // prematurely.
-                let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
-                if stream.write_all(&payload_bytes).is_err() {
+        let mut stream = match timeout(connect_timeout, TokioTcpStream::connect(addr)).await {
+            Ok(Ok(stream)) => stream,
+            Ok(Err(err)) => {
+                if attempt + 1 >= max_attempts || !is_retryable_error(err.kind()) {
                     return None;
                 }
-                if stream.write_all(b"\n").is_err() {
-                    return None;
-                }
-
-                let mut reader = BufReader::new(stream);
-                let mut line = String::new();
-
-                match reader.read_line(&mut line) {
-                    Ok(0) => return None,
-                    Ok(_) => return serde_json::from_str(&line).ok(),
-                    Err(err) => {
-                        let should_retry = matches!(
-                            err.kind(),
-                            std::io::ErrorKind::TimedOut
-                                | std::io::ErrorKind::WouldBlock
-                                | std::io::ErrorKind::Interrupted
-                                | std::io::ErrorKind::ConnectionReset
-                                | std::io::ErrorKind::ConnectionAborted
-                                | std::io::ErrorKind::BrokenPipe
-                        );
-
-                        if attempt + 1 >= max_attempts || !should_retry {
-                            return None;
-                        }
-
-                        let backoff_ms = 200 * (attempt as u64 + 1);
-                        thread::sleep(Duration::from_millis(backoff_ms));
-                        continue;
-                    }
-                }
+                tokio_sleep(backoff_duration(attempt)).await;
+                continue;
             }
-            Err(err) => {
-                let should_retry = matches!(
-                    err.kind(),
-                    std::io::ErrorKind::TimedOut
-                        | std::io::ErrorKind::WouldBlock
-                        | std::io::ErrorKind::ConnectionRefused
-                        | std::io::ErrorKind::ConnectionReset
-                        | std::io::ErrorKind::ConnectionAborted
-                );
-
-                if attempt + 1 >= max_attempts || !should_retry {
+            Err(_) => {
+                if attempt + 1 >= max_attempts {
                     return None;
                 }
+                tokio_sleep(backoff_duration(attempt)).await;
+                continue;
+            }
+        };
 
-                let backoff_ms = 200 * (attempt as u64 + 1);
-                thread::sleep(Duration::from_millis(backoff_ms));
+        match timeout(write_timeout, stream.write_all(&payload_bytes)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                if attempt + 1 >= max_attempts || !is_retryable_error(err.kind()) {
+                    return None;
+                }
+                tokio_sleep(backoff_duration(attempt)).await;
+                continue;
+            }
+            Err(_) => {
+                if attempt + 1 >= max_attempts {
+                    return None;
+                }
+                tokio_sleep(backoff_duration(attempt)).await;
+                continue;
+            }
+        }
+
+        match timeout(write_timeout, stream.write_all(b"\n")).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                if attempt + 1 >= max_attempts || !is_retryable_error(err.kind()) {
+                    return None;
+                }
+                tokio_sleep(backoff_duration(attempt)).await;
+                continue;
+            }
+            Err(_) => {
+                if attempt + 1 >= max_attempts {
+                    return None;
+                }
+                tokio_sleep(backoff_duration(attempt)).await;
+                continue;
+            }
+        }
+
+        let mut reader = TokioBufReader::new(stream);
+        let mut line = String::new();
+        match timeout(read_timeout, reader.read_line(&mut line)).await {
+            Ok(Ok(0)) => return None,
+            Ok(Ok(_)) => return serde_json::from_str(&line).ok(),
+            Ok(Err(err)) => {
+                if attempt + 1 >= max_attempts || !is_retryable_error(err.kind()) {
+                    return None;
+                }
+                tokio_sleep(backoff_duration(attempt)).await;
+            }
+            Err(_) => {
+                if attempt + 1 >= max_attempts {
+                    return None;
+                }
+                tokio_sleep(backoff_duration(attempt)).await;
             }
         }
     }
 
     None
+}
+
+fn backoff_duration(attempt: usize) -> Duration {
+    Duration::from_millis(200 * (attempt as u64 + 1))
+}
+
+fn is_retryable_error(kind: io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        io::ErrorKind::TimedOut
+            | io::ErrorKind::WouldBlock
+            | io::ErrorKind::Interrupted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionRefused
+    )
 }
