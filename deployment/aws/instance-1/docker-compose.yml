@@ -3,6 +3,7 @@ services:
     image: fengzelinn/bpost:latest
     container_name: bpst-cluster
     environment:
+      BPST_ADVERTISE_IP: ${INSTANCE1_IP}
       BPST_CONFIG_TEMPLATE: /etc/bpst/config.template.json
       BPST_CONFIG_OUTPUT: /etc/bpst/deployment.json
       BPST_CONFIG: /etc/bpst/deployment.json
