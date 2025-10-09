@@ -292,7 +292,7 @@
     },
     {
       "node_id": "S29N2",
-      "host": "${INSTANCE29_IP}",
+      "host": "0.0.0.0",
       "port": 62001,
       "peers": [
         {
@@ -574,7 +574,7 @@
     },
     {
       "node_id": "S29N3",
-      "host": "${INSTANCE29_IP}",
+      "host": "0.0.0.0",
       "port": 62002,
       "peers": [
         {
@@ -856,7 +856,7 @@
     },
     {
       "node_id": "S29N4",
-      "host": "${INSTANCE29_IP}",
+      "host": "0.0.0.0",
       "port": 62003,
       "peers": [
         {
@@ -1138,7 +1138,7 @@
     },
     {
       "node_id": "S29N5",
-      "host": "${INSTANCE29_IP}",
+      "host": "0.0.0.0",
       "port": 62004,
       "peers": [
         {
@@ -1420,7 +1420,7 @@
     },
     {
       "node_id": "S29N6",
-      "host": "${INSTANCE29_IP}",
+      "host": "0.0.0.0",
       "port": 62005,
       "peers": [
         {
@@ -1702,7 +1702,7 @@
     },
     {
       "node_id": "S29N7",
-      "host": "${INSTANCE29_IP}",
+      "host": "0.0.0.0",
       "port": 62006,
       "peers": [
         {

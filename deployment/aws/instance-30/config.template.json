@@ -292,7 +292,7 @@
     },
     {
       "node_id": "S30N2",
-      "host": "${INSTANCE30_IP}",
+      "host": "0.0.0.0",
       "port": 62001,
       "peers": [
         {
@@ -574,7 +574,7 @@
     },
     {
       "node_id": "S30N3",
-      "host": "${INSTANCE30_IP}",
+      "host": "0.0.0.0",
       "port": 62002,
       "peers": [
         {
@@ -856,7 +856,7 @@
     },
     {
       "node_id": "S30N4",
-      "host": "${INSTANCE30_IP}",
+      "host": "0.0.0.0",
       "port": 62003,
       "peers": [
         {
@@ -1138,7 +1138,7 @@
     },
     {
       "node_id": "S30N5",
-      "host": "${INSTANCE30_IP}",
+      "host": "0.0.0.0",
       "port": 62004,
       "peers": [
         {
@@ -1420,7 +1420,7 @@
     },
     {
       "node_id": "S30N6",
-      "host": "${INSTANCE30_IP}",
+      "host": "0.0.0.0",
       "port": 62005,
       "peers": [
         {
@@ -1702,7 +1702,7 @@
     },
     {
       "node_id": "S30N7",
-      "host": "${INSTANCE30_IP}",
+      "host": "0.0.0.0",
       "port": 62006,
       "peers": [
         {
