@@ -11,7 +11,7 @@
       "host": "0.0.0.0",
       "port": 62000,
       "storage_kb": 8192,
-      "bootstrap": "none",
+      "bootstrap": "${INSTANCE1_IP}:62000",
       "peers": [
         {
           "node_id": "S8N2",
@@ -570,7 +570,8 @@
           "host": "${INSTANCE50_IP}",
           "port": 62000
         }
-      ]
+      ],
+      "bootstrap": "${INSTANCE1_IP}:62000"
     },
     {
       "node_id": "S8N3",
@@ -852,7 +853,8 @@
           "host": "${INSTANCE50_IP}",
           "port": 62000
         }
-      ]
+      ],
+      "bootstrap": "${INSTANCE1_IP}:62000"
     },
     {
       "node_id": "S8N4",
@@ -1134,7 +1136,8 @@
           "host": "${INSTANCE50_IP}",
           "port": 62000
         }
-      ]
+      ],
+      "bootstrap": "${INSTANCE1_IP}:62000"
     },
     {
       "node_id": "S8N5",
@@ -1416,7 +1419,8 @@
           "host": "${INSTANCE50_IP}",
           "port": 62000
         }
-      ]
+      ],
+      "bootstrap": "${INSTANCE1_IP}:62000"
     },
     {
       "node_id": "S8N6",
@@ -1698,7 +1702,8 @@
           "host": "${INSTANCE50_IP}",
           "port": 62000
         }
-      ]
+      ],
+      "bootstrap": "${INSTANCE1_IP}:62000"
     },
     {
       "node_id": "S8N7",
@@ -1980,7 +1985,8 @@
           "host": "${INSTANCE50_IP}",
           "port": 62000
         }
-      ]
+      ],
+      "bootstrap": "${INSTANCE1_IP}:62000"
     }
   ],
   "users": [
@@ -1988,7 +1994,7 @@
       "user_id": "U8",
       "host": "0.0.0.0",
       "port": 62100,
-      "bootstrap": "${INSTANCE8_IP}:62000"
+      "bootstrap": "${INSTANCE1_IP}:62000"
     }
   ]
 }
