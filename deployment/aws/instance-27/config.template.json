@@ -292,7 +292,7 @@
     },
     {
       "node_id": "S27N2",
-      "host": "${INSTANCE27_IP}",
+      "host": "0.0.0.0",
       "port": 62001,
       "peers": [
         {
@@ -574,7 +574,7 @@
     },
     {
       "node_id": "S27N3",
-      "host": "${INSTANCE27_IP}",
+      "host": "0.0.0.0",
       "port": 62002,
       "peers": [
         {
@@ -856,7 +856,7 @@
     },
     {
       "node_id": "S27N4",
-      "host": "${INSTANCE27_IP}",
+      "host": "0.0.0.0",
       "port": 62003,
       "peers": [
         {
@@ -1138,7 +1138,7 @@
     },
     {
       "node_id": "S27N5",
-      "host": "${INSTANCE27_IP}",
+      "host": "0.0.0.0",
       "port": 62004,
       "peers": [
         {
@@ -1420,7 +1420,7 @@
     },
     {
       "node_id": "S27N6",
-      "host": "${INSTANCE27_IP}",
+      "host": "0.0.0.0",
       "port": 62005,
       "peers": [
         {
@@ -1702,7 +1702,7 @@
     },
     {
       "node_id": "S27N7",
-      "host": "${INSTANCE27_IP}",
+      "host": "0.0.0.0",
       "port": 62006,
       "peers": [
         {
