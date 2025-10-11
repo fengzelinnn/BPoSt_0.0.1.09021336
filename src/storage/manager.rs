@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 
-use ark_bn254::{G1Projective, G2Projective};
+use ark_bn254::{Fr, G1Projective, G2Projective};
 use ark_ec::PrimeGroup;
 use num_bigint::BigUint;
 use parking_lot::Mutex;
@@ -11,9 +11,10 @@ use crate::crypto::deserialize_g2;
 use crate::crypto::folding::{
     block_validation_relaxed_r1cs, dpdp_verification_relaxed_r1cs, fr_to_padded_hex,
     state_update_relaxed_r1cs, NovaFinalProof, NovaFoldingCycle, NovaFoldingError, NovaRoundResult,
+    RelaxedR1CS,
 };
 use crate::storage::state::ServerStorage;
-use crate::utils::{h_join, sha256_hex};
+use crate::utils::{h_join, log_msg, sha256_hex};
 use serde_json::Value as JsonValue;
 
 type ChunkReplica = (Vec<u8>, Vec<u8>);
@@ -61,6 +62,7 @@ struct FileCycleState {
     challenge_size: usize,
     nova: NovaFoldingCycle,
     pending_rounds: VecDeque<StoredRoundRecord>,
+    round_history: Vec<(usize, Vec<RelaxedR1CS<Fr>>)>,
     final_artifact: Option<FinalFoldArtifact>,
     final_sent: bool,
     released: bool,
@@ -73,6 +75,7 @@ impl FileCycleState {
             challenge_size,
             nova: NovaFoldingCycle::new(storage_period),
             pending_rounds: VecDeque::new(),
+            round_history: Vec::new(),
             final_artifact: None,
             final_sent: false,
             released: false,
@@ -84,6 +87,8 @@ impl FileCycleState {
         result: NovaRoundResult,
         challenge: Vec<(usize, BigUint)>,
         proof: DPDPProof,
+        block_height: usize,
+        circuits: Vec<RelaxedR1CS<Fr>>,
     ) {
         self.pending_rounds.push_back(StoredRoundRecord {
             round: result.step_index,
@@ -91,6 +96,7 @@ impl FileCycleState {
             proof,
             accumulator: fr_to_padded_hex(&result.accumulator),
         });
+        self.round_history.push((block_height, circuits));
     }
 
     fn set_final_artifact(&mut self, proof: NovaFinalProof) {
@@ -105,6 +111,34 @@ impl FileCycleState {
 
     fn is_expired(&self) -> bool {
         self.final_artifact.is_some()
+    }
+
+    fn rollback_to_height(&mut self, target_height: usize) -> Result<usize, NovaFoldingError> {
+        let original_len = self.round_history.len();
+        self.round_history
+            .retain(|(height, _)| *height <= target_height);
+
+        if self.round_history.len() == original_len {
+            return Ok(0);
+        }
+
+        let removed = original_len - self.round_history.len();
+        let retained_rounds: Vec<Vec<RelaxedR1CS<Fr>>> = self
+            .round_history
+            .iter()
+            .map(|(_, circuits)| circuits.clone())
+            .collect();
+
+        self.nova = NovaFoldingCycle::new(self.storage_period);
+        self.pending_rounds.clear();
+        self.final_artifact = None;
+        self.final_sent = false;
+
+        for circuits in retained_rounds {
+            let _ = self.nova.absorb_round(circuits)?;
+        }
+
+        Ok(removed)
     }
 }
 
@@ -288,6 +322,34 @@ impl StorageManager {
     pub fn get_num_files(&self) -> usize {
         let inner = self.inner.lock();
         inner.file_completed.len()
+    }
+
+    pub fn rollback_to_height(&self, target_height: usize) {
+        let mut inner = self.inner.lock();
+        for (file_id, cycle) in inner.file_cycles.iter_mut() {
+            match cycle.rollback_to_height(target_height) {
+                Ok(removed) if removed > 0 => {
+                    log_msg(
+                        "INFO",
+                        "Nova",
+                        Some(self.node_id.clone()),
+                        &format!(
+                            "检测到链重组，文件 {} 的 Nova 折叠回退 {} 轮至高度 {}。",
+                            file_id, removed, target_height
+                        ),
+                    );
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    log_msg(
+                        "ERROR",
+                        "Nova",
+                        Some(self.node_id.clone()),
+                        &format!("文件 {} 在回退 Nova 折叠时失败: {}", file_id, err),
+                    );
+                }
+            }
+        }
     }
 
     pub fn list_file_ids(&self) -> Vec<String> {
@@ -550,23 +612,20 @@ impl StorageManager {
                 Some(self.node_id.clone()),
                 &format!("准备吸收文件 {} 的第 {} 个折叠轮次。", file_id, next_step),
             );
-            let result =
-                match cycle
-                    .nova
-                    .absorb_round(vec![dpdp_circuit, block_circuit, state_circuit])
-                {
-                    Ok(res) => res,
-                    Err(NovaFoldingError::CycleComplete) => return None,
-                    Err(err) => {
-                        crate::utils::log_msg(
-                            "ERROR",
-                            "Nova",
-                            Some(self.node_id.clone()),
-                            &format!("文件 {} 的 Nova 折叠失败: {}", file_id, err),
-                        );
-                        return None;
-                    }
-                };
+            let circuits = vec![dpdp_circuit, block_circuit, state_circuit];
+            let result = match cycle.nova.absorb_round(circuits.clone()) {
+                Ok(res) => res,
+                Err(NovaFoldingError::CycleComplete) => return None,
+                Err(err) => {
+                    crate::utils::log_msg(
+                        "ERROR",
+                        "Nova",
+                        Some(self.node_id.clone()),
+                        &format!("文件 {} 的 Nova 折叠失败: {}", file_id, err),
+                    );
+                    return None;
+                }
+            };
             crate::utils::log_msg(
                 "INFO",
                 "Nova",
@@ -579,7 +638,13 @@ impl StorageManager {
                 ),
             );
 
-            cycle.record_round(result.clone(), challenge.to_vec(), proof.clone());
+            cycle.record_round(
+                result.clone(),
+                challenge.to_vec(),
+                proof.clone(),
+                block.height as usize,
+                circuits,
+            );
 
             if result.step_index >= cycle.storage_period && cycle.final_artifact.is_none() {
                 crate::utils::log_msg(

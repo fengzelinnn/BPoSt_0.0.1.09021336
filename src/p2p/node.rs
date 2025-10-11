@@ -2021,6 +2021,10 @@ impl Node {
 
         self.stop_mining_thread();
 
+        if is_reorg {
+            self.storage_manager.rollback_to_height(prefix_len);
+        }
+
         while self.chain.blocks.len() > prefix_len {
             self.chain.blocks.pop();
         }
