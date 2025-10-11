@@ -193,15 +193,15 @@ impl Default for P2PSimConfig {
             chunk_size: 1024,
             min_file_kb: 16,
             max_file_kb: 24,
-            min_storage_nodes: 4,
-            max_storage_nodes: 8,
+            min_storage_nodes: 10,
+            max_storage_nodes: 30,
             base_port: 62000,
-            bobtail_k: 3,
+            bobtail_k: 40,
             min_storage_kb: 512,
             max_storage_kb: 2048,
-            bid_wait_sec: 20,
-            min_storage_rounds: 2,
-            max_storage_rounds: 3,
+            bid_wait_sec: 45,
+            min_storage_rounds: 20,
+            max_storage_rounds: 100,
         }
     }
 }
