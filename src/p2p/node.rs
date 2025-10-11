@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque}; // 集合类型
+use std::collections::{hash_map::Entry, BTreeMap, HashMap, HashSet, VecDeque}; // 集合类型
 use std::io::{self, BufRead, BufReader, Write}; // IO 操作
 use std::net::{SocketAddr, TcpListener, TcpStream as StdTcpStream}; // 网络地址和TCP流
 use std::sync::atomic::{AtomicBool, Ordering}; // 原子布尔值，用于线程安全地停止节点
@@ -7,8 +7,10 @@ use std::thread; // 线程操作
 use std::time::{Duration, Instant}; // 时间相关操作
 
 use crossbeam_channel::{unbounded, Receiver, Sender}; // 高性能的并发消息通道
+use futures::future::join_all;
 use num_bigint::BigUint; // 大整数处理
 use num_traits::{ops::checked::CheckedSub, Zero};
+use rand::seq::SliceRandom;
 use rand::Rng; // 随机数生成
 use serde::{Deserialize, Serialize}; // 序列化和反序列化
 use serde_json::{Map, Value}; // JSON处理
@@ -130,6 +132,12 @@ pub struct Node {
 
 impl Node {
     const MAX_SEEN_GOSSIP_IDS: usize = 50_000;
+    const GOSSIP_DEFAULT_TTL: u32 = 6;
+    const GOSSIP_FANOUT: usize = 4;
+    const MIN_ACTIVE_PEERS: usize = 3;
+    const MAX_ACTIVE_PEERS: usize = 24;
+    const BLOCK_DOWNLOAD_BATCH_SIZE: usize = 8;
+    const MAX_BLOCK_RANGE: usize = 64;
 
     fn has_seen_gossip(&self, gossip_id: &str) -> bool {
         self.seen_gossip_ids.contains(gossip_id)
@@ -283,6 +291,7 @@ impl Node {
 
         // 发现网络中的其他对等节点
         self.discover_peers();
+        self.sync_main_chain();
         // log_msg(
         //     "DEBUG",
         //     "NODE",
@@ -294,6 +303,8 @@ impl Node {
         let mut next_report = Instant::now() + Duration::from_secs(3); // 下次报告状态的时间
         let mut next_consensus =
             Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1000..2000)); // 下次尝试共识的时间
+        let mut next_peer_refresh = Instant::now() + Duration::from_secs(30);
+        let mut next_chain_sync = Instant::now() + Duration::from_secs(20);
 
         // 节点主循环
         while !self.stop_flag.load(Ordering::SeqCst) {
@@ -334,6 +345,16 @@ impl Node {
             }
 
             self.drain_mined_proofs();
+
+            if Instant::now() >= next_peer_refresh {
+                self.drop_unreachable_peers();
+                next_peer_refresh = Instant::now() + Duration::from_secs(30);
+            }
+
+            if Instant::now() >= next_chain_sync {
+                self.sync_main_chain();
+                next_chain_sync = Instant::now() + Duration::from_secs(20);
+            }
 
             // 3. 尝试共识
             if Instant::now() >= next_consensus {
@@ -477,6 +498,25 @@ impl Node {
                     extra: HashMap::new(),
                 }
             }
+            "chain_status" => {
+                let mut extra = HashMap::new();
+                extra.insert(
+                    String::from("height"),
+                    Value::from(self.chain.height() as u64),
+                );
+                extra.insert(String::from("head"), Value::from(self.chain.last_hash()));
+                CommandResponse {
+                    ok: true,
+                    error: None,
+                    extra,
+                }
+            }
+            "get_block_range" => self.handle_get_block_range(&req.data),
+            "ping" => CommandResponse {
+                ok: true,
+                error: None,
+                extra: HashMap::new(),
+            },
             "chunk_distribute" => self.handle_chunk_distribute(&req.data), // 处理文件块分发
             "finalize_storage" => {
                 // 完成文件存储的提交阶段
@@ -778,74 +818,14 @@ impl Node {
                 "INFO",
                 "P2P_DISCOVERY",
                 Some(self.node_id.clone()),
-                &format!("已加载 {} 个静态配置的对等节点。", self.peers.len()),
+                &format!("已加载 {} 个初始对等节点记录。", self.peers.len()),
             );
-            return;
         }
 
         if let Some(bootstrap) = self.bootstrap_addr {
-            // 如果有引导节点地址，则联系引导节点
-            log_msg(
-                "DEBUG",
-                "P2P_DISCOVERY",
-                Some(self.node_id.clone()),
-                &format!("联系引导节点 {}...", bootstrap),
-            );
-            // 1. 向引导节点宣告自己的存在
-            let _ = send_json_line(
-                bootstrap,
-                &serde_json::json!({
-                    "cmd": "announce",
-                    "data": {
-                        "node_id": self.node_id,
-                        "host": self.host,
-                        "port": self.port,
-                    }
-                }),
-            );
-            // 2. 从引导节点获取已知的对等节点列表
-            if let Some(resp) = send_json_line(
-                bootstrap,
-                &serde_json::json!({"cmd": "get_peers", "data": {}}),
-            ) {
-                if resp.get("ok").and_then(Value::as_bool).unwrap_or(false) {
-                    if let Some(map) = resp.get("peers").and_then(Value::as_object) {
-                        for (nid, addr_val) in map {
-                            if nid == &self.node_id {
-                                continue;
-                            }
-                            // 解析地址并添加到自己的对等节点列表中
-                            if let Some(addr_arr) = addr_val.as_array() {
-                                if addr_arr.len() == 2 {
-                                    if let (Some(host), Some(port)) = (
-                                        addr_arr.first().and_then(Value::as_str),
-                                        addr_arr.get(1).and_then(Value::as_u64),
-                                    ) {
-                                        if let Ok(ip) = host.parse() {
-                                            let addr = SocketAddr::new(ip, port as u16);
-                                            self.peers.insert(nid.clone(), addr);
-                                            continue;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(addr_str) = addr_val.as_str() {
-                                if let Ok(addr) = addr_str.parse() {
-                                    self.peers.insert(nid.clone(), addr);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            log_msg(
-                "INFO",
-                "P2P_DISCOVERY",
-                Some(self.node_id.clone()),
-                &format!("发现了 {} 个初始对等节点。", self.peers.len()),
-            );
-        } else {
+            let initial = self.peers.is_empty();
+            self.fetch_peers_from_bootstrap(bootstrap, initial);
+        } else if self.peers.is_empty() {
             // 如果没有引导节点地址，则自己作为引导节点运行
             log_msg(
                 "DEBUG",
@@ -854,6 +834,305 @@ impl Node {
                 "作为引导节点运行。",
             );
         }
+
+        self.prune_peer_set();
+        self.drop_unreachable_peers();
+    }
+
+    fn fetch_peers_from_bootstrap(&mut self, bootstrap: SocketAddr, initial: bool) {
+        let announce_payload = serde_json::json!({
+            "cmd": "announce",
+            "data": {
+                "node_id": self.node_id,
+                "host": self.host,
+                "port": self.port,
+            }
+        });
+
+        if initial {
+            log_msg(
+                "DEBUG",
+                "P2P_DISCOVERY",
+                Some(self.node_id.clone()),
+                &format!("联系引导节点 {} 以获取初始对等节点...", bootstrap),
+            );
+        } else {
+            log_msg(
+                "DEBUG",
+                "P2P_DISCOVERY",
+                Some(self.node_id.clone()),
+                &format!("向引导节点 {} 请求最新对等节点列表...", bootstrap),
+            );
+        }
+
+        let _ = send_json_line(bootstrap, &announce_payload);
+        let before = self.peers.len();
+        if let Some(resp) = send_json_line(
+            bootstrap,
+            &serde_json::json!({"cmd": "get_peers", "data": {}}),
+        ) {
+            if resp.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+                if let Some(map) = resp.get("peers").and_then(Value::as_object) {
+                    for (nid, addr_val) in map {
+                        if nid == &self.node_id {
+                            continue;
+                        }
+                        if let Some(addr_arr) = addr_val.as_array() {
+                            if addr_arr.len() == 2 {
+                                if let (Some(host), Some(port)) = (
+                                    addr_arr.first().and_then(Value::as_str),
+                                    addr_arr.get(1).and_then(Value::as_u64),
+                                ) {
+                                    if let Ok(ip) = host.parse() {
+                                        self.peers
+                                            .insert(nid.clone(), SocketAddr::new(ip, port as u16));
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(addr_str) = addr_val.as_str() {
+                            if let Ok(addr) = addr_str.parse() {
+                                self.peers.insert(nid.clone(), addr);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let after = self.peers.len();
+        if after > before {
+            log_msg(
+                "INFO",
+                "P2P_DISCOVERY",
+                Some(self.node_id.clone()),
+                &format!(
+                    "当前已知 {} 个对等节点（新增 {} 个）。",
+                    after,
+                    after - before
+                ),
+            );
+        }
+    }
+
+    fn prune_peer_set(&mut self) {
+        if self.peers.len() <= Self::MAX_ACTIVE_PEERS {
+            return;
+        }
+        let bootstrap_addr = self.bootstrap_addr;
+        let mut entries: Vec<(String, SocketAddr)> = self
+            .peers
+            .iter()
+            .map(|(id, addr)| (id.clone(), *addr))
+            .collect();
+        let mut keep: HashSet<String> = HashSet::new();
+        if let Some(addr) = bootstrap_addr {
+            if let Some((id, _)) = entries.iter().find(|(_, peer_addr)| *peer_addr == addr) {
+                keep.insert(id.clone());
+            }
+        }
+        entries.retain(|(id, _)| !keep.contains(id));
+        entries.shuffle(&mut rand::thread_rng());
+        for (id, _) in entries.into_iter() {
+            if keep.len() >= Self::MAX_ACTIVE_PEERS {
+                break;
+            }
+            keep.insert(id);
+        }
+        self.peers
+            .retain(|node_id, addr| keep.contains(node_id) || Some(*addr) == bootstrap_addr);
+    }
+
+    fn drop_unreachable_peers(&mut self) {
+        if self.peers.is_empty() {
+            return;
+        }
+        let snapshot: Vec<(String, SocketAddr)> = self
+            .peers
+            .iter()
+            .map(|(id, addr)| (id.clone(), *addr))
+            .collect();
+        let mut removed = Vec::new();
+        for (peer_id, addr) in snapshot {
+            if peer_id == self.node_id {
+                continue;
+            }
+            let ping = serde_json::json!({
+                "cmd": "ping",
+                "data": {"from": self.node_id.clone()},
+            });
+            let reachable = send_json_line(addr, &ping)
+                .and_then(|resp| resp.get("ok").and_then(Value::as_bool))
+                .unwrap_or(false);
+            if !reachable {
+                removed.push(peer_id);
+            }
+        }
+        for peer_id in removed {
+            self.peers.remove(&peer_id);
+        }
+        if self.peers.len() < Self::MIN_ACTIVE_PEERS {
+            if let Some(bootstrap) = self.bootstrap_addr {
+                self.fetch_peers_from_bootstrap(bootstrap, false);
+            }
+        }
+        self.prune_peer_set();
+    }
+
+    fn sync_main_chain(&mut self) {
+        if self.peers.is_empty() {
+            return;
+        }
+        let local_height = self.chain.height();
+        let peer_snapshot: Vec<(String, SocketAddr)> = self
+            .peers
+            .iter()
+            .map(|(id, addr)| (id.clone(), *addr))
+            .collect();
+        if peer_snapshot.is_empty() {
+            return;
+        }
+
+        let mut peer_status = Vec::new();
+        for (peer_id, addr) in &peer_snapshot {
+            let payload = serde_json::json!({"cmd": "chain_status", "data": {}});
+            if let Some(resp) = send_json_line(*addr, &payload) {
+                if resp.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+                    let height = resp
+                        .get("height")
+                        .and_then(Value::as_u64)
+                        .map(|v| v as usize)
+                        .unwrap_or(0);
+                    let head = resp
+                        .get("head")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    peer_status.push((peer_id.clone(), *addr, height, head));
+                }
+            }
+        }
+
+        if peer_status.is_empty() {
+            return;
+        }
+
+        let Some(target_height) = peer_status.iter().map(|(_, _, height, _)| *height).max() else {
+            return;
+        };
+
+        if target_height <= local_height {
+            return;
+        }
+
+        let start_height = local_height + 1;
+        let eligible: Vec<SocketAddr> = peer_status
+            .iter()
+            .filter(|(_, _, height, _)| *height >= start_height)
+            .map(|(_, addr, _, _)| *addr)
+            .collect();
+        if eligible.is_empty() {
+            return;
+        }
+
+        let mut ranges = Vec::new();
+        let mut current = start_height;
+        while current <= target_height {
+            let end = std::cmp::min(current + Self::BLOCK_DOWNLOAD_BATCH_SIZE - 1, target_height);
+            ranges.push((current, end));
+            current = end + 1;
+        }
+
+        let mut requests = Vec::new();
+        let mut addr_iter = eligible.iter().cycle();
+        for (start, end) in ranges {
+            if let Some(addr) = addr_iter.next() {
+                requests.push((*addr, start, end));
+            } else {
+                break;
+            }
+        }
+
+        let downloaded = Self::download_block_ranges_parallel(requests);
+        if downloaded.is_empty() {
+            return;
+        }
+
+        let mut ordered: BTreeMap<usize, Block> = BTreeMap::new();
+        for block in downloaded {
+            let height = block.height as usize;
+            if height >= start_height && height <= target_height {
+                ordered.entry(height).or_insert(block);
+            }
+        }
+
+        let mut deferred = Vec::new();
+        for (_height, block) in ordered.into_iter() {
+            match self.try_process_block(block) {
+                BlockHandlingResult::Accepted => {}
+                BlockHandlingResult::Deferred(block) => deferred.push(*block),
+                BlockHandlingResult::Ignored => {}
+            }
+        }
+
+        for block in deferred {
+            self.new_block_buffer.push_back(block);
+        }
+        self.process_new_block_buffer();
+
+        let updated_height = self.chain.height();
+        if updated_height > local_height {
+            log_msg(
+                "INFO",
+                "CHAIN_SYNC",
+                Some(self.node_id.clone()),
+                &format!(
+                    "并行同步完成，新增 {} 个区块，高度达到 {}。",
+                    updated_height - local_height,
+                    updated_height
+                ),
+            );
+        }
+    }
+
+    fn download_block_ranges_parallel(requests: Vec<(SocketAddr, usize, usize)>) -> Vec<Block> {
+        if requests.is_empty() {
+            return Vec::new();
+        }
+
+        TOKIO_RUNTIME.block_on(async move {
+            let tasks = requests.into_iter().map(|(addr, start, end)| async move {
+                let payload = serde_json::json!({
+                    "cmd": "get_block_range",
+                    "data": {
+                        "start": start as u64,
+                        "end": end as u64,
+                    }
+                });
+                let response = send_json_line_async(addr, payload).await;
+                (start, end, response)
+            });
+
+            let mut blocks = Vec::new();
+            for (_start, _end, resp_opt) in join_all(tasks).await {
+                if let Some(resp) = resp_opt {
+                    if resp.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+                        if let Some(arr) = resp.get("blocks").and_then(Value::as_array) {
+                            for block_val in arr {
+                                if let Ok(block) =
+                                    serde_json::from_value::<Block>(block_val.clone())
+                                {
+                                    blocks.push(block);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            blocks
+        })
     }
 
     /// 处理Gossip消息
@@ -958,24 +1237,76 @@ impl Node {
         self.gossip(data.clone(), false);
     }
 
-    /// 将消息gossip给所有已知的对等节点
+    /// 将消息gossip给一组随机对等节点，使用有限TTL以适配延迟较高的部署网络
     fn gossip(&mut self, mut message: Value, originator: bool) {
-        if originator {
-            // 如果是消息的源头，则创建一个唯一的gossip ID
-            let gid = format!(
-                "{}:{}",
-                self.node_id,
-                chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
-            );
-            if let Value::Object(map) = &mut message {
-                map.insert(String::from("gossip_id"), Value::from(gid.clone()));
-            }
-            self.record_seen_gossip_id(gid);
+        if self.peers.is_empty() {
+            return;
         }
-        // 向所有对等节点发送gossip命令
-        for addr in self.peers.values() {
+
+        let mut exclude_peer_id: Option<String> = None;
+        let mut ttl_remaining = Self::GOSSIP_DEFAULT_TTL;
+        if let Value::Object(map) = &mut message {
+            if originator {
+                let gid = format!(
+                    "{}:{}",
+                    self.node_id,
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                );
+                map.insert(String::from("gossip_id"), Value::from(gid.clone()));
+                map.insert(
+                    String::from("ttl"),
+                    Value::from(Self::GOSSIP_DEFAULT_TTL as u64),
+                );
+                self.record_seen_gossip_id(gid);
+            } else {
+                exclude_peer_id = map
+                    .get("last_hop")
+                    .and_then(Value::as_str)
+                    .map(String::from);
+                ttl_remaining = map
+                    .get("ttl")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as u32)
+                    .unwrap_or(Self::GOSSIP_DEFAULT_TTL);
+                if ttl_remaining == 0 {
+                    return;
+                }
+                ttl_remaining = ttl_remaining.saturating_sub(1);
+                map.insert(String::from("ttl"), Value::from(ttl_remaining as u64));
+            }
+            map.insert(String::from("last_hop"), Value::from(self.node_id.clone()));
+        } else {
+            return;
+        }
+
+        if !originator && ttl_remaining == 0 {
+            return;
+        }
+
+        let mut candidates: Vec<(String, SocketAddr)> = self
+            .peers
+            .iter()
+            .map(|(id, addr)| (id.clone(), *addr))
+            .collect();
+        if let Some(exclude) = exclude_peer_id {
+            let filtered: Vec<(String, SocketAddr)> = candidates
+                .iter()
+                .filter(|(peer_id, _)| peer_id != &exclude)
+                .cloned()
+                .collect();
+            if !filtered.is_empty() {
+                candidates = filtered;
+            }
+        }
+        if candidates.is_empty() {
+            return;
+        }
+
+        candidates.shuffle(&mut rand::thread_rng());
+        let fanout = std::cmp::max(1, std::cmp::min(candidates.len(), Self::GOSSIP_FANOUT));
+        for (_, addr) in candidates.into_iter().take(fanout) {
             let _ = send_json_line_without_response(
-                *addr,
+                addr,
                 &serde_json::json!({"cmd": "gossip", "data": message.clone()}),
             );
         }
@@ -1063,6 +1394,56 @@ impl Node {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn handle_get_block_range(&self, data: &Value) -> CommandResponse {
+        let start = data.get("start").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let end = data
+            .get("end")
+            .and_then(Value::as_u64)
+            .map(|v| v as usize)
+            .unwrap_or(start);
+
+        if start == 0 || start > end {
+            return CommandResponse {
+                ok: false,
+                error: Some(String::from("invalid_range")),
+                extra: HashMap::new(),
+            };
+        }
+
+        let span = end - start + 1;
+        if span > Self::MAX_BLOCK_RANGE {
+            return CommandResponse {
+                ok: false,
+                error: Some(String::from("range_too_large")),
+                extra: HashMap::new(),
+            };
+        }
+
+        if start > self.chain.blocks.len() {
+            return CommandResponse {
+                ok: true,
+                error: None,
+                extra: HashMap::new(),
+            };
+        }
+
+        let start_idx = start.saturating_sub(1);
+        let end_idx = std::cmp::min(end, self.chain.blocks.len());
+        let blocks_slice = &self.chain.blocks[start_idx..end_idx];
+        let blocks_json: Vec<Value> = blocks_slice
+            .iter()
+            .cloned()
+            .map(|block| serde_json::to_value(block).unwrap_or(Value::Null))
+            .collect();
+        let mut extra = HashMap::new();
+        extra.insert(String::from("blocks"), Value::from(blocks_json));
+        CommandResponse {
+            ok: true,
+            error: None,
+            extra,
         }
     }
 
