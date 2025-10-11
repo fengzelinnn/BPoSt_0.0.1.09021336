@@ -46,7 +46,7 @@ for i in $(seq 1 "$TOTAL_INSTANCES"); do
       PORT=$((62000 + j - 1))
       echo '    {'
       echo "      \"node_id\": \"S${i}N${j}\","
-      echo "      \"host\": \"\${INSTANCE${i}_IP}\","
+      echo '      "host": "0.0.0.0",'
       echo "      \"port\": ${PORT},"
       echo '      "storage_kb": 8192, "bootstrap": "none", "peers": ['
       PEER_LIST=""
