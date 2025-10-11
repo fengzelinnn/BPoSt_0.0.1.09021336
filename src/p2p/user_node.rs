@@ -1,7 +1,7 @@
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -100,6 +100,8 @@ impl UserNode {
         bootstrap_addr: SocketAddr,
         config: P2PSimConfig,
     ) -> Self {
+        let owner_id = owner.owner_id.clone();
+        let advertise_host = Self::resolve_advertise_host(&owner_id, &host, advertise_host);
         Self {
             owner,
             host,
@@ -112,6 +114,48 @@ impl UserNode {
             active_requests: Arc::new(Mutex::new(HashSet::new())),
             stored_files: Arc::new(Mutex::new(HashMap::new())),
             broadcast_buffer: Arc::new(Mutex::new(VecDeque::new())),
+        }
+    }
+
+    fn resolve_advertise_host(owner_id: &str, listen_host: &str, advertise_host: String) -> String {
+        let trimmed = advertise_host.trim();
+        if trimmed.is_empty() {
+            log_msg(
+                "WARN",
+                "USER_NODE",
+                Some(owner_id.to_string()),
+                "未提供外部可见的地址，回退为监听地址。",
+            );
+            return listen_host.to_string();
+        }
+
+        match trimmed.parse::<IpAddr>() {
+            Ok(ip) if ip.is_unspecified() => {
+                if let Ok(listen_ip) = listen_host.parse::<IpAddr>() {
+                    if !listen_ip.is_unspecified() {
+                        log_msg(
+                            "WARN",
+                            "USER_NODE",
+                            Some(owner_id.to_string()),
+                            &format!(
+                                "广告地址 {trimmed} 为非特定地址，回退为监听地址 {listen_ip}.",
+                            ),
+                        );
+                        return listen_ip.to_string();
+                    }
+                }
+                log_msg(
+                    "WARN",
+                    "USER_NODE",
+                    Some(owner_id.to_string()),
+                    &format!(
+                        "广告地址 {trimmed} 为非特定地址，且监听地址 {listen_host} 同样不可用，仍将使用 {trimmed}。",
+                    ),
+                );
+                trimmed.to_string()
+            }
+            Ok(ip) => ip.to_string(),
+            Err(_) => trimmed.to_string(),
         }
     }
 
