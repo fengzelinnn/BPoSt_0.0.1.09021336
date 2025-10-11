@@ -494,7 +494,19 @@ impl Node {
             }
             "inject_gossip" => {
                 // 从外部注入一个gossip消息（通常用于模拟和测试）
-                self.gossip(req.data, true);
+                let mut message = req.data;
+                if let Value::Object(ref mut map) = message {
+                    map.entry(String::from("gossip_id")).or_insert_with(|| {
+                        Value::from(format!(
+                            "{}:{}",
+                            self.node_id,
+                            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+                        ))
+                    });
+                    map.entry(String::from("ttl"))
+                        .or_insert_with(|| Value::from(Self::GOSSIP_DEFAULT_TTL as u64));
+                }
+                self.handle_gossip(&message);
                 CommandResponse {
                     ok: true,
                     error: None,
