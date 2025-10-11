@@ -100,7 +100,8 @@ enum BranchBuildError {
 /// P2P网络中的核心节点结构体
 pub struct Node {
     pub node_id: String,                                         // 节点的唯一标识符
-    host: String,                                                // 节点监听的主机地址
+    listen_host: String,                                         // 节点监听的主机地址
+    advertise_host: String,                                      // 对外通告的主机地址
     port: u16,                                                   // 节点监听的端口
     bootstrap_addr: Option<SocketAddr>, // 引导节点的地址，如果没有则自己是引导节点
     storage_manager: StorageManager,    // 存储管理器，负责文件的存储和检索
@@ -158,7 +159,8 @@ impl Node {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         node_id: String,
-        host: String,
+        listen_host: String,
+        advertise_host: String,
         port: u16,
         bootstrap_addr: Option<SocketAddr>,
         initial_peers: Vec<(String, SocketAddr)>,
@@ -179,7 +181,8 @@ impl Node {
             prover: Prover::new(node_id.clone()),
             miner: Miner::new(node_id.clone(), format!("addr:{}", node_id)),
             node_id,
-            host,
+            listen_host,
+            advertise_host,
             port,
             bootstrap_addr,
             peers: initial_peers.into_iter().collect(),
@@ -223,7 +226,7 @@ impl Node {
 
     /// 运行节点的主循环
     pub fn run(mut self) {
-        let addr = SocketAddr::new(self.host.parse().unwrap(), self.port);
+        let addr = SocketAddr::new(self.listen_host.parse().unwrap(), self.port);
         // 绑定TCP监听器
         let listener = match TcpListener::bind(addr) {
             Ok(l) => {
@@ -231,7 +234,7 @@ impl Node {
                     "INFO",
                     "P2P_NET",
                     Some(self.node_id.clone()),
-                    &format!("在 {}:{} 上监听", self.host, self.port),
+                    &format!("在 {}:{} 上监听", self.listen_host, self.port),
                 );
                 l
             }
@@ -449,7 +452,7 @@ impl Node {
                 let mut peers_obj: Map<String, Value> = Map::new();
                 peers_obj.insert(
                     self.node_id.clone(),
-                    serde_json::json!([self.host.clone(), self.port]),
+                    serde_json::json!([self.advertise_host.clone(), self.port]),
                 );
                 for (k, v) in &self.peers {
                     if k == &self.node_id {
@@ -729,7 +732,7 @@ impl Node {
                 "file_id": file_id,
                 "missing_indices": missing_indices.iter().map(|i| *i as u64).collect::<Vec<_>>(),
                 "provider_id": self.node_id,
-                "provider_addr": [self.host.clone(), self.port],
+                "provider_addr": [self.advertise_host.clone(), self.port],
             }
         });
         if send_json_line(owner_addr, &payload).is_some() {
@@ -844,7 +847,7 @@ impl Node {
             "cmd": "announce",
             "data": {
                 "node_id": self.node_id,
-                "host": self.host,
+                "host": self.advertise_host.clone(),
                 "port": self.port,
             }
         });
@@ -1167,7 +1170,7 @@ impl Node {
                                                 "type": "storage_bid",
                                                 "request_id": request_id,
                                                 "bidder_id": self.node_id,
-                                                "bidder_addr": [self.host, self.port],
+                                                "bidder_addr": [self.advertise_host.clone(), self.port],
                                             }
                                         });
                                         let addr =

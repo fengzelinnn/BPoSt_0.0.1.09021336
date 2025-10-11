@@ -515,7 +515,7 @@ where
     if node_id.eq_ignore_ascii_case("start") {
         node_id = iter.next().expect("缺少节点ID参数");
     }
-    let host = iter.next().expect("缺少主机参数");
+    let listen_host = iter.next().expect("缺少主机参数");
     let port: u16 = iter
         .next()
         .expect("缺少端口参数")
@@ -545,9 +545,11 @@ where
     let difficulty_override = load_difficulty_override_from_env();
     let (report_tx, _report_rx) = unbounded();
     let static_peers = load_static_peers_from_env();
+    let advertise_host = env::var("BPST_ADVERTISE_IP").unwrap_or_else(|_| listen_host.clone());
     let node = Box::new(Node::new(
         node_id,
-        host,
+        listen_host,
+        advertise_host,
         port,
         bootstrap_addr,
         static_peers,
