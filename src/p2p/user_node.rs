@@ -5,9 +5,8 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use rand::seq::SliceRandom;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -38,6 +37,12 @@ struct CommandResponse {
 struct ProviderAssignment {
     provider_id: String,
     addr: SocketAddr,
+}
+
+#[derive(Debug, Clone)]
+struct TimedBid {
+    payload: Value,
+    received_at: Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -80,7 +85,7 @@ pub struct UserNode {
     bootstrap_addr: SocketAddr,
     config: P2PSimConfig,
     stop_flag: Arc<AtomicBool>,
-    bids: Arc<Mutex<HashMap<String, Vec<Value>>>>,
+    bids: Arc<Mutex<HashMap<String, Vec<TimedBid>>>>,
     active_requests: Arc<Mutex<HashSet<String>>>,
     stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
     broadcast_buffer: Arc<Mutex<VecDeque<CommandRequest>>>,
@@ -347,7 +352,10 @@ impl UserNode {
                 bids_map
                     .entry(request_id.to_string())
                     .or_default()
-                    .push(data.clone());
+                    .push(TimedBid {
+                        payload: data.clone(),
+                        received_at: Instant::now(),
+                    });
             }
             CommandResponse {
                 ok: true,
@@ -739,18 +747,29 @@ impl UserNode {
             "USER_NODE",
             Some(self.owner.owner_id.clone()),
             &format!(
-                "为请求 {} 等待 {} 秒以收集竞标...",
+                "为请求 {} 最多等待 {} 秒以收集竞标...",
                 request_id, self.config.bid_wait_sec
             ),
         );
-        let total_wait_ms = self.config.bid_wait_sec.saturating_mul(1000);
-        let mut waited_ms = 0u64;
-        while waited_ms < total_wait_ms && !self.stop_flag.load(Ordering::SeqCst) {
-            let remaining = total_wait_ms - waited_ms;
-            let step = std::cmp::min(remaining, 200);
-            thread::sleep(Duration::from_millis(step));
+        let max_wait = Duration::from_secs(self.config.bid_wait_sec.max(1));
+        let mut reached_capacity = false;
+        let start_wait = Instant::now();
+        while start_wait.elapsed() < max_wait && !self.stop_flag.load(Ordering::SeqCst) {
+            let remaining = max_wait.saturating_sub(start_wait.elapsed());
+            let step = std::cmp::min(remaining, Duration::from_millis(200));
+            thread::sleep(step);
             self.drain_broadcast_buffer();
-            waited_ms += step;
+            let has_enough = {
+                let bids_map = self.bids.lock();
+                bids_map
+                    .get(&request_id)
+                    .map(|entries| entries.len() >= num_nodes_required)
+                    .unwrap_or(false)
+            };
+            if has_enough {
+                reached_capacity = true;
+                break;
+            }
         }
         self.drain_broadcast_buffer();
         let bids = {
@@ -758,18 +777,25 @@ impl UserNode {
             bids_map.get(&request_id).cloned().unwrap_or_default()
         };
         if bids.len() >= num_nodes_required {
-            let mut rng = rand::thread_rng();
-            let mut winners = Vec::new();
-            let mut indices: Vec<usize> = (0..bids.len()).collect();
-            indices.shuffle(&mut rng);
-            for idx in indices.into_iter().take(num_nodes_required) {
-                winners.push(bids[idx].clone());
+            if reached_capacity {
+                log_msg(
+                    "DEBUG",
+                    "USER_NODE",
+                    Some(self.owner.owner_id.clone()),
+                    &format!(
+                        "请求 {} 在 {} 秒内收到了足够的竞标，提前结束等待。",
+                        request_id, self.config.bid_wait_sec
+                    ),
+                );
             }
-            let provider_assignments: Vec<ProviderAssignment> = winners
+            let mut ordered_bids = bids;
+            ordered_bids.sort_by_key(|bid| bid.received_at);
+            let provider_assignments: Vec<ProviderAssignment> = ordered_bids
                 .iter()
+                .take(num_nodes_required)
                 .filter_map(|bid| {
-                    let provider_id = bid.get("bidder_id")?.as_str()?.to_string();
-                    let addr_arr = bid.get("bidder_addr")?.as_array()?;
+                    let provider_id = bid.payload.get("bidder_id")?.as_str()?.to_string();
+                    let addr_arr = bid.payload.get("bidder_addr")?.as_array()?;
                     let host = addr_arr.first()?.as_str()?;
                     let port = addr_arr.get(1)?.as_u64()? as u16;
                     let ip = host.parse().ok()?;

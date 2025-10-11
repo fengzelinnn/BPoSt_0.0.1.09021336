@@ -46,6 +46,7 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
             rand::thread_rng().gen_range(config.min_storage_kb..=config.max_storage_kb) * 1024;
         let mut cmd = Command::new(&current_exe);
         cmd.arg("node")
+            .arg("start")
             .arg(node_id.clone())
             .arg(host.clone())
             .arg(port.to_string())
@@ -256,6 +257,7 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
 
         let mut cmd = Command::new(&current_exe);
         cmd.arg("node")
+            .arg("start")
             .arg(node_cfg.node_id.clone())
             .arg(node_cfg.host.clone())
             .arg(node_cfg.port.to_string())
@@ -503,34 +505,39 @@ fn normalize_difficulty_hex(raw: &str) -> Result<String, DeploymentConfigError> 
         })
 }
 
-pub fn run_node_process_from_args<I>(mut args: I)
+pub fn run_node_process_from_args<I>(args: I)
 where
     I: Iterator<Item = String>,
 {
-    let node_id = args.next().expect("缺少节点ID参数");
-    let host = args.next().expect("缺少主机参数");
-    let port: u16 = args
+    let params: Vec<String> = args.collect();
+    let mut iter = params.into_iter();
+    let mut node_id = iter.next().expect("缺少节点ID或子命令");
+    if node_id.eq_ignore_ascii_case("start") {
+        node_id = iter.next().expect("缺少节点ID参数");
+    }
+    let host = iter.next().expect("缺少主机参数");
+    let port: u16 = iter
         .next()
         .expect("缺少端口参数")
         .parse()
         .expect("无法解析端口");
-    let bootstrap_arg = args.next().expect("缺少引导节点参数");
+    let bootstrap_arg = iter.next().expect("缺少引导节点参数");
     let bootstrap_addr = if bootstrap_arg == "none" {
         None
     } else {
         Some(bootstrap_arg.parse().expect("无法解析引导节点地址"))
     };
-    let chunk_size: usize = args
+    let chunk_size: usize = iter
         .next()
         .expect("缺少数据块大小参数")
         .parse()
         .expect("无法解析数据块大小");
-    let max_storage: usize = args
+    let max_storage: usize = iter
         .next()
         .expect("缺少存储容量参数")
         .parse()
         .expect("无法解析存储容量");
-    let bobtail_k: usize = args
+    let bobtail_k: usize = iter
         .next()
         .expect("缺少 bobtail_k 参数")
         .parse()
