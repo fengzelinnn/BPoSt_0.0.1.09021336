@@ -199,7 +199,7 @@ impl Default for P2PSimConfig {
             bobtail_k: 40,
             min_storage_kb: 512,
             max_storage_kb: 2048,
-            bid_wait_sec: 45,
+            bid_wait_sec: 60,
             min_storage_rounds: 20,
             max_storage_rounds: 100,
         }

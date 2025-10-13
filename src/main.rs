@@ -70,7 +70,7 @@ fn main() {
         bobtail_k: 3,            // Bobtail 参数 K
         min_storage_kb: 128,     // 最小存储空间 (KB)
         max_storage_kb: 256,     // 最大存储空间 (KB)
-        bid_wait_sec: 20,        // 投标等待时间（秒）
+        bid_wait_sec: 120,        // 投标等待时间（秒）
         min_storage_rounds: 5,   // 最小存储轮次
         max_storage_rounds: 7,   // 最大存储轮次
     };

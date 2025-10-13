@@ -153,14 +153,14 @@ pub struct Node {
 }
 
 impl Node {
-    const MAX_SEEN_GOSSIP_IDS: usize = 50_000;
-    const GOSSIP_DEFAULT_TTL: u32 = 6;
-    const GOSSIP_FANOUT: usize = 4;
+    const MAX_SEEN_GOSSIP_IDS: usize = 5_000_000;
+    const GOSSIP_DEFAULT_TTL: u32 = 128;
+    const GOSSIP_FANOUT: usize = 64;
     const MIN_ACTIVE_PEERS: usize = 3;
-    const MAX_ACTIVE_PEERS: usize = 24;
+    const MAX_ACTIVE_PEERS: usize = 128;
     const BLOCK_DOWNLOAD_BATCH_SIZE: usize = 8;
     const MAX_BLOCK_RANGE: usize = 64;
-    const PEER_GOSSIP_INTERVAL_SECS: u64 = 45;
+    const PEER_GOSSIP_INTERVAL_SECS: u64 = 15;
     const PEER_GOSSIP_SAMPLE_LIMIT: usize = 12;
     const MAX_CONSECUTIVE_PING_FAILURES: u32 = 5;
     const PING_FAILURE_GRACE_SECS: u64 = 120;
@@ -961,12 +961,19 @@ impl Node {
             );
         }
 
-        self.prune_peer_set();
-        if self.initial_drop_skipped {
-            self.drop_unreachable_peers();
-        } else {
-            self.initial_drop_skipped = true;
-        }
+        // self.prune_peer_set();
+        // if self.initial_drop_skipped {
+        //     self.drop_unreachable_peers();
+        // } else {
+        //     self.initial_drop_skipped = true;
+        // }
+        log_msg(
+            "INFO",
+            "P2P_DISCOVERY",
+            Some(self.node_id.clone()),
+            "初始对等节点发现完成，跳过启动时的立即清理。",
+        );
+        self.initial_drop_skipped = true;
     }
 
     fn fetch_peers_from_bootstrap(&mut self, bootstrap: SocketAddr, initial: bool) {
@@ -1314,6 +1321,7 @@ impl Node {
                                 }
                             }
                         }
+
                     }
                 }
                 "bobtail_proof" | "proof_request" => {
