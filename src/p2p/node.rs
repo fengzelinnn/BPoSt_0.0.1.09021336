@@ -97,6 +97,25 @@ enum BranchBuildError {
     Invalid,
 }
 
+/// 跟踪对等节点可达性的统计信息
+#[derive(Clone, Debug, Default)]
+struct PeerReachability {
+    consecutive_failures: u32,
+    last_failure: Option<Instant>,
+}
+
+impl PeerReachability {
+    fn record_failure(&mut self) {
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        self.last_failure = Some(Instant::now());
+    }
+
+    fn reset(&mut self) {
+        self.consecutive_failures = 0;
+        self.last_failure = None;
+    }
+}
+
 /// P2P网络中的核心节点结构体
 pub struct Node {
     pub node_id: String,                                         // 节点的唯一标识符
@@ -129,6 +148,8 @@ pub struct Node {
     mining_stop_flag: Option<Arc<AtomicBool>>,                       // 挖矿线程的停止标志
     current_mining_height: Option<usize>,                            // 当前挖矿目标高度
     mining_window_size: u64,                                         // 单次挖矿窗口大小
+    peer_reachability: HashMap<String, PeerReachability>,            // 对等节点可达性统计
+    initial_drop_skipped: bool,                                      // 是否已跳过启动时的可达性清理
 }
 
 impl Node {
@@ -141,6 +162,8 @@ impl Node {
     const MAX_BLOCK_RANGE: usize = 64;
     const PEER_GOSSIP_INTERVAL_SECS: u64 = 45;
     const PEER_GOSSIP_SAMPLE_LIMIT: usize = 12;
+    const MAX_CONSECUTIVE_PING_FAILURES: u32 = 5;
+    const PING_FAILURE_GRACE_SECS: u64 = 120;
 
     fn has_seen_gossip(&self, gossip_id: &str) -> bool {
         self.seen_gossip_ids.contains(gossip_id)
@@ -283,6 +306,8 @@ impl Node {
             mining_window_size: 10_000,
             new_block_buffer: VecDeque::new(),
             outstanding_proof_requests: HashMap::new(),
+            peer_reachability: HashMap::new(),
+            initial_drop_skipped: false,
         }
     }
 
@@ -937,7 +962,11 @@ impl Node {
         }
 
         self.prune_peer_set();
-        self.drop_unreachable_peers();
+        if self.initial_drop_skipped {
+            self.drop_unreachable_peers();
+        } else {
+            self.initial_drop_skipped = true;
+        }
     }
 
     fn fetch_peers_from_bootstrap(&mut self, bootstrap: SocketAddr, initial: bool) {
@@ -1024,10 +1053,13 @@ impl Node {
         }
         self.peers
             .retain(|node_id, addr| keep.contains(node_id) || Some(*addr) == bootstrap_addr);
+        self.peer_reachability
+            .retain(|peer_id, _| self.peers.contains_key(peer_id));
     }
 
     fn drop_unreachable_peers(&mut self) {
         if self.peers.is_empty() {
+            self.peer_reachability.clear();
             return;
         }
         let snapshot: Vec<(String, SocketAddr)> = self
@@ -1047,13 +1079,36 @@ impl Node {
             let reachable = send_json_line(addr, &ping)
                 .and_then(|resp| resp.get("ok").and_then(Value::as_bool))
                 .unwrap_or(false);
-            if !reachable {
-                removed.push(peer_id);
+            if reachable {
+                if let Some(state) = self.peer_reachability.get_mut(&peer_id) {
+                    state.reset();
+                }
+                self.peer_reachability.remove(&peer_id);
+                continue;
+            }
+
+            let state = self
+                .peer_reachability
+                .entry(peer_id.clone())
+                .or_insert_with(PeerReachability::default);
+            state.record_failure();
+
+            let should_remove = state.consecutive_failures >= Self::MAX_CONSECUTIVE_PING_FAILURES
+                && state
+                    .last_failure
+                    .map(|ts| ts.elapsed() >= Duration::from_secs(Self::PING_FAILURE_GRACE_SECS))
+                    .unwrap_or(false);
+
+            if should_remove {
+                removed.push(peer_id.clone());
+                self.peer_reachability.remove(&peer_id);
             }
         }
         for peer_id in removed {
             self.peers.remove(&peer_id);
         }
+        self.peer_reachability
+            .retain(|peer_id, _| self.peers.contains_key(peer_id));
         if self.peers.len() < Self::MIN_ACTIVE_PEERS {
             if let Some(bootstrap) = self.bootstrap_addr {
                 self.fetch_peers_from_bootstrap(bootstrap, false);
