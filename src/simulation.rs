@@ -290,7 +290,8 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
                     &format!("已启动节点进程，PID = {}", child.id()),
                 );
                 children.push((format!("node-{}", node_cfg.node_id), child));
-                sleep_with_stagger(idx, &mut node_stagger_rng);
+                let stagger_index = children.len().saturating_sub(1);
+                sleep_with_stagger(stagger_index, &mut node_stagger_rng);
             }
             Err(e) => {
                 log_msg(
@@ -304,7 +305,7 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
     }
 
     let mut user_stagger_rng = rand::thread_rng();
-    for (idx, user_cfg) in config.users.iter().enumerate() {
+    for user_cfg in config.users.iter() {
         let bootstrap = if let Some(override_bootstrap) = user_cfg.bootstrap.as_ref() {
             normalize_bootstrap_addr(override_bootstrap, false)?
         } else {
@@ -336,7 +337,8 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
                     &format!("已启动用户进程，PID = {}", child.id()),
                 );
                 children.push((format!("user-{}", user_cfg.user_id), child));
-                sleep_with_stagger(idx, &mut user_stagger_rng);
+                let stagger_index = children.len().saturating_sub(1);
+                sleep_with_stagger(stagger_index, &mut user_stagger_rng);
             }
             Err(e) => {
                 log_msg(
