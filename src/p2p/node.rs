@@ -1,6 +1,6 @@
 use std::collections::{hash_map::Entry, BTreeMap, HashMap, HashSet, VecDeque}; // 集合类型
 use std::io::{self, BufRead, BufReader, Write}; // IO 操作
-use std::net::{SocketAddr, TcpListener, TcpStream as StdTcpStream}; // 网络地址和TCP流
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream as StdTcpStream}; // 网络地址和TCP流
 use std::sync::atomic::{AtomicBool, Ordering}; // 原子布尔值，用于线程安全地停止节点
 use std::sync::Arc; // 原子引用计数，用于多线程共享数据
 use std::thread; // 线程操作
@@ -139,9 +139,85 @@ impl Node {
     const MAX_ACTIVE_PEERS: usize = 24;
     const BLOCK_DOWNLOAD_BATCH_SIZE: usize = 8;
     const MAX_BLOCK_RANGE: usize = 64;
+    const PEER_GOSSIP_INTERVAL_SECS: u64 = 45;
+    const PEER_GOSSIP_SAMPLE_LIMIT: usize = 12;
 
     fn has_seen_gossip(&self, gossip_id: &str) -> bool {
         self.seen_gossip_ids.contains(gossip_id)
+    }
+
+    fn parse_peer_addr(addr_val: &Value) -> Option<SocketAddr> {
+        if let Some(arr) = addr_val.as_array() {
+            if arr.len() == 2 {
+                let host = arr.first()?.as_str()?;
+                let port = arr.get(1)?.as_u64()? as u16;
+                if let Ok(ip) = host.parse::<IpAddr>() {
+                    return Some(SocketAddr::new(ip, port));
+                }
+                if let Ok(sock) = format!("{}:{}", host, port).parse::<SocketAddr>() {
+                    return Some(sock);
+                }
+            }
+        }
+        if let Some(addr_str) = addr_val.as_str() {
+            return addr_str.parse().ok();
+        }
+        None
+    }
+
+    fn try_add_peer_entry(&mut self, node_id: &str, addr_val: &Value) -> bool {
+        if node_id == self.node_id {
+            return false;
+        }
+        let Some(addr) = Self::parse_peer_addr(addr_val) else {
+            return false;
+        };
+        match self.peers.entry(node_id.to_string()) {
+            Entry::Vacant(entry) => {
+                entry.insert(addr);
+                true
+            }
+            Entry::Occupied(mut entry) => {
+                if entry.get() != &addr {
+                    entry.insert(addr);
+                }
+                false
+            }
+        }
+    }
+
+    fn share_peer_sample_with_neighbors(&mut self) {
+        let mut peers_obj: Map<String, Value> = Map::new();
+        peers_obj.insert(
+            self.node_id.clone(),
+            serde_json::json!([self.advertise_host.clone(), self.port]),
+        );
+
+        let mut candidates: Vec<(String, SocketAddr)> = self
+            .peers
+            .iter()
+            .filter(|(id, _)| *id != &self.node_id)
+            .map(|(id, addr)| (id.clone(), *addr))
+            .collect();
+        candidates.shuffle(&mut rand::thread_rng());
+        for (node_id, addr) in candidates
+            .into_iter()
+            .take(Self::PEER_GOSSIP_SAMPLE_LIMIT.saturating_sub(1))
+        {
+            peers_obj.insert(
+                node_id,
+                serde_json::json!([addr.ip().to_string(), addr.port()]),
+            );
+        }
+
+        self.gossip(
+            serde_json::json!({
+                "type": "peer_share",
+                "origin": self.node_id,
+                "peers": Value::Object(peers_obj),
+            }),
+            true,
+        );
     }
 
     fn record_seen_gossip_id(&mut self, gossip_id: String) {
@@ -307,6 +383,9 @@ impl Node {
         let mut next_consensus =
             Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1000..2000)); // 下次尝试共识的时间
         let mut next_peer_refresh = Instant::now() + Duration::from_secs(30);
+        let mut next_peer_exchange = Instant::now()
+            + Duration::from_secs(Self::PEER_GOSSIP_INTERVAL_SECS)
+            + Duration::from_millis(rand::thread_rng().gen_range(0..2000));
         let mut next_chain_sync = Instant::now() + Duration::from_secs(20);
 
         // 节点主循环
@@ -352,6 +431,13 @@ impl Node {
             if Instant::now() >= next_peer_refresh {
                 self.drop_unreachable_peers();
                 next_peer_refresh = Instant::now() + Duration::from_secs(30);
+            }
+
+            if Instant::now() >= next_peer_exchange {
+                self.share_peer_sample_with_neighbors();
+                next_peer_exchange = Instant::now()
+                    + Duration::from_secs(Self::PEER_GOSSIP_INTERVAL_SECS)
+                    + Duration::from_millis(rand::thread_rng().gen_range(0..2000));
             }
 
             if Instant::now() >= next_chain_sync {
@@ -882,6 +968,7 @@ impl Node {
 
         let _ = send_json_line(bootstrap, &announce_payload);
         let before = self.peers.len();
+        let mut newly_added = 0usize;
         if let Some(resp) = send_json_line(
             bootstrap,
             &serde_json::json!({"cmd": "get_peers", "data": {}}),
@@ -889,28 +976,8 @@ impl Node {
             if resp.get("ok").and_then(Value::as_bool).unwrap_or(false) {
                 if let Some(map) = resp.get("peers").and_then(Value::as_object) {
                     for (nid, addr_val) in map {
-                        if nid == &self.node_id {
-                            continue;
-                        }
-                        if let Some(addr_arr) = addr_val.as_array() {
-                            if addr_arr.len() == 2 {
-                                if let (Some(host), Some(port)) = (
-                                    addr_arr.first().and_then(Value::as_str),
-                                    addr_arr.get(1).and_then(Value::as_u64),
-                                ) {
-                                    if let Ok(ip) = host.parse() {
-                                        self.peers
-                                            .insert(nid.clone(), SocketAddr::new(ip, port as u16));
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-
-                        if let Some(addr_str) = addr_val.as_str() {
-                            if let Ok(addr) = addr_str.parse() {
-                                self.peers.insert(nid.clone(), addr);
-                            }
+                        if self.try_add_peer_entry(nid, addr_val) {
+                            newly_added += 1;
                         }
                     }
                 }
@@ -925,7 +992,7 @@ impl Node {
                 &format!(
                     "当前已知 {} 个对等节点（新增 {} 个）。",
                     after,
-                    after - before
+                    std::cmp::max(newly_added, after.saturating_sub(before))
                 ),
             );
         }
@@ -1242,6 +1309,25 @@ impl Node {
                                 .or_default()
                                 .insert(node_id.to_string(), update);
                         }
+                    }
+                }
+                "peer_share" => {
+                    let mut added = 0usize;
+                    if let Some(map) = data.get("peers").and_then(Value::as_object) {
+                        for (node_id, addr_val) in map {
+                            if self.try_add_peer_entry(node_id, addr_val) {
+                                added += 1;
+                            }
+                        }
+                    }
+                    if added > 0 {
+                        log_msg(
+                            "DEBUG",
+                            "P2P_DISCOVERY",
+                            Some(self.node_id.clone()),
+                            &format!("通过 gossip 获取 {} 个新对等节点", added),
+                        );
+                        self.prune_peer_set();
                     }
                 }
                 _ => {}

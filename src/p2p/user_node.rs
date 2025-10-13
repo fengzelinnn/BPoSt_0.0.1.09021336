@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use rand::seq::SliceRandom;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -92,6 +93,8 @@ pub struct UserNode {
 }
 
 impl UserNode {
+    const MAX_STORAGE_BROADCAST_TARGETS: usize = 5;
+
     pub fn new(
         owner: FileOwner,
         host: String,
@@ -157,6 +160,55 @@ impl UserNode {
             Ok(ip) => ip.to_string(),
             Err(_) => trimmed.to_string(),
         }
+    }
+
+    fn parse_peer_addr_value(addr_val: &Value) -> Option<SocketAddr> {
+        if let Some(arr) = addr_val.as_array() {
+            if arr.len() == 2 {
+                let host = arr.first()?.as_str()?;
+                let port = arr.get(1)?.as_u64()? as u16;
+                if let Ok(ip) = host.parse::<IpAddr>() {
+                    return Some(SocketAddr::new(ip, port));
+                }
+                if let Ok(sock) = format!("{}:{}", host, port).parse::<SocketAddr>() {
+                    return Some(sock);
+                }
+            }
+        }
+        if let Some(addr_str) = addr_val.as_str() {
+            return addr_str.parse().ok();
+        }
+        None
+    }
+
+    fn fetch_peer_targets(&self) -> Vec<SocketAddr> {
+        let payload = serde_json::json!({
+            "cmd": "get_peers",
+            "data": {},
+        });
+        let Some(resp_val) = super::node::send_json_line(self.bootstrap_addr, &payload) else {
+            return Vec::new();
+        };
+
+        let Ok(response) = serde_json::from_value::<CommandResponse>(resp_val) else {
+            return Vec::new();
+        };
+        if !response.ok {
+            return Vec::new();
+        }
+
+        let mut addrs: Vec<SocketAddr> = Vec::new();
+        let mut seen: HashSet<SocketAddr> = HashSet::new();
+        if let Some(map) = response.extra.get("peers").and_then(Value::as_object) {
+            for addr_val in map.values() {
+                if let Some(addr) = Self::parse_peer_addr_value(addr_val) {
+                    if seen.insert(addr) {
+                        addrs.push(addr);
+                    }
+                }
+            }
+        }
+        addrs
     }
 
     pub fn stop_handle(&self) -> Arc<AtomicBool> {
@@ -781,11 +833,20 @@ impl UserNode {
                 "request_id": request_id.clone(),
                 "file_id": file_id.clone(),
                 "total_size": total_size,
-                "reply_addr": [self.advertise_host, self.port],
+                "reply_addr": [self.advertise_host.clone(), self.port],
                 "storage_rounds": storage_rounds,
             }
         });
-        let _ = super::node::send_json_line_without_response(self.bootstrap_addr, &offer);
+        let mut targets = self.fetch_peer_targets();
+        if !targets.iter().any(|addr| *addr == self.bootstrap_addr) {
+            targets.push(self.bootstrap_addr);
+        }
+        targets.shuffle(&mut rand::thread_rng());
+        let max_targets = std::cmp::max(1, Self::MAX_STORAGE_BROADCAST_TARGETS);
+        targets.truncate(max_targets);
+        for target in targets {
+            let _ = super::node::send_json_line_without_response(target, &offer);
+        }
         log_msg(
             "INFO",
             "USER_NODE",
