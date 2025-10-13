@@ -838,13 +838,13 @@ impl UserNode {
             }
         });
         let mut targets = self.fetch_peer_targets();
-        if !targets.iter().any(|addr| *addr == self.bootstrap_addr) {
-            targets.push(self.bootstrap_addr);
-        }
+        targets.retain(|addr| *addr != self.bootstrap_addr);
         targets.shuffle(&mut rand::thread_rng());
         let max_targets = std::cmp::max(1, Self::MAX_STORAGE_BROADCAST_TARGETS);
-        targets.truncate(max_targets);
-        for target in targets {
+        let mut selected = Vec::with_capacity(max_targets);
+        selected.push(self.bootstrap_addr);
+        selected.extend(targets.into_iter().take(max_targets.saturating_sub(1)));
+        for target in selected {
             let _ = super::node::send_json_line_without_response(target, &offer);
         }
         log_msg(

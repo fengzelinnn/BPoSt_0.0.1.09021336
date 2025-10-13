@@ -33,6 +33,7 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
     let current_exe = env::current_exe().expect("无法定位当前可执行文件");
     let config_json = serde_json::to_string(&config).expect("无法序列化配置");
 
+    let mut rng = rand::thread_rng();
     for i in 0..config.num_nodes {
         let node_id = format!("S{}", i);
         let port = current_port;
@@ -42,8 +43,7 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
         } else {
             bootstrap_addr.to_string()
         };
-        let storage_capacity =
-            rand::thread_rng().gen_range(config.min_storage_kb..=config.max_storage_kb) * 1024;
+        let storage_capacity = rng.gen_range(config.min_storage_kb..=config.max_storage_kb) * 1024;
         let mut cmd = Command::new(&current_exe);
         cmd.arg("node")
             .arg("start")
@@ -71,6 +71,9 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
                     ),
                 );
                 children.push((format!("node-{}", node_id), child));
+                // 随机延迟节点启动，避免所有节点同时启动导致资源竞争。
+                let delay_ms = rng.gen_range(150..=500);
+                thread::sleep(Duration::from_millis(delay_ms));
             }
             Err(e) => {
                 log_msg(
@@ -103,6 +106,9 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
                     &format!("已启动用户节点 {} 于端口 {}", owner_id, port),
                 );
                 children.push((format!("user-{}", owner_id), child));
+                // 继续引入轻微延迟，确保用户节点也分散启动。
+                let delay_ms = rng.gen_range(150..=500);
+                thread::sleep(Duration::from_millis(delay_ms));
             }
             Err(e) => {
                 log_msg(
