@@ -71,9 +71,7 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
                     ),
                 );
                 children.push((format!("node-{}", node_id), child));
-                // 随机延迟节点启动，避免所有节点同时启动导致资源竞争。
-                let delay_ms = rng.gen_range(150..=500);
-                thread::sleep(Duration::from_millis(delay_ms));
+                sleep_with_stagger(i as usize, &mut rng);
             }
             Err(e) => {
                 log_msg(
@@ -86,6 +84,7 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
         }
     }
 
+    let mut user_rng = rand::thread_rng();
     for i in 0..config.num_file_owners {
         let port = current_port;
         current_port += 1;
@@ -96,6 +95,7 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
             .arg(host.clone())
             .arg(port.to_string())
             .arg(bootstrap_addr.to_string())
+            .env("BPST_FORCE_BOOTSTRAP_GOSSIP", "1")
             .env("P2P_SIM_CONFIG", config_json.clone());
         match cmd.spawn() {
             Ok(child) => {
@@ -106,9 +106,7 @@ pub fn run_p2p_simulation(config: P2PSimConfig) {
                     &format!("已启动用户节点 {} 于端口 {}", owner_id, port),
                 );
                 children.push((format!("user-{}", owner_id), child));
-                // 继续引入轻微延迟，确保用户节点也分散启动。
-                let delay_ms = rng.gen_range(150..=500);
-                thread::sleep(Duration::from_millis(delay_ms));
+                sleep_with_stagger(i as usize, &mut user_rng);
             }
             Err(e) => {
                 log_msg(
@@ -227,6 +225,7 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
     );
 
     let mut children: Vec<(String, Child)> = Vec::new();
+    let mut node_stagger_rng = rand::thread_rng();
     for (idx, node_cfg) in config.nodes.iter().enumerate() {
         let chunk_size = node_cfg.chunk_size.unwrap_or(sim_config.chunk_size);
         let storage_kb = node_cfg.storage_kb.unwrap_or(default_storage_kb);
@@ -291,6 +290,7 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
                     &format!("已启动节点进程，PID = {}", child.id()),
                 );
                 children.push((format!("node-{}", node_cfg.node_id), child));
+                sleep_with_stagger(idx, &mut node_stagger_rng);
             }
             Err(e) => {
                 log_msg(
@@ -303,7 +303,8 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
         }
     }
 
-    for user_cfg in &config.users {
+    let mut user_stagger_rng = rand::thread_rng();
+    for (idx, user_cfg) in config.users.iter().enumerate() {
         let bootstrap = if let Some(override_bootstrap) = user_cfg.bootstrap.as_ref() {
             normalize_bootstrap_addr(override_bootstrap, false)?
         } else {
@@ -324,6 +325,7 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
             .arg(user_cfg.host.clone())
             .arg(user_cfg.port.to_string())
             .arg(bootstrap)
+            .env("BPST_FORCE_BOOTSTRAP_GOSSIP", "1")
             .env("P2P_SIM_CONFIG", config_json.clone());
         match cmd.spawn() {
             Ok(child) => {
@@ -334,6 +336,7 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
                     &format!("已启动用户进程，PID = {}", child.id()),
                 );
                 children.push((format!("user-{}", user_cfg.user_id), child));
+                sleep_with_stagger(idx, &mut user_stagger_rng);
             }
             Err(e) => {
                 log_msg(
@@ -511,6 +514,23 @@ fn normalize_difficulty_hex(raw: &str) -> Result<String, DeploymentConfigError> 
         })
 }
 
+fn sleep_with_stagger<R>(index: usize, rng: &mut R)
+where
+    R: Rng + ?Sized,
+{
+    const BASE_DELAY_MS: u64 = 150;
+    const STEP_DELAY_MS: u64 = 100;
+    const JITTER_MS: u64 = 100;
+
+    let jitter = if JITTER_MS == 0 {
+        0
+    } else {
+        rng.gen_range(0..=JITTER_MS)
+    };
+    let delay_ms = BASE_DELAY_MS + STEP_DELAY_MS.saturating_mul(index as u64) + jitter;
+    thread::sleep(Duration::from_millis(delay_ms));
+}
+
 pub fn run_node_process_from_args<I>(args: I)
 where
     I: Iterator<Item = String>,
@@ -568,6 +588,21 @@ where
     node.run();
 }
 
+fn should_force_bootstrap_gossip() -> bool {
+    match env::var("BPST_FORCE_BOOTSTRAP_GOSSIP") {
+        Ok(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                true
+            } else {
+                let normalized = trimmed.to_ascii_lowercase();
+                !matches!(normalized.as_str(), "0" | "false" | "no")
+            }
+        }
+        Err(_) => true,
+    }
+}
+
 pub fn run_user_process_from_args<I>(mut args: I)
 where
     I: Iterator<Item = String>,
@@ -591,7 +626,7 @@ where
     // ----------------
 
     let owner = FileOwner::new(owner_id, config.chunk_size);
-    // --- 将新的 advertise_host 传给构造函数 ---
+    let force_bootstrap_target = should_force_bootstrap_gossip();
     let user = Box::new(UserNode::new(
         owner,
         host,
@@ -599,8 +634,8 @@ where
         port,
         bootstrap,
         config.clone(),
+        force_bootstrap_target,
     ));
-    // ----------------------------------------
     user.run();
 }
 

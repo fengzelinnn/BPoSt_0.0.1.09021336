@@ -90,6 +90,7 @@ pub struct UserNode {
     active_requests: Arc<Mutex<HashSet<String>>>,
     stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
     broadcast_buffer: Arc<Mutex<VecDeque<CommandRequest>>>,
+    force_bootstrap_target: bool,
 }
 
 impl UserNode {
@@ -102,6 +103,7 @@ impl UserNode {
         port: u16,
         bootstrap_addr: SocketAddr,
         config: P2PSimConfig,
+        force_bootstrap_target: bool,
     ) -> Self {
         let owner_id = owner.owner_id.clone();
         let advertise_host = Self::resolve_advertise_host(&owner_id, &host, advertise_host);
@@ -117,6 +119,7 @@ impl UserNode {
             active_requests: Arc::new(Mutex::new(HashSet::new())),
             stored_files: Arc::new(Mutex::new(HashMap::new())),
             broadcast_buffer: Arc::new(Mutex::new(VecDeque::new())),
+            force_bootstrap_target,
         }
     }
 
@@ -841,9 +844,8 @@ impl UserNode {
         targets.retain(|addr| *addr != self.bootstrap_addr);
         targets.shuffle(&mut rand::thread_rng());
         let max_targets = std::cmp::max(1, Self::MAX_STORAGE_BROADCAST_TARGETS);
-        let mut selected = Vec::with_capacity(max_targets);
-        selected.push(self.bootstrap_addr);
-        selected.extend(targets.into_iter().take(max_targets.saturating_sub(1)));
+        let mut selected: Vec<SocketAddr> = targets.into_iter().take(max_targets).collect();
+        self.ensure_bootstrap_target(&mut selected, max_targets);
         for target in selected {
             let _ = super::node::send_json_line_without_response(target, &offer);
         }
@@ -1022,5 +1024,20 @@ impl UserNode {
             let mut active = self.active_requests.lock();
             active.remove(&request_id);
         }
+    }
+}
+
+impl UserNode {
+    fn ensure_bootstrap_target(&self, selected: &mut Vec<SocketAddr>, max_targets: usize) {
+        if !self.force_bootstrap_target {
+            return;
+        }
+        if selected.iter().any(|addr| *addr == self.bootstrap_addr) {
+            return;
+        }
+        if max_targets > 0 && selected.len() >= max_targets {
+            selected.pop();
+        }
+        selected.push(self.bootstrap_addr);
     }
 }
