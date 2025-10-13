@@ -106,8 +106,6 @@ impl UserNode {
         config: P2PSimConfig,
         force_bootstrap_target: bool,
     ) -> Self {
-        let owner_id = owner.owner_id.clone();
-        let advertise_host = Self::resolve_advertise_host(&owner_id, &host, advertise_host);
         Self {
             owner,
             host,

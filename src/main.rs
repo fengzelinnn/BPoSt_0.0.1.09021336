@@ -58,7 +58,7 @@ fn main() {
     // 如果没有子命令，则运行P2P模拟
     // 定义 P2P 模拟的配置
     let config = P2PSimConfig {
-        num_nodes: 7,            // 节点数量
+        num_nodes: 10,            // 节点数量
         num_file_owners: 2,      // 文件所有者数量
         sim_duration_sec: 90000, // 模拟持续时间（秒）
         chunk_size: 64,          // 数据块大小
@@ -70,7 +70,7 @@ fn main() {
         bobtail_k: 3,            // Bobtail 参数 K
         min_storage_kb: 128,     // 最小存储空间 (KB)
         max_storage_kb: 256,     // 最大存储空间 (KB)
-        bid_wait_sec: 120,        // 投标等待时间（秒）
+        bid_wait_sec: 20,        // 投标等待时间（秒）
         min_storage_rounds: 5,   // 最小存储轮次
         max_storage_rounds: 7,   // 最大存储轮次
     };
