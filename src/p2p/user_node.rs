@@ -90,6 +90,7 @@ pub struct UserNode {
     active_requests: Arc<Mutex<HashSet<String>>>,
     stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
     broadcast_buffer: Arc<Mutex<VecDeque<CommandRequest>>>,
+    known_peers: Arc<Mutex<HashSet<SocketAddr>>>,
     force_bootstrap_target: bool,
 }
 
@@ -119,6 +120,7 @@ impl UserNode {
             active_requests: Arc::new(Mutex::new(HashSet::new())),
             stored_files: Arc::new(Mutex::new(HashMap::new())),
             broadcast_buffer: Arc::new(Mutex::new(VecDeque::new())),
+            known_peers: Arc::new(Mutex::new(HashSet::new())),
             force_bootstrap_target,
         }
     }
@@ -210,6 +212,9 @@ impl UserNode {
                     }
                 }
             }
+        }
+        if !addrs.is_empty() {
+            self.remember_peers(&addrs);
         }
         addrs
     }
@@ -840,12 +845,20 @@ impl UserNode {
                 "storage_rounds": storage_rounds,
             }
         });
-        let mut targets = self.fetch_peer_targets();
-        targets.retain(|addr| *addr != self.bootstrap_addr);
+        let mut targets = self.collect_known_peers();
+        if targets.is_empty() {
+            targets = self.fetch_peer_targets();
+        }
+        if targets.is_empty() {
+            targets.push(self.bootstrap_addr);
+        }
         targets.shuffle(&mut rand::thread_rng());
         let max_targets = std::cmp::max(1, Self::MAX_STORAGE_BROADCAST_TARGETS);
         let mut selected: Vec<SocketAddr> = targets.into_iter().take(max_targets).collect();
         self.ensure_bootstrap_target(&mut selected, max_targets);
+        if selected.is_empty() {
+            selected.push(self.bootstrap_addr);
+        }
         for target in selected {
             let _ = super::node::send_json_line_without_response(target, &offer);
         }
@@ -929,6 +942,9 @@ impl UserNode {
                     .iter()
                     .map(|assignment| assignment.addr)
                     .collect();
+                if !addrs.is_empty() {
+                    self.remember_peers(&addrs);
+                }
                 log_msg(
                     "SUCCESS",
                     "USER_NODE",
@@ -1028,6 +1044,21 @@ impl UserNode {
 }
 
 impl UserNode {
+    fn collect_known_peers(&self) -> Vec<SocketAddr> {
+        let peers = self.known_peers.lock();
+        peers.iter().copied().collect()
+    }
+
+    fn remember_peers(&self, peers: &[SocketAddr]) {
+        if peers.is_empty() {
+            return;
+        }
+        let mut known = self.known_peers.lock();
+        for addr in peers {
+            known.insert(*addr);
+        }
+    }
+
     fn ensure_bootstrap_target(&self, selected: &mut Vec<SocketAddr>, max_targets: usize) {
         if !self.force_bootstrap_target {
             return;

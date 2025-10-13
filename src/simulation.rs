@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
 use std::process::{Child, Command};
@@ -226,6 +227,7 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
 
     let mut children: Vec<(String, Child)> = Vec::new();
     let mut node_stagger_rng = rand::thread_rng();
+    let static_peer_map = assemble_static_peer_map(&config);
     for (idx, node_cfg) in config.nodes.iter().enumerate() {
         let chunk_size = node_cfg.chunk_size.unwrap_or(sim_config.chunk_size);
         let storage_kb = node_cfg.storage_kb.unwrap_or(default_storage_kb);
@@ -272,7 +274,13 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
             .arg(bobtail_k.to_string())
             .env("P2P_SIM_CONFIG", config_json.clone());
         cmd.env_remove("BPST_STATIC_PEERS");
-        if !node_cfg.peers.is_empty() {
+        if let Some(static_peers) = static_peer_map.get(&node_cfg.node_id) {
+            if !static_peers.is_empty() {
+                let peers_json =
+                    serde_json::to_string(static_peers).expect("无法序列化静态对等节点配置");
+                cmd.env("BPST_STATIC_PEERS", peers_json);
+            }
+        } else if !node_cfg.peers.is_empty() {
             let peers_json =
                 serde_json::to_string(&node_cfg.peers).expect("无法序列化静态对等节点配置");
             cmd.env("BPST_STATIC_PEERS", peers_json);
@@ -516,6 +524,37 @@ fn normalize_difficulty_hex(raw: &str) -> Result<String, DeploymentConfigError> 
         })
 }
 
+fn assemble_static_peer_map(config: &DeploymentConfig) -> HashMap<String, Vec<PeerConfig>> {
+    let mut known_nodes: HashMap<String, (String, u16)> = HashMap::new();
+    for node in &config.nodes {
+        known_nodes.insert(node.node_id.clone(), (node.host.clone(), node.port));
+    }
+
+    let mut static_map: HashMap<String, Vec<PeerConfig>> = HashMap::new();
+    for node in &config.nodes {
+        let mut combined: HashMap<String, PeerConfig> = HashMap::new();
+
+        for (other_id, (host, port)) in &known_nodes {
+            if other_id == &node.node_id {
+                continue;
+            }
+            combined.entry(other_id.clone()).or_insert(PeerConfig {
+                node_id: other_id.clone(),
+                host: host.clone(),
+                port: *port,
+            });
+        }
+
+        for peer in &node.peers {
+            combined.insert(peer.node_id.clone(), peer.clone());
+        }
+
+        static_map.insert(node.node_id.clone(), combined.into_values().collect());
+    }
+
+    static_map
+}
+
 fn sleep_with_stagger<R>(index: usize, rng: &mut R)
 where
     R: Rng + ?Sized,
@@ -601,7 +640,7 @@ fn should_force_bootstrap_gossip() -> bool {
                 !matches!(normalized.as_str(), "0" | "false" | "no")
             }
         }
-        Err(_) => true,
+        Err(_) => false,
     }
 }
 
