@@ -1,12 +1,13 @@
-use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender, TryRecvError};
-use std::collections::{HashMap, HashSet};
+use parking_lot::Mutex;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use rand::seq::SliceRandom;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -37,84 +38,6 @@ struct CommandResponse {
 struct ProviderAssignment {
     provider_id: String,
     addr: SocketAddr,
-}
-
-#[derive(Debug, Clone)]
-struct TimedBid {
-    payload: Value,
-    provider_id: Option<String>,
-    received_at: Instant,
-}
-
-#[derive(Debug, Default)]
-struct BidQueue {
-    bids: Vec<TimedBid>,
-    seen_providers: HashSet<String>,
-}
-
-impl BidQueue {
-    fn push(&mut self, bid: TimedBid) {
-        if let Some(provider) = bid.provider_id.as_ref() {
-            if !self.seen_providers.insert(provider.clone()) {
-                return;
-            }
-        }
-        self.bids.push(bid);
-    }
-
-    fn len(&self) -> usize {
-        self.bids.len()
-    }
-
-    fn take(self) -> Vec<TimedBid> {
-        self.bids
-    }
-}
-
-#[derive(Debug, Default)]
-struct BidBook {
-    entries: HashMap<String, BidQueue>,
-}
-
-impl BidBook {
-    fn record_bid(&mut self, request_id: &str, bid: TimedBid) -> usize {
-        let queue = self
-            .entries
-            .entry(request_id.to_string())
-            .or_insert_with(BidQueue::default);
-        queue.push(bid);
-        queue.len()
-    }
-
-    fn has_enough(&self, request_id: &str, required: usize) -> bool {
-        self.entries
-            .get(request_id)
-            .map(|queue| queue.len() >= required)
-            .unwrap_or(false)
-    }
-
-    fn take(&mut self, request_id: &str) -> Vec<TimedBid> {
-        self.entries
-            .remove(request_id)
-            .map(BidQueue::take)
-            .unwrap_or_default()
-    }
-
-    fn clear(&mut self, request_id: &str) {
-        self.entries.remove(request_id);
-    }
-}
-
-#[derive(Debug)]
-enum UserEvent {
-    StorageBid {
-        request_id: String,
-        payload: Value,
-        received_at: Instant,
-    },
-    MissingChunks {
-        payload: Value,
-    },
 }
 
 #[derive(Debug, Clone)]
@@ -157,9 +80,10 @@ pub struct UserNode {
     bootstrap_addr: SocketAddr,
     config: P2PSimConfig,
     stop_flag: Arc<AtomicBool>,
-    bid_book: BidBook,
-    active_requests: HashSet<String>,
-    stored_files: HashMap<String, StoredFileRecord>,
+    bids: Arc<Mutex<HashMap<String, Vec<Value>>>>,
+    active_requests: Arc<Mutex<HashSet<String>>>,
+    stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
+    broadcast_buffer: Arc<Mutex<VecDeque<CommandRequest>>>,
 }
 
 impl UserNode {
@@ -180,9 +104,10 @@ impl UserNode {
             bootstrap_addr,
             config,
             stop_flag: Arc::new(AtomicBool::new(false)),
-            bid_book: BidBook::default(),
-            active_requests: HashSet::new(),
-            stored_files: HashMap::new(),
+            bids: Arc::new(Mutex::new(HashMap::new())),
+            active_requests: Arc::new(Mutex::new(HashSet::new())),
+            stored_files: Arc::new(Mutex::new(HashMap::new())),
+            broadcast_buffer: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -253,45 +178,14 @@ impl UserNode {
             &format!("用户节点已在 {}:{} 启动", self.host, self.port),
         );
 
-        let (event_tx, event_rx) = unbounded();
-        self.spawn_accept_loop(listener, event_tx);
-
-        let mut next_storage_attempt = Instant::now() + Self::storage_attempt_delay();
-        let mut next_final_poll = Instant::now();
-        let final_poll_interval = Duration::from_secs(2);
-
-        while !self.stop_flag.load(Ordering::SeqCst) {
-            self.process_events(&event_rx, Duration::from_millis(250));
-
-            let now = Instant::now();
-            if now >= next_final_poll {
-                self.poll_blockchain_for_final_proofs();
-                next_final_poll = now + final_poll_interval;
-            }
-
-            if self.active_requests.is_empty() && now >= next_storage_attempt {
-                self.try_store_file(&event_rx);
-                next_storage_attempt = Instant::now() + Self::storage_attempt_delay();
-            }
-        }
-
-        log_msg(
-            "DEBUG",
-            "USER_NODE",
-            Some(self.owner.owner_id.clone()),
-            "进程已停止。",
-        );
-    }
-
-    fn storage_attempt_delay() -> Duration {
-        let ms = rand::thread_rng().gen_range(3000..=7000);
-        Duration::from_millis(ms as u64)
-    }
-
-    fn spawn_accept_loop(&self, listener: TcpListener, event_tx: Sender<UserEvent>) {
+        // 克隆共享状态，用于监听线程
         let stop_flag = Arc::clone(&self.stop_flag);
+        let broadcast_buffer = Arc::clone(&self.broadcast_buffer);
         let owner_id = self.owner.owner_id.clone();
+
+        // 启动监听线程，处理 accept 循环与连接
         thread::spawn(move || {
+            // 将监听器移入线程，并采用非阻塞以便响应停止信号
             if let Err(e) = listener.set_nonblocking(true) {
                 log_msg(
                     "ERROR",
@@ -306,14 +200,60 @@ impl UserNode {
                     break;
                 }
                 match listener.accept() {
-                    Ok((stream, _)) => {
+                    Ok((stream, _peer)) => {
                         let owner_id = owner_id.clone();
-                        let tx = event_tx.clone();
+                        let broadcast_buffer = Arc::clone(&broadcast_buffer);
+                        // 将连接处理派发到新线程，确保监听循环可以立即返回并处理下一个连接
                         thread::spawn(move || {
-                            Self::handle_incoming_stream(stream, tx, owner_id);
+                            let mut stream = stream;
+                            let res: std::io::Result<()> = (|| {
+                                stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+                                stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+                                let mut reader = BufReader::new(stream.try_clone()?);
+                                let mut line = String::new();
+                                reader.read_line(&mut line)?;
+                                if line.trim().is_empty() {
+                                    return Ok(());
+                                }
+                                let req: CommandRequest =
+                                    serde_json::from_str(&line).unwrap_or(CommandRequest {
+                                        cmd: String::new(),
+                                        data: Value::Null,
+                                    });
+                                // 基础响应
+                                let mut response = CommandResponse {
+                                    ok: false,
+                                    error: Some(String::from("未知命令")),
+                                    extra: HashMap::new(),
+                                };
+                                {
+                                    let mut extra = HashMap::new();
+                                    extra.insert(String::from("queued"), Value::Bool(true));
+                                    response.extra = extra;
+                                    response.ok = true;
+                                    response.error = None;
+                                }
+                                {
+                                    let mut buffer = broadcast_buffer.lock();
+                                    buffer.push_back(req.clone());
+                                }
+                                let resp_json = serde_json::to_string(&response).unwrap();
+                                stream.write_all(resp_json.as_bytes())?;
+                                stream.write_all(b"\n")?;
+                                Ok(())
+                            })();
+                            if let Err(e) = res {
+                                log_msg(
+                                    "ERROR",
+                                    "USER_NODE",
+                                    Some(owner_id.clone()),
+                                    &format!("处理连接失败: {}", e),
+                                );
+                            }
                         });
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        // 短暂休眠，避免忙轮询
                         thread::sleep(Duration::from_millis(100));
                     }
                     Err(e) => {
@@ -334,189 +274,136 @@ impl UserNode {
                 "监听线程已停止。",
             );
         });
+
+        // 主线程：仅负责尝试发起存储与随机睡眠
+        while !self.stop_flag.load(Ordering::SeqCst) {
+            self.drain_broadcast_buffer();
+            self.poll_blockchain_for_final_proofs();
+            let should_try = {
+                let active_empty = self.active_requests.lock().is_empty();
+                active_empty && rand::thread_rng().gen_bool(0.1)
+            };
+            if should_try {
+                self.try_store_file();
+            }
+            self.drain_broadcast_buffer();
+            self.poll_blockchain_for_final_proofs();
+            // 随机休眠 3~7 秒
+            let ms = rand::thread_rng().gen_range(3000..=7000);
+            let mut remaining = ms;
+            while remaining > 0 && !self.stop_flag.load(Ordering::SeqCst) {
+                let step = std::cmp::min(remaining, 500);
+                thread::sleep(Duration::from_millis(step as u64));
+                self.drain_broadcast_buffer();
+                self.poll_blockchain_for_final_proofs();
+                remaining -= step;
+            }
+        }
+        log_msg(
+            "DEBUG",
+            "USER_NODE",
+            Some(self.owner.owner_id.clone()),
+            "进程已停止。",
+        );
     }
 
-    fn handle_incoming_stream(
-        mut stream: TcpStream,
-        event_tx: Sender<UserEvent>,
-        owner_id: String,
-    ) {
-        let res: std::io::Result<()> = (|| {
-            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
-            stream.set_write_timeout(Some(Duration::from_secs(2)))?;
-            let mut reader = BufReader::new(stream.try_clone()?);
-            let mut line = String::new();
-            reader.read_line(&mut line)?;
-            if line.trim().is_empty() {
-                return Ok(());
-            }
-            let req: CommandRequest = serde_json::from_str(&line).unwrap_or(CommandRequest {
-                cmd: String::new(),
-                data: Value::Null,
-            });
-
-            let mut response = CommandResponse {
-                ok: false,
-                error: Some(String::from("未知命令")),
-                extra: HashMap::new(),
+    fn drain_broadcast_buffer(&mut self) {
+        loop {
+            let req_opt = {
+                let mut buffer = self.broadcast_buffer.lock();
+                buffer.pop_front()
             };
-            response
-                .extra
-                .insert(String::from("queued"), Value::Bool(true));
-
+            let Some(req) = req_opt else {
+                break;
+            };
             match req.cmd.as_str() {
                 "storage_bid" => {
-                    if let Some(request_id) = req.data.get("request_id").and_then(Value::as_str) {
-                        let event = UserEvent::StorageBid {
-                            request_id: request_id.to_string(),
-                            payload: req.data.clone(),
-                            received_at: Instant::now(),
-                        };
-                        if event_tx.send(event).is_ok() {
-                            response.ok = true;
-                            response.error = None;
-                        }
+                    let response = self.handle_storage_bid(&req.data);
+                    if !response.ok {
+                        // let detail = response.error.unwrap_or_else(|| String::from("未知错误"));
+                        // log_msg(
+                        //     "WARN",
+                        //     "USER_NODE",
+                        //     Some(self.owner.owner_id.clone()),
+                        //     &format!("异步处理存储竞标失败: {}", detail),
+                        // );
                     }
                 }
                 "request_missing_chunks" => {
-                    if event_tx
-                        .send(UserEvent::MissingChunks {
-                            payload: req.data.clone(),
-                        })
-                        .is_ok()
-                    {
-                        response.ok = true;
-                        response.error = None;
-                    }
+                    self.handle_missing_chunk_request(&req.data);
                 }
                 other => {
                     log_msg(
                         "DEBUG",
                         "USER_NODE",
-                        Some(owner_id.clone()),
+                        Some(self.owner.owner_id.clone()),
                         &format!("收到未知广播消息 {}，已忽略", other),
                     );
                 }
             }
-
-            let resp_json = serde_json::to_string(&response).unwrap();
-            stream.write_all(resp_json.as_bytes())?;
-            stream.write_all(b"\n")?;
-            Ok(())
-        })();
-
-        if let Err(e) = res {
-            log_msg(
-                "ERROR",
-                "USER_NODE",
-                Some(owner_id),
-                &format!("处理连接失败: {}", e),
-            );
         }
     }
 
-    fn process_events(&mut self, event_rx: &Receiver<UserEvent>, timeout: Duration) {
-        self.drain_pending_events(event_rx);
-        if timeout.is_zero() {
-            return;
+    #[allow(dead_code)]
+    fn handle_connection(&mut self, mut stream: TcpStream) -> std::io::Result<()> {
+        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+        let mut reader = BufReader::new(stream.try_clone()?);
+        let mut line = String::new();
+        reader.read_line(&mut line)?;
+        if line.trim().is_empty() {
+            return Ok(());
         }
-        let start = Instant::now();
-        loop {
-            if self.stop_flag.load(Ordering::SeqCst) {
-                break;
-            }
-            let elapsed = start.elapsed();
-            if elapsed >= timeout {
-                break;
-            }
-            let remaining = timeout.checked_sub(elapsed).unwrap_or_default();
-            if remaining.is_zero() {
-                break;
-            }
-            let wait = remaining.min(Duration::from_millis(200));
-            match event_rx.recv_timeout(wait) {
-                Ok(event) => {
-                    self.handle_event(event);
-                    self.drain_pending_events(event_rx);
-                }
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => break,
-            }
+        let req: CommandRequest = serde_json::from_str(&line).unwrap_or(CommandRequest {
+            cmd: String::new(),
+            data: Value::Null,
+        });
+        let response = self.dispatch_command(req);
+        let resp_json = serde_json::to_string(&response)?;
+        stream.write_all(resp_json.as_bytes())?;
+        stream.write_all(b"\n")?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    fn dispatch_command(&mut self, req: CommandRequest) -> CommandResponse {
+        match req.cmd.as_str() {
+            "storage_bid" => self.handle_storage_bid(&req.data),
+            _ => CommandResponse {
+                ok: false,
+                error: Some(String::from("未知命令")),
+                extra: HashMap::new(),
+            },
         }
     }
 
-    fn drain_pending_events(&mut self, event_rx: &Receiver<UserEvent>) {
-        loop {
-            match event_rx.try_recv() {
-                Ok(event) => self.handle_event(event),
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => break,
-            }
-            if self.stop_flag.load(Ordering::SeqCst) {
-                break;
-            }
-        }
-    }
-
-    fn handle_event(&mut self, event: UserEvent) {
-        match event {
-            UserEvent::StorageBid {
-                request_id,
-                payload,
-                received_at,
-            } => self.process_storage_bid(request_id, payload, received_at),
-            UserEvent::MissingChunks { payload } => self.handle_missing_chunk_request(&payload),
-        }
-    }
-
-    fn process_storage_bid(&mut self, request_id: String, payload: Value, received_at: Instant) {
-        if !self.active_requests.contains(&request_id) {
-            return;
-        }
-
-        let provider_id = payload
-            .get("bidder_id")
-            .and_then(Value::as_str)
-            .map(|s| s.to_string());
-
-        let bid = TimedBid {
-            payload,
-            provider_id,
-            received_at,
+    #[allow(dead_code)]
+    fn handle_storage_bid(&mut self, data: &Value) -> CommandResponse {
+        let request_id = data.get("request_id").and_then(Value::as_str).unwrap_or("");
+        let is_active = {
+            let active = self.active_requests.lock();
+            active.contains(request_id)
         };
-        self.bid_book.record_bid(&request_id, bid);
-    }
-
-    fn wait_for_bids(
-        &mut self,
-        event_rx: &Receiver<UserEvent>,
-        request_id: &str,
-        required: usize,
-        deadline: Instant,
-    ) -> bool {
-        while !self.stop_flag.load(Ordering::SeqCst) {
-            if self.bid_book.has_enough(request_id, required) {
-                return true;
+        if is_active {
+            {
+                let mut bids_map = self.bids.lock();
+                bids_map
+                    .entry(request_id.to_string())
+                    .or_default()
+                    .push(data.clone());
             }
-            if Instant::now() >= deadline {
-                return false;
+            CommandResponse {
+                ok: true,
+                error: None,
+                extra: HashMap::new(),
             }
-            let now = Instant::now();
-            let remaining = deadline.saturating_duration_since(now);
-            if remaining.is_zero() {
-                return false;
-            }
-            let wait = remaining.min(Duration::from_millis(200));
-            match event_rx.recv_timeout(wait) {
-                Ok(event) => {
-                    self.handle_event(event);
-                    self.drain_pending_events(event_rx);
-                }
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => return false,
+        } else {
+            CommandResponse {
+                ok: false,
+                error: Some(String::from("请求不活跃")),
+                extra: HashMap::new(),
             }
         }
-        false
     }
 
     fn handle_missing_chunk_request(&mut self, data: &Value) {
@@ -557,7 +444,11 @@ impl UserNode {
                 Some(SocketAddr::new(host.parse().ok()?, port))
             });
 
-        let Some(record) = self.stored_files.get(&file_id).cloned() else {
+        let record_opt = {
+            let records = self.stored_files.lock();
+            records.get(&file_id).cloned()
+        };
+        let Some(record) = record_opt else {
             log_msg(
                 "WARN",
                 "USER_NODE",
@@ -636,13 +527,21 @@ impl UserNode {
     }
 
     fn verify_final_proof(
-        record: &StoredFileRecord,
-        already_verified: bool,
+        stored_files: &Arc<Mutex<HashMap<String, StoredFileRecord>>>,
         args: FinalProofArgs<'_>,
     ) -> Result<(), String> {
-        if record.chunks.is_empty() {
-            return Err(String::from("参数缺失或未知文件"));
-        }
+        let (record_opt, already_verified) = {
+            let map = stored_files.lock();
+            match map.get(args.file_id) {
+                Some(record) => (Some(record.clone()), record.final_verified),
+                None => (None, false),
+            }
+        };
+
+        let record = match record_opt {
+            Some(rec) => rec,
+            None => return Err(String::from("参数缺失或未知文件")),
+        };
 
         if !record.provider_assigned_for_round(args.provider, record.required_rounds) {
             log_msg(
@@ -696,6 +595,12 @@ impl UserNode {
                         //     file_id, provider
                         // );
                     }
+                    {
+                        let mut map = stored_files.lock();
+                        if let Some(entry) = map.get_mut(args.file_id) {
+                            entry.final_verified = true;
+                        }
+                    }
                     Ok(())
                 } else {
                     log_msg(
@@ -723,11 +628,19 @@ impl UserNode {
     }
 
     fn poll_blockchain_for_final_proofs(&mut self) {
-        let pending: Vec<String> = self
-            .stored_files
-            .iter()
-            .filter_map(|(file_id, record)| (!record.final_verified).then(|| file_id.clone()))
-            .collect();
+        let pending: Vec<String> = {
+            let records = self.stored_files.lock();
+            records
+                .iter()
+                .filter_map(|(file_id, record)| {
+                    if record.final_verified {
+                        None
+                    } else {
+                        Some(file_id.clone())
+                    }
+                })
+                .collect()
+        };
 
         for file_id in pending {
             let payload = serde_json::json!({
@@ -785,14 +698,11 @@ impl UserNode {
                 _ => continue,
             };
 
-            let Some(record) = self.stored_files.get(&file_id).cloned() else {
-                continue;
-            };
             let owner_id = self.owner.owner_id.clone();
+            let stored_files = Arc::clone(&self.stored_files);
             let verification = with_cpu_heavy_limit(|| {
                 Self::verify_final_proof(
-                    &record,
-                    record.final_verified,
+                    &stored_files,
                     FinalProofArgs {
                         owner_id: &owner_id,
                         file_id: &file_id,
@@ -805,25 +715,18 @@ impl UserNode {
                 )
             });
 
-            match verification {
-                Ok(()) => {
-                    if let Some(entry) = self.stored_files.get_mut(&file_id) {
-                        entry.final_verified = true;
-                    }
-                }
-                Err(err) => {
-                    log_msg(
-                        "WARN",
-                        "USER_NODE",
-                        Some(owner_id),
-                        &format!("链上验证文件 {} 最终证明失败: {}", file_id, err),
-                    );
-                }
+            if let Err(err) = verification {
+                log_msg(
+                    "WARN",
+                    "USER_NODE",
+                    Some(owner_id),
+                    &format!("链上验证文件 {} 最终证明失败: {}", file_id, err),
+                );
             }
         }
     }
 
-    fn try_store_file(&mut self, event_rx: &Receiver<UserEvent>) {
+    fn try_store_file(&mut self) {
         let num_nodes_required = std::cmp::min(
             rand::thread_rng()
                 .gen_range(self.config.min_storage_nodes..=self.config.max_storage_nodes),
@@ -846,7 +749,10 @@ impl UserNode {
         let total_size = chunks.len() * self.config.chunk_size;
         let file_id = self.owner.file_id.clone();
         let request_id = format!("req-{}", file_id);
-        self.active_requests.insert(request_id.clone());
+        {
+            let mut active = self.active_requests.lock();
+            active.insert(request_id.clone());
+        }
         log_msg(
             "INFO",
             "USER_NODE",
@@ -866,81 +772,47 @@ impl UserNode {
                 "request_id": request_id.clone(),
                 "file_id": file_id.clone(),
                 "total_size": total_size,
-                "reply_addr": [self.advertise_host.clone(), self.port],
+                "reply_addr": [self.advertise_host, self.port],
                 "storage_rounds": storage_rounds,
             }
         });
-        let wait_duration = Duration::from_secs(self.config.bid_wait_sec.max(1));
+        let _ = super::node::send_json_line_without_response(self.bootstrap_addr, &offer);
         log_msg(
             "INFO",
             "USER_NODE",
             Some(self.owner.owner_id.clone()),
             &format!(
-                "为请求 {} 最多等待 {} 秒以收集竞标...",
-                request_id,
-                wait_duration.as_secs()
+                "为请求 {} 等待 {} 秒以收集竞标...",
+                request_id, self.config.bid_wait_sec
             ),
         );
-
-        let max_attempts = 3usize;
-        let mut attempt = 0usize;
-        let mut reached_capacity = false;
-        let mut collected_bids: Vec<TimedBid> = Vec::new();
-
-        while attempt < max_attempts && !self.stop_flag.load(Ordering::SeqCst) {
-            self.broadcast_storage_offer(&offer);
-            if attempt > 0 {
-                log_msg(
-                    "DEBUG",
-                    "USER_NODE",
-                    Some(self.owner.owner_id.clone()),
-                    &format!("请求 {} 触发第 {} 次扩散广播。", request_id, attempt + 1),
-                );
-            }
-
-            let deadline = Instant::now() + wait_duration;
-            if self.wait_for_bids(event_rx, &request_id, num_nodes_required, deadline) {
-                reached_capacity = true;
-            }
-
-            if self.bid_book.has_enough(&request_id, num_nodes_required) {
-                collected_bids = self.bid_book.take(&request_id);
-                break;
-            }
-
-            attempt += 1;
-            if attempt >= max_attempts {
-                collected_bids = self.bid_book.take(&request_id);
-                break;
-            }
+        let total_wait_ms = self.config.bid_wait_sec.saturating_mul(1000);
+        let mut waited_ms = 0u64;
+        while waited_ms < total_wait_ms && !self.stop_flag.load(Ordering::SeqCst) {
+            let remaining = total_wait_ms - waited_ms;
+            let step = std::cmp::min(remaining, 200);
+            thread::sleep(Duration::from_millis(step));
+            self.drain_broadcast_buffer();
+            waited_ms += step;
         }
-
-        if collected_bids.len() >= num_nodes_required {
-            if reached_capacity {
-                log_msg(
-                    "DEBUG",
-                    "USER_NODE",
-                    Some(self.owner.owner_id.clone()),
-                    &format!(
-                        "请求 {} 在 {} 秒内收到了足够的竞标。",
-                        request_id,
-                        wait_duration.as_secs()
-                    ),
-                );
+        self.drain_broadcast_buffer();
+        let bids = {
+            let bids_map = self.bids.lock();
+            bids_map.get(&request_id).cloned().unwrap_or_default()
+        };
+        if bids.len() >= num_nodes_required {
+            let mut rng = rand::thread_rng();
+            let mut winners = Vec::new();
+            let mut indices: Vec<usize> = (0..bids.len()).collect();
+            indices.shuffle(&mut rng);
+            for idx in indices.into_iter().take(num_nodes_required) {
+                winners.push(bids[idx].clone());
             }
-            let mut ordered_bids = collected_bids;
-            ordered_bids.sort_by_key(|bid| bid.received_at);
-            let provider_assignments: Vec<ProviderAssignment> = ordered_bids
+            let provider_assignments: Vec<ProviderAssignment> = winners
                 .iter()
-                .take(num_nodes_required)
                 .filter_map(|bid| {
-                    let provider_id = bid.provider_id.clone().or_else(|| {
-                        bid.payload
-                            .get("bidder_id")
-                            .and_then(Value::as_str)
-                            .map(|s| s.to_string())
-                    })?;
-                    let addr_arr = bid.payload.get("bidder_addr")?.as_array()?;
+                    let provider_id = bid.get("bidder_id")?.as_str()?.to_string();
+                    let addr_arr = bid.get("bidder_addr")?.as_array()?;
                     let host = addr_arr.first()?.as_str()?;
                     let port = addr_arr.get(1)?.as_u64()? as u16;
                     let ip = host.parse().ok()?;
@@ -963,145 +835,86 @@ impl UserNode {
                     ),
                 );
             } else {
+                let addrs: Vec<SocketAddr> = provider_assignments
+                    .iter()
+                    .map(|assignment| assignment.addr)
+                    .collect();
                 log_msg(
                     "SUCCESS",
                     "USER_NODE",
                     Some(self.owner.owner_id.clone()),
                     &format!("文件 {} 的存储竞标完成。", file_id),
                 );
-                let owner_pk_beta_hex =
-                    hex::encode(serialize_g2(&self.owner.get_dpdp_params().pk_beta));
-                let allow_distribution = if self.stored_files.contains_key(&file_id) {
-                    log_msg(
-                        "WARN",
-                        "USER_NODE",
-                        Some(self.owner.owner_id.clone()),
-                        &format!("file_id {} 已存在，跳过覆盖旧的分发表。", file_id),
-                    );
-                    false
-                } else {
-                    true
-                };
-                if allow_distribution {
-                    let mut successful_assignments = self.distribute_file_to_providers(
-                        &file_id,
-                        &chunks,
-                        &provider_assignments,
-                        &owner_pk_beta_hex,
-                        storage_rounds,
-                        challenge_size,
-                    );
-                    let mut finalize_attempted = false;
-                    if successful_assignments.is_empty() {
+                let mut round_assignments = HashMap::new();
+                for round in 1..=storage_rounds {
+                    round_assignments.insert(round, provider_assignments.clone());
+                }
+                let mut allow_distribution = true;
+                {
+                    let mut records = self.stored_files.lock();
+                    if records.contains_key(&file_id) {
                         log_msg(
-                            "ERROR",
+                            "WARN",
                             "USER_NODE",
                             Some(self.owner.owner_id.clone()),
-                            &format!("文件 {} 的分发失败，所有目标节点均未确认存储。", file_id),
+                            &format!("file_id {} 已存在，跳过覆盖旧的分发表。", file_id),
                         );
+                        allow_distribution = false;
                     } else {
-                        let chunk_summary: Vec<String> = successful_assignments
-                            .iter()
-                            .map(|assignment| {
-                                format!("{}@{}", assignment.provider_id, assignment.addr)
-                            })
-                            .collect();
-                        log_msg(
-                            "INFO",
-                            "USER_NODE",
-                            Some(self.owner.owner_id.clone()),
-                            &format!(
-                                "文件 {} 的分发表: 存储轮次 {}，确认节点 {}。",
-                                file_id,
-                                storage_rounds,
-                                chunk_summary.join(", ")
-                            ),
-                        );
-                        if successful_assignments.len() < num_nodes_required {
-                            log_msg(
-                                "WARN",
-                                "USER_NODE",
-                                Some(self.owner.owner_id.clone()),
-                                &format!(
-                                    "文件 {} 实际确认节点 {} 个，低于预期的 {} 个。",
-                                    file_id,
-                                    successful_assignments.len(),
-                                    num_nodes_required
-                                ),
-                            );
-                            log_msg(
-                                "INFO",
-                                "USER_NODE",
-                                Some(self.owner.owner_id.clone()),
-                                &format!(
-                                    "文件 {} 未达到确认阈值，跳过 finalize_storage 操作。",
-                                    file_id
-                                ),
-                            );
-                        }
-                        if successful_assignments.len() >= num_nodes_required {
-                            let finalized_assignments = self
-                                .finalize_storage_for_providers(&file_id, &successful_assignments);
-                            finalize_attempted = true;
-                            if finalized_assignments.len() < successful_assignments.len() {
-                                log_msg(
-                                    "WARN",
-                                    "USER_NODE",
-                                    Some(self.owner.owner_id.clone()),
-                                    &format!(
-                                        "文件 {} 有 {} 个节点在 finalize 阶段失败。",
-                                        file_id,
-                                        successful_assignments.len() - finalized_assignments.len()
-                                    ),
-                                );
-                            }
-                            successful_assignments = finalized_assignments;
-                        }
-                        if successful_assignments.len() >= num_nodes_required {
-                            let final_summary: Vec<String> = successful_assignments
-                                .iter()
-                                .map(|assignment| {
-                                    format!("{}@{}", assignment.provider_id, assignment.addr)
-                                })
-                                .collect();
-                            log_msg(
-                                "INFO",
-                                "USER_NODE",
-                                Some(self.owner.owner_id.clone()),
-                                &format!(
-                                    "文件 {} finalize 完成: 存储轮次 {}，最终节点 {}。",
-                                    file_id,
-                                    storage_rounds,
-                                    final_summary.join(", ")
-                                ),
-                            );
-                            let mut round_assignments = HashMap::new();
-                            for round in 1..=storage_rounds {
-                                round_assignments.insert(round, successful_assignments.clone());
-                            }
-                            let record = StoredFileRecord {
+                        records.insert(
+                            file_id.clone(),
+                            StoredFileRecord {
                                 chunks: chunks.clone(),
                                 required_rounds: storage_rounds,
                                 challenge_size,
                                 final_verified: false,
                                 round_assignments,
-                            };
-                            self.stored_files.insert(file_id.clone(), record);
-                        } else if finalize_attempted
-                            && successful_assignments.len() < num_nodes_required
-                        {
-                            log_msg(
-                                "WARN",
-                                "USER_NODE",
-                                Some(self.owner.owner_id.clone()),
-                                &format!(
-                                    "文件 {} finalize 后确认节点 {} 个，低于预期的 {} 个。",
-                                    file_id,
-                                    successful_assignments.len(),
-                                    num_nodes_required
-                                ),
-                            );
+                            },
+                        );
+                    }
+                }
+                if allow_distribution {
+                    let summary: Vec<String> = provider_assignments
+                        .iter()
+                        .map(|assignment| format!("{}@{}", assignment.provider_id, assignment.addr))
+                        .collect();
+                    log_msg(
+                        "INFO",
+                        "USER_NODE",
+                        Some(self.owner.owner_id.clone()),
+                        &format!(
+                            "文件 {} 的分发表: 存储轮次 {}，参与者 {}。",
+                            file_id,
+                            storage_rounds,
+                            summary.join(", ")
+                        ),
+                    );
+                    let owner_pk_beta_hex =
+                        hex::encode(serialize_g2(&self.owner.get_dpdp_params().pk_beta));
+                    for chunk in &chunks {
+                        let chunk_json = serde_json::to_value(chunk).unwrap();
+                        for addr in &addrs {
+                            let data = serde_json::json!({
+                                "chunk": chunk_json.clone(),
+                                "owner_pk_beta": owner_pk_beta_hex,
+                                "storage_period": storage_rounds,
+                                "challenge_size": challenge_size,
+                                "owner_addr": [self.host, self.port],
+                                "total_chunks": chunks.len(),
+                            });
+                            let payload = serde_json::json!({
+                                "cmd": "chunk_distribute",
+                                "data": data,
+                            });
+                            let _ = super::node::send_json_line(*addr, &payload);
                         }
+                    }
+                    for addr in &addrs {
+                        let payload = serde_json::json!({
+                            "cmd": "finalize_storage",
+                            "data": {"file_id": file_id.clone()},
+                        });
+                        let _ = super::node::send_json_line(*addr, &payload);
                     }
                 }
             }
@@ -1113,183 +926,13 @@ impl UserNode {
                 &format!("文件 {} 的存储请求失败。竞标数量不足。", file_id),
             );
         }
-        self.bid_book.clear(&request_id);
-        self.active_requests.remove(&request_id);
-    }
-}
-
-impl UserNode {
-    fn broadcast_storage_offer(&mut self, offer: &Value) {
-        let _ = super::node::send_json_line_without_response(self.bootstrap_addr, offer);
-    }
-
-    fn distribute_file_to_providers(
-        &self,
-        file_id: &str,
-        chunks: &[FileChunk],
-        assignments: &[ProviderAssignment],
-        owner_pk_beta_hex: &str,
-        storage_rounds: usize,
-        challenge_size: usize,
-    ) -> Vec<ProviderAssignment> {
-        if assignments.is_empty() {
-            return Vec::new();
+        {
+            let mut bids_map = self.bids.lock();
+            bids_map.remove(&request_id);
         }
-
-        let chunk_values: Vec<Value> = chunks
-            .iter()
-            .map(|chunk| serde_json::to_value(chunk).unwrap())
-            .collect();
-        let total_chunks = chunks.len();
-        let owner_addr_value = serde_json::json!([self.advertise_host.clone(), self.port]);
-
-        let mut provider_success = vec![true; assignments.len()];
-        let mut provider_errors: Vec<Vec<String>> = vec![Vec::new(); assignments.len()];
-
-        let mut chunk_requests = Vec::new();
-        let mut chunk_meta = Vec::new();
-        for (provider_idx, assignment) in assignments.iter().enumerate() {
-            for (chunk_idx, chunk_json) in chunk_values.iter().enumerate() {
-                let data = serde_json::json!({
-                    "chunk": chunk_json.clone(),
-                    "owner_pk_beta": owner_pk_beta_hex,
-                    "storage_period": storage_rounds,
-                    "challenge_size": challenge_size,
-                    "owner_addr": owner_addr_value.clone(),
-                    "total_chunks": total_chunks,
-                });
-                let payload = serde_json::json!({
-                    "cmd": "chunk_distribute",
-                    "data": data,
-                });
-                chunk_requests.push((assignment.addr, payload));
-                chunk_meta.push((provider_idx, chunk_idx));
-            }
+        {
+            let mut active = self.active_requests.lock();
+            active.remove(&request_id);
         }
-
-        if !chunk_requests.is_empty() {
-            let responses = super::node::send_json_lines_parallel(chunk_requests);
-            for ((provider_idx, chunk_idx), response) in
-                chunk_meta.into_iter().zip(responses.into_iter())
-            {
-                if provider_success[provider_idx] {
-                    match response {
-                        Some(value) => match serde_json::from_value::<CommandResponse>(value) {
-                            Ok(resp) if resp.ok => {}
-                            Ok(resp) => {
-                                provider_success[provider_idx] = false;
-                                let reason = resp.error.unwrap_or_else(|| "未知错误".to_string());
-                                provider_errors[provider_idx]
-                                    .push(format!("chunk {}: {}", chunk_idx, reason));
-                            }
-                            Err(err) => {
-                                provider_success[provider_idx] = false;
-                                provider_errors[provider_idx]
-                                    .push(format!("chunk {}: 响应解析失败 {}", chunk_idx, err));
-                            }
-                        },
-                        None => {
-                            provider_success[provider_idx] = false;
-                            provider_errors[provider_idx]
-                                .push(format!("chunk {}: 无响应", chunk_idx));
-                        }
-                    }
-                }
-            }
-        }
-
-        let mut successes = Vec::new();
-        for (idx, assignment) in assignments.iter().enumerate() {
-            if provider_success[idx] {
-                successes.push(assignment.clone());
-            } else {
-                let reason = if provider_errors[idx].is_empty() {
-                    String::from("未知原因")
-                } else {
-                    provider_errors[idx].join("; ")
-                };
-                log_msg(
-                    "WARN",
-                    "USER_NODE",
-                    Some(self.owner.owner_id.clone()),
-                    &format!(
-                        "分发文件 {} 至节点 {}@{} 失败: {}",
-                        file_id, assignment.provider_id, assignment.addr, reason
-                    ),
-                );
-            }
-        }
-
-        successes
-    }
-
-    fn finalize_storage_for_providers(
-        &self,
-        file_id: &str,
-        assignments: &[ProviderAssignment],
-    ) -> Vec<ProviderAssignment> {
-        if assignments.is_empty() {
-            return Vec::new();
-        }
-
-        let finalize_requests: Vec<(SocketAddr, Value)> = assignments
-            .iter()
-            .map(|assignment| {
-                let payload = serde_json::json!({
-                    "cmd": "finalize_storage",
-                    "data": {"file_id": file_id},
-                });
-                (assignment.addr, payload)
-            })
-            .collect();
-
-        let responses = super::node::send_json_lines_parallel(finalize_requests);
-        let mut successes = Vec::new();
-
-        for (assignment, response) in assignments.iter().cloned().zip(responses.into_iter()) {
-            match response {
-                Some(value) => match serde_json::from_value::<CommandResponse>(value) {
-                    Ok(resp) if resp.ok => {
-                        successes.push(assignment);
-                    }
-                    Ok(resp) => {
-                        let reason = resp.error.unwrap_or_else(|| "未知错误".to_string());
-                        log_msg(
-                            "WARN",
-                            "USER_NODE",
-                            Some(self.owner.owner_id.clone()),
-                            &format!(
-                                "文件 {} 在 finalize 阶段确认节点 {}@{} 失败: {}",
-                                file_id, assignment.provider_id, assignment.addr, reason
-                            ),
-                        );
-                    }
-                    Err(err) => {
-                        log_msg(
-                            "WARN",
-                            "USER_NODE",
-                            Some(self.owner.owner_id.clone()),
-                            &format!(
-                                "文件 {} finalize 响应解析失败 {} 来自节点 {}@{}",
-                                file_id, err, assignment.provider_id, assignment.addr
-                            ),
-                        );
-                    }
-                },
-                None => {
-                    log_msg(
-                        "WARN",
-                        "USER_NODE",
-                        Some(self.owner.owner_id.clone()),
-                        &format!(
-                            "文件 {} finalize 阶段节点 {}@{} 无响应",
-                            file_id, assignment.provider_id, assignment.addr
-                        ),
-                    );
-                }
-            }
-        }
-
-        successes
     }
 }
