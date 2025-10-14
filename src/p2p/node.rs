@@ -2567,7 +2567,16 @@ pub fn send_json_line(addr: SocketAddr, payload: &Value) -> Option<Value> {
     TOKIO_RUNTIME.block_on(send_json_line_async(addr, payload_clone))
 }
 
-async fn send_json_line_async(addr: SocketAddr, payload: Value) -> Option<Value> {
+pub(crate) fn send_json_lines_parallel(requests: Vec<(SocketAddr, Value)>) -> Vec<Option<Value>> {
+    TOKIO_RUNTIME.block_on(async {
+        let futures = requests
+            .into_iter()
+            .map(|(addr, payload)| send_json_line_async(addr, payload));
+        join_all(futures).await
+    })
+}
+
+pub(crate) async fn send_json_line_async(addr: SocketAddr, payload: Value) -> Option<Value> {
     let payload_bytes = serde_json::to_vec(&payload).ok()?;
     let max_attempts = 5usize;
     let connect_timeout = Duration::from_secs(2);
