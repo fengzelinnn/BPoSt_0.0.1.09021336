@@ -96,6 +96,7 @@ pub struct UserNode {
 
 impl UserNode {
     const MAX_STORAGE_BROADCAST_TARGETS: usize = 5;
+    const BID_REBROADCAST_INTERVAL_MS: u64 = 2_000;
 
     pub fn new(
         owner: FileOwner,
@@ -844,23 +845,7 @@ impl UserNode {
                 "storage_rounds": storage_rounds,
             }
         });
-        let mut targets = self.collect_known_peers();
-        if targets.is_empty() {
-            targets = self.fetch_peer_targets();
-        }
-        if targets.is_empty() {
-            targets.push(self.bootstrap_addr);
-        }
-        targets.shuffle(&mut rand::thread_rng());
-        let max_targets = std::cmp::max(1, Self::MAX_STORAGE_BROADCAST_TARGETS);
-        let mut selected: Vec<SocketAddr> = targets.into_iter().take(max_targets).collect();
-        self.ensure_bootstrap_target(&mut selected, max_targets);
-        if selected.is_empty() {
-            selected.push(self.bootstrap_addr);
-        }
-        for target in selected {
-            let _ = super::node::send_json_line_without_response(target, &offer);
-        }
+        self.broadcast_storage_offer(&offer);
         log_msg(
             "INFO",
             "USER_NODE",
@@ -873,6 +858,9 @@ impl UserNode {
         let max_wait = Duration::from_secs(self.config.bid_wait_sec.max(1));
         let mut reached_capacity = false;
         let start_wait = Instant::now();
+        let rebroadcast_interval = Duration::from_millis(Self::BID_REBROADCAST_INTERVAL_MS);
+        let mut last_broadcast = Instant::now();
+        let mut rebroadcast_attempts = 0usize;
         while start_wait.elapsed() < max_wait && !self.stop_flag.load(Ordering::SeqCst) {
             let remaining = max_wait.saturating_sub(start_wait.elapsed());
             let step = std::cmp::min(remaining, Duration::from_millis(200));
@@ -888,6 +876,21 @@ impl UserNode {
             if has_enough {
                 reached_capacity = true;
                 break;
+            }
+            if last_broadcast.elapsed() >= rebroadcast_interval {
+                rebroadcast_attempts += 1;
+                self.broadcast_storage_offer(&offer);
+                last_broadcast = Instant::now();
+                log_msg(
+                    "DEBUG",
+                    "USER_NODE",
+                    Some(self.owner.owner_id.clone()),
+                    &format!(
+                        "请求 {} 等待竞标时第 {} 次重新广播存储请求。",
+                        request_id, rebroadcast_attempts
+                    ),
+                );
+                self.drain_broadcast_buffer();
             }
         }
         self.drain_broadcast_buffer();
@@ -1054,6 +1057,26 @@ impl UserNode {
     fn collect_known_peers(&self) -> Vec<SocketAddr> {
         let peers = self.known_peers.lock();
         peers.iter().copied().collect()
+    }
+
+    fn broadcast_storage_offer(&self, offer: &Value) {
+        let mut targets = self.collect_known_peers();
+        if targets.is_empty() {
+            targets = self.fetch_peer_targets();
+        }
+        if targets.is_empty() {
+            targets.push(self.bootstrap_addr);
+        }
+        targets.shuffle(&mut rand::thread_rng());
+        let max_targets = std::cmp::max(1, Self::MAX_STORAGE_BROADCAST_TARGETS);
+        let mut selected: Vec<SocketAddr> = targets.into_iter().take(max_targets).collect();
+        self.ensure_bootstrap_target(&mut selected, max_targets);
+        if selected.is_empty() {
+            selected.push(self.bootstrap_addr);
+        }
+        for target in selected {
+            let _ = super::node::send_json_line_without_response(target, offer);
+        }
     }
 
     fn distribute_file_to_providers(
