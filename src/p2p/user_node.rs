@@ -1,5 +1,5 @@
-use parking_lot::Mutex;
-use std::collections::{HashMap, HashSet, VecDeque};
+use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender, TryRecvError};
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -43,7 +43,79 @@ struct ProviderAssignment {
 #[derive(Debug, Clone)]
 struct TimedBid {
     payload: Value,
+    provider_id: Option<String>,
     received_at: Instant,
+}
+
+#[derive(Debug, Default)]
+struct BidQueue {
+    bids: Vec<TimedBid>,
+    seen_providers: HashSet<String>,
+}
+
+impl BidQueue {
+    fn push(&mut self, bid: TimedBid) {
+        if let Some(provider) = bid.provider_id.as_ref() {
+            if !self.seen_providers.insert(provider.clone()) {
+                return;
+            }
+        }
+        self.bids.push(bid);
+    }
+
+    fn len(&self) -> usize {
+        self.bids.len()
+    }
+
+    fn take(self) -> Vec<TimedBid> {
+        self.bids
+    }
+}
+
+#[derive(Debug, Default)]
+struct BidBook {
+    entries: HashMap<String, BidQueue>,
+}
+
+impl BidBook {
+    fn record_bid(&mut self, request_id: &str, bid: TimedBid) -> usize {
+        let queue = self
+            .entries
+            .entry(request_id.to_string())
+            .or_insert_with(BidQueue::default);
+        queue.push(bid);
+        queue.len()
+    }
+
+    fn has_enough(&self, request_id: &str, required: usize) -> bool {
+        self.entries
+            .get(request_id)
+            .map(|queue| queue.len() >= required)
+            .unwrap_or(false)
+    }
+
+    fn take(&mut self, request_id: &str) -> Vec<TimedBid> {
+        self.entries
+            .remove(request_id)
+            .map(BidQueue::take)
+            .unwrap_or_default()
+    }
+
+    fn clear(&mut self, request_id: &str) {
+        self.entries.remove(request_id);
+    }
+}
+
+#[derive(Debug)]
+enum UserEvent {
+    StorageBid {
+        request_id: String,
+        payload: Value,
+        received_at: Instant,
+    },
+    MissingChunks {
+        payload: Value,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -86,17 +158,15 @@ pub struct UserNode {
     bootstrap_addr: SocketAddr,
     config: P2PSimConfig,
     stop_flag: Arc<AtomicBool>,
-    bids: Arc<Mutex<HashMap<String, Vec<TimedBid>>>>,
-    active_requests: Arc<Mutex<HashSet<String>>>,
-    stored_files: Arc<Mutex<HashMap<String, StoredFileRecord>>>,
-    broadcast_buffer: Arc<Mutex<VecDeque<CommandRequest>>>,
-    known_peers: Arc<Mutex<HashSet<SocketAddr>>>,
+    bid_book: BidBook,
+    active_requests: HashSet<String>,
+    stored_files: HashMap<String, StoredFileRecord>,
+    known_peers: HashSet<SocketAddr>,
     force_bootstrap_target: bool,
 }
 
 impl UserNode {
     const MAX_STORAGE_BROADCAST_TARGETS: usize = 5;
-    const BID_REBROADCAST_INTERVAL_MS: u64 = 2_000;
 
     pub fn new(
         owner: FileOwner,
@@ -108,6 +178,8 @@ impl UserNode {
         force_bootstrap_target: bool,
     ) -> Self {
         let advertise_host = Self::resolve_advertise_host(&owner.owner_id, &host, advertise_host);
+        let mut known_peers = HashSet::new();
+        known_peers.insert(bootstrap_addr);
         Self {
             owner,
             host,
@@ -116,11 +188,10 @@ impl UserNode {
             bootstrap_addr,
             config,
             stop_flag: Arc::new(AtomicBool::new(false)),
-            bids: Arc::new(Mutex::new(HashMap::new())),
-            active_requests: Arc::new(Mutex::new(HashSet::new())),
-            stored_files: Arc::new(Mutex::new(HashMap::new())),
-            broadcast_buffer: Arc::new(Mutex::new(VecDeque::new())),
-            known_peers: Arc::new(Mutex::new(HashSet::new())),
+            bid_book: BidBook::default(),
+            active_requests: HashSet::new(),
+            stored_files: HashMap::new(),
+            known_peers,
             force_bootstrap_target,
         }
     }
@@ -186,7 +257,7 @@ impl UserNode {
         None
     }
 
-    fn fetch_peer_targets(&self) -> Vec<SocketAddr> {
+    fn fetch_peer_targets(&mut self) -> Vec<SocketAddr> {
         let payload = serde_json::json!({
             "cmd": "get_peers",
             "data": {},
@@ -244,14 +315,45 @@ impl UserNode {
             &format!("用户节点已在 {}:{} 启动", self.host, self.port),
         );
 
-        // 克隆共享状态，用于监听线程
-        let stop_flag = Arc::clone(&self.stop_flag);
-        let broadcast_buffer = Arc::clone(&self.broadcast_buffer);
-        let owner_id = self.owner.owner_id.clone();
+        let (event_tx, event_rx) = unbounded();
+        self.spawn_accept_loop(listener, event_tx);
 
-        // 启动监听线程，处理 accept 循环与连接
+        let mut next_storage_attempt = Instant::now() + Self::storage_attempt_delay();
+        let mut next_final_poll = Instant::now();
+        let final_poll_interval = Duration::from_secs(2);
+
+        while !self.stop_flag.load(Ordering::SeqCst) {
+            self.process_events(&event_rx, Duration::from_millis(250));
+
+            let now = Instant::now();
+            if now >= next_final_poll {
+                self.poll_blockchain_for_final_proofs();
+                next_final_poll = now + final_poll_interval;
+            }
+
+            if self.active_requests.is_empty() && now >= next_storage_attempt {
+                self.try_store_file(&event_rx);
+                next_storage_attempt = Instant::now() + Self::storage_attempt_delay();
+            }
+        }
+
+        log_msg(
+            "DEBUG",
+            "USER_NODE",
+            Some(self.owner.owner_id.clone()),
+            "进程已停止。",
+        );
+    }
+
+    fn storage_attempt_delay() -> Duration {
+        let ms = rand::thread_rng().gen_range(3000..=7000);
+        Duration::from_millis(ms as u64)
+    }
+
+    fn spawn_accept_loop(&self, listener: TcpListener, event_tx: Sender<UserEvent>) {
+        let stop_flag = Arc::clone(&self.stop_flag);
+        let owner_id = self.owner.owner_id.clone();
         thread::spawn(move || {
-            // 将监听器移入线程，并采用非阻塞以便响应停止信号
             if let Err(e) = listener.set_nonblocking(true) {
                 log_msg(
                     "ERROR",
@@ -266,60 +368,14 @@ impl UserNode {
                     break;
                 }
                 match listener.accept() {
-                    Ok((stream, _peer)) => {
+                    Ok((stream, _)) => {
                         let owner_id = owner_id.clone();
-                        let broadcast_buffer = Arc::clone(&broadcast_buffer);
-                        // 将连接处理派发到新线程，确保监听循环可以立即返回并处理下一个连接
+                        let tx = event_tx.clone();
                         thread::spawn(move || {
-                            let mut stream = stream;
-                            let res: std::io::Result<()> = (|| {
-                                stream.set_read_timeout(Some(Duration::from_secs(2)))?;
-                                stream.set_write_timeout(Some(Duration::from_secs(2)))?;
-                                let mut reader = BufReader::new(stream.try_clone()?);
-                                let mut line = String::new();
-                                reader.read_line(&mut line)?;
-                                if line.trim().is_empty() {
-                                    return Ok(());
-                                }
-                                let req: CommandRequest =
-                                    serde_json::from_str(&line).unwrap_or(CommandRequest {
-                                        cmd: String::new(),
-                                        data: Value::Null,
-                                    });
-                                // 基础响应
-                                let mut response = CommandResponse {
-                                    ok: false,
-                                    error: Some(String::from("未知命令")),
-                                    extra: HashMap::new(),
-                                };
-                                {
-                                    let mut extra = HashMap::new();
-                                    extra.insert(String::from("queued"), Value::Bool(true));
-                                    response.extra = extra;
-                                    response.ok = true;
-                                    response.error = None;
-                                }
-                                {
-                                    let mut buffer = broadcast_buffer.lock();
-                                    buffer.push_back(req.clone());
-                                }
-                                let resp_json = serde_json::to_string(&response).unwrap();
-                                stream.write_all(resp_json.as_bytes())?;
-                                stream.write_all(b"\n")?;
-                                Ok(())
-                            })();
-                            if let Err(e) = res {
-                                log_msg(
-                                    "ERROR",
-                                    "USER_NODE",
-                                    Some(owner_id.clone()),
-                                    &format!("处理连接失败: {}", e),
-                                );
-                            }
+                            Self::handle_incoming_stream(stream, tx, owner_id);
                         });
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // 短暂休眠，避免忙轮询
                         thread::sleep(Duration::from_millis(100));
                     }
                     Err(e) => {
@@ -340,139 +396,189 @@ impl UserNode {
                 "监听线程已停止。",
             );
         });
-
-        // 主线程：仅负责尝试发起存储与随机睡眠
-        while !self.stop_flag.load(Ordering::SeqCst) {
-            self.drain_broadcast_buffer();
-            self.poll_blockchain_for_final_proofs();
-            let should_try = {
-                let active_empty = self.active_requests.lock().is_empty();
-                active_empty && rand::thread_rng().gen_bool(0.1)
-            };
-            if should_try {
-                self.try_store_file();
-            }
-            self.drain_broadcast_buffer();
-            self.poll_blockchain_for_final_proofs();
-            // 随机休眠 3~7 秒
-            let ms = rand::thread_rng().gen_range(3000..=7000);
-            let mut remaining = ms;
-            while remaining > 0 && !self.stop_flag.load(Ordering::SeqCst) {
-                let step = std::cmp::min(remaining, 500);
-                thread::sleep(Duration::from_millis(step as u64));
-                self.drain_broadcast_buffer();
-                self.poll_blockchain_for_final_proofs();
-                remaining -= step;
-            }
-        }
-        log_msg(
-            "DEBUG",
-            "USER_NODE",
-            Some(self.owner.owner_id.clone()),
-            "进程已停止。",
-        );
     }
 
-    fn drain_broadcast_buffer(&mut self) {
-        loop {
-            let req_opt = {
-                let mut buffer = self.broadcast_buffer.lock();
-                buffer.pop_front()
+    fn handle_incoming_stream(
+        mut stream: TcpStream,
+        event_tx: Sender<UserEvent>,
+        owner_id: String,
+    ) {
+        let res: std::io::Result<()> = (|| {
+            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+            stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+            let mut reader = BufReader::new(stream.try_clone()?);
+            let mut line = String::new();
+            reader.read_line(&mut line)?;
+            if line.trim().is_empty() {
+                return Ok(());
+            }
+            let req: CommandRequest = serde_json::from_str(&line).unwrap_or(CommandRequest {
+                cmd: String::new(),
+                data: Value::Null,
+            });
+
+            let mut response = CommandResponse {
+                ok: false,
+                error: Some(String::from("未知命令")),
+                extra: HashMap::new(),
             };
-            let Some(req) = req_opt else {
-                break;
-            };
+            response
+                .extra
+                .insert(String::from("queued"), Value::Bool(true));
+
             match req.cmd.as_str() {
                 "storage_bid" => {
-                    let response = self.handle_storage_bid(&req.data);
-                    if !response.ok {
-                        // let detail = response.error.unwrap_or_else(|| String::from("未知错误"));
-                        // log_msg(
-                        //     "WARN",
-                        //     "USER_NODE",
-                        //     Some(self.owner.owner_id.clone()),
-                        //     &format!("异步处理存储竞标失败: {}", detail),
-                        // );
+                    if let Some(request_id) = req.data.get("request_id").and_then(Value::as_str) {
+                        let event = UserEvent::StorageBid {
+                            request_id: request_id.to_string(),
+                            payload: req.data.clone(),
+                            received_at: Instant::now(),
+                        };
+                        if event_tx.send(event).is_ok() {
+                            response.ok = true;
+                            response.error = None;
+                        }
                     }
                 }
                 "request_missing_chunks" => {
-                    self.handle_missing_chunk_request(&req.data);
+                    if event_tx
+                        .send(UserEvent::MissingChunks {
+                            payload: req.data.clone(),
+                        })
+                        .is_ok()
+                    {
+                        response.ok = true;
+                        response.error = None;
+                    }
                 }
                 other => {
                     log_msg(
                         "DEBUG",
                         "USER_NODE",
-                        Some(self.owner.owner_id.clone()),
+                        Some(owner_id.clone()),
                         &format!("收到未知广播消息 {}，已忽略", other),
                     );
                 }
             }
+
+            let resp_json = serde_json::to_string(&response).unwrap();
+            stream.write_all(resp_json.as_bytes())?;
+            stream.write_all(b"\n")?;
+            Ok(())
+        })();
+
+        if let Err(e) = res {
+            log_msg(
+                "ERROR",
+                "USER_NODE",
+                Some(owner_id),
+                &format!("处理连接失败: {}", e),
+            );
         }
     }
 
-    #[allow(dead_code)]
-    fn handle_connection(&mut self, mut stream: TcpStream) -> std::io::Result<()> {
-        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(2)))?;
-        let mut reader = BufReader::new(stream.try_clone()?);
-        let mut line = String::new();
-        reader.read_line(&mut line)?;
-        if line.trim().is_empty() {
-            return Ok(());
+    fn process_events(&mut self, event_rx: &Receiver<UserEvent>, timeout: Duration) {
+        self.drain_pending_events(event_rx);
+        if timeout.is_zero() {
+            return;
         }
-        let req: CommandRequest = serde_json::from_str(&line).unwrap_or(CommandRequest {
-            cmd: String::new(),
-            data: Value::Null,
-        });
-        let response = self.dispatch_command(req);
-        let resp_json = serde_json::to_string(&response)?;
-        stream.write_all(resp_json.as_bytes())?;
-        stream.write_all(b"\n")?;
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    fn dispatch_command(&mut self, req: CommandRequest) -> CommandResponse {
-        match req.cmd.as_str() {
-            "storage_bid" => self.handle_storage_bid(&req.data),
-            _ => CommandResponse {
-                ok: false,
-                error: Some(String::from("未知命令")),
-                extra: HashMap::new(),
-            },
+        let start = Instant::now();
+        loop {
+            if self.stop_flag.load(Ordering::SeqCst) {
+                break;
+            }
+            let elapsed = start.elapsed();
+            if elapsed >= timeout {
+                break;
+            }
+            let remaining = timeout.checked_sub(elapsed).unwrap_or_default();
+            if remaining.is_zero() {
+                break;
+            }
+            let wait = remaining.min(Duration::from_millis(200));
+            match event_rx.recv_timeout(wait) {
+                Ok(event) => {
+                    self.handle_event(event);
+                    self.drain_pending_events(event_rx);
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
         }
     }
 
-    #[allow(dead_code)]
-    fn handle_storage_bid(&mut self, data: &Value) -> CommandResponse {
-        let request_id = data.get("request_id").and_then(Value::as_str).unwrap_or("");
-        let is_active = {
-            let active = self.active_requests.lock();
-            active.contains(request_id)
+    fn drain_pending_events(&mut self, event_rx: &Receiver<UserEvent>) {
+        loop {
+            match event_rx.try_recv() {
+                Ok(event) => self.handle_event(event),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => break,
+            }
+            if self.stop_flag.load(Ordering::SeqCst) {
+                break;
+            }
+        }
+    }
+
+    fn handle_event(&mut self, event: UserEvent) {
+        match event {
+            UserEvent::StorageBid {
+                request_id,
+                payload,
+                received_at,
+            } => self.process_storage_bid(request_id, payload, received_at),
+            UserEvent::MissingChunks { payload } => self.handle_missing_chunk_request(&payload),
+        }
+    }
+
+    fn process_storage_bid(&mut self, request_id: String, payload: Value, received_at: Instant) {
+        if !self.active_requests.contains(&request_id) {
+            return;
+        }
+
+        let provider_id = payload
+            .get("bidder_id")
+            .and_then(Value::as_str)
+            .map(|s| s.to_string());
+
+        let bid = TimedBid {
+            payload,
+            provider_id,
+            received_at,
         };
-        if is_active {
-            {
-                let mut bids_map = self.bids.lock();
-                bids_map
-                    .entry(request_id.to_string())
-                    .or_default()
-                    .push(TimedBid {
-                        payload: data.clone(),
-                        received_at: Instant::now(),
-                    });
+        self.bid_book.record_bid(&request_id, bid);
+    }
+
+    fn wait_for_bids(
+        &mut self,
+        event_rx: &Receiver<UserEvent>,
+        request_id: &str,
+        required: usize,
+        deadline: Instant,
+    ) -> bool {
+        while !self.stop_flag.load(Ordering::SeqCst) {
+            if self.bid_book.has_enough(request_id, required) {
+                return true;
             }
-            CommandResponse {
-                ok: true,
-                error: None,
-                extra: HashMap::new(),
+            if Instant::now() >= deadline {
+                return false;
             }
-        } else {
-            CommandResponse {
-                ok: false,
-                error: Some(String::from("请求不活跃")),
-                extra: HashMap::new(),
+            let now = Instant::now();
+            let remaining = deadline.saturating_duration_since(now);
+            if remaining.is_zero() {
+                return false;
+            }
+            let wait = remaining.min(Duration::from_millis(200));
+            match event_rx.recv_timeout(wait) {
+                Ok(event) => {
+                    self.handle_event(event);
+                    self.drain_pending_events(event_rx);
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => return false,
             }
         }
+        false
     }
 
     fn handle_missing_chunk_request(&mut self, data: &Value) {
@@ -513,11 +619,7 @@ impl UserNode {
                 Some(SocketAddr::new(host.parse().ok()?, port))
             });
 
-        let record_opt = {
-            let records = self.stored_files.lock();
-            records.get(&file_id).cloned()
-        };
-        let Some(record) = record_opt else {
+        let Some(record) = self.stored_files.get(&file_id).cloned() else {
             log_msg(
                 "WARN",
                 "USER_NODE",
@@ -596,21 +698,13 @@ impl UserNode {
     }
 
     fn verify_final_proof(
-        stored_files: &Arc<Mutex<HashMap<String, StoredFileRecord>>>,
+        record: &StoredFileRecord,
+        already_verified: bool,
         args: FinalProofArgs<'_>,
     ) -> Result<(), String> {
-        let (record_opt, already_verified) = {
-            let map = stored_files.lock();
-            match map.get(args.file_id) {
-                Some(record) => (Some(record.clone()), record.final_verified),
-                None => (None, false),
-            }
-        };
-
-        let record = match record_opt {
-            Some(rec) => rec,
-            None => return Err(String::from("参数缺失或未知文件")),
-        };
+        if record.chunks.is_empty() {
+            return Err(String::from("参数缺失或未知文件"));
+        }
 
         if !record.provider_assigned_for_round(args.provider, record.required_rounds) {
             log_msg(
@@ -664,12 +758,6 @@ impl UserNode {
                         //     file_id, provider
                         // );
                     }
-                    {
-                        let mut map = stored_files.lock();
-                        if let Some(entry) = map.get_mut(args.file_id) {
-                            entry.final_verified = true;
-                        }
-                    }
                     Ok(())
                 } else {
                     log_msg(
@@ -697,19 +785,11 @@ impl UserNode {
     }
 
     fn poll_blockchain_for_final_proofs(&mut self) {
-        let pending: Vec<String> = {
-            let records = self.stored_files.lock();
-            records
-                .iter()
-                .filter_map(|(file_id, record)| {
-                    if record.final_verified {
-                        None
-                    } else {
-                        Some(file_id.clone())
-                    }
-                })
-                .collect()
-        };
+        let pending: Vec<String> = self
+            .stored_files
+            .iter()
+            .filter_map(|(file_id, record)| (!record.final_verified).then(|| file_id.clone()))
+            .collect();
 
         for file_id in pending {
             let payload = serde_json::json!({
@@ -767,11 +847,14 @@ impl UserNode {
                 _ => continue,
             };
 
+            let Some(record) = self.stored_files.get(&file_id).cloned() else {
+                continue;
+            };
             let owner_id = self.owner.owner_id.clone();
-            let stored_files = Arc::clone(&self.stored_files);
             let verification = with_cpu_heavy_limit(|| {
                 Self::verify_final_proof(
-                    &stored_files,
+                    &record,
+                    record.final_verified,
                     FinalProofArgs {
                         owner_id: &owner_id,
                         file_id: &file_id,
@@ -784,18 +867,25 @@ impl UserNode {
                 )
             });
 
-            if let Err(err) = verification {
-                log_msg(
-                    "WARN",
-                    "USER_NODE",
-                    Some(owner_id),
-                    &format!("链上验证文件 {} 最终证明失败: {}", file_id, err),
-                );
+            match verification {
+                Ok(()) => {
+                    if let Some(entry) = self.stored_files.get_mut(&file_id) {
+                        entry.final_verified = true;
+                    }
+                }
+                Err(err) => {
+                    log_msg(
+                        "WARN",
+                        "USER_NODE",
+                        Some(owner_id),
+                        &format!("链上验证文件 {} 最终证明失败: {}", file_id, err),
+                    );
+                }
             }
         }
     }
 
-    fn try_store_file(&mut self) {
+    fn try_store_file(&mut self, event_rx: &Receiver<UserEvent>) {
         let num_nodes_required = std::cmp::min(
             rand::thread_rng()
                 .gen_range(self.config.min_storage_nodes..=self.config.max_storage_nodes),
@@ -818,10 +908,7 @@ impl UserNode {
         let total_size = chunks.len() * self.config.chunk_size;
         let file_id = self.owner.file_id.clone();
         let request_id = format!("req-{}", file_id);
-        {
-            let mut active = self.active_requests.lock();
-            active.insert(request_id.clone());
-        }
+        self.active_requests.insert(request_id.clone());
         log_msg(
             "INFO",
             "USER_NODE",
@@ -845,78 +932,91 @@ impl UserNode {
                 "storage_rounds": storage_rounds,
             }
         });
-        self.broadcast_storage_offer(&offer);
+        let wait_duration = Duration::from_secs(self.config.bid_wait_sec.max(1));
         log_msg(
             "INFO",
             "USER_NODE",
             Some(self.owner.owner_id.clone()),
             &format!(
                 "为请求 {} 最多等待 {} 秒以收集竞标...",
-                request_id, self.config.bid_wait_sec
+                request_id,
+                wait_duration.as_secs()
             ),
         );
-        let max_wait = Duration::from_secs(self.config.bid_wait_sec.max(1));
+
+        let max_attempts = 3usize;
+        let mut attempt = 0usize;
         let mut reached_capacity = false;
-        let start_wait = Instant::now();
-        let rebroadcast_interval = Duration::from_millis(Self::BID_REBROADCAST_INTERVAL_MS);
-        let mut last_broadcast = Instant::now();
-        let mut rebroadcast_attempts = 0usize;
-        while start_wait.elapsed() < max_wait && !self.stop_flag.load(Ordering::SeqCst) {
-            let remaining = max_wait.saturating_sub(start_wait.elapsed());
-            let step = std::cmp::min(remaining, Duration::from_millis(200));
-            thread::sleep(step);
-            self.drain_broadcast_buffer();
-            let has_enough = {
-                let bids_map = self.bids.lock();
-                bids_map
-                    .get(&request_id)
-                    .map(|entries| entries.len() >= num_nodes_required)
-                    .unwrap_or(false)
-            };
-            if has_enough {
+        let mut collected_bids: Vec<TimedBid> = Vec::new();
+
+        while attempt < max_attempts && !self.stop_flag.load(Ordering::SeqCst) {
+            let fanout = Self::MAX_STORAGE_BROADCAST_TARGETS + attempt * 2;
+            self.broadcast_storage_offer(&offer, fanout);
+            if attempt > 0 {
+                log_msg(
+                    "DEBUG",
+                    "USER_NODE",
+                    Some(self.owner.owner_id.clone()),
+                    &format!("请求 {} 触发第 {} 次扩散广播。", request_id, attempt + 1),
+                );
+            }
+
+            let deadline = Instant::now() + wait_duration;
+            if self.wait_for_bids(event_rx, &request_id, num_nodes_required, deadline) {
                 reached_capacity = true;
+            }
+
+            if self.bid_book.has_enough(&request_id, num_nodes_required) {
+                collected_bids = self.bid_book.take(&request_id);
                 break;
             }
-            if last_broadcast.elapsed() >= rebroadcast_interval {
-                rebroadcast_attempts += 1;
-                self.broadcast_storage_offer(&offer);
-                last_broadcast = Instant::now();
+
+            attempt += 1;
+            if attempt >= max_attempts {
+                collected_bids = self.bid_book.take(&request_id);
+                break;
+            }
+
+            let newly_found = self.fetch_peer_targets();
+            if !newly_found.is_empty() {
                 log_msg(
                     "DEBUG",
                     "USER_NODE",
                     Some(self.owner.owner_id.clone()),
                     &format!(
-                        "请求 {} 等待竞标时第 {} 次重新广播存储请求。",
-                        request_id, rebroadcast_attempts
+                        "请求 {} 未收集到足够竞标，新增 {} 个候选节点。",
+                        request_id,
+                        newly_found.len()
                     ),
                 );
-                self.drain_broadcast_buffer();
             }
         }
-        self.drain_broadcast_buffer();
-        let bids = {
-            let bids_map = self.bids.lock();
-            bids_map.get(&request_id).cloned().unwrap_or_default()
-        };
-        if bids.len() >= num_nodes_required {
+
+        if collected_bids.len() >= num_nodes_required {
             if reached_capacity {
                 log_msg(
                     "DEBUG",
                     "USER_NODE",
                     Some(self.owner.owner_id.clone()),
                     &format!(
-                        "请求 {} 在 {} 秒内收到了足够的竞标，提前结束等待。",
-                        request_id, self.config.bid_wait_sec
+                        "请求 {} 在 {} 秒内收到了足够的竞标。",
+                        request_id,
+                        wait_duration.as_secs()
                     ),
                 );
             }
-            let mut ordered_bids = bids;
+            let mut ordered_bids = collected_bids;
             ordered_bids.sort_by_key(|bid| bid.received_at);
             let provider_assignments: Vec<ProviderAssignment> = ordered_bids
                 .iter()
                 .take(num_nodes_required)
                 .filter_map(|bid| {
-                    let provider_id = bid.payload.get("bidder_id")?.as_str()?.to_string();
+                    let provider_id = bid.provider_id.clone().or_else(|| {
+                        bid.payload
+                            .get("bidder_id")
+                            .and_then(Value::as_str)
+                            .map(|s| s.to_string())
+                    })?;
                     let addr_arr = bid.payload.get("bidder_addr")?.as_array()?;
                     let host = addr_arr.first()?.as_str()?;
                     let port = addr_arr.get(1)?.as_u64()? as u16;
@@ -948,19 +1048,16 @@ impl UserNode {
                 );
                 let owner_pk_beta_hex =
                     hex::encode(serialize_g2(&self.owner.get_dpdp_params().pk_beta));
-                let allow_distribution = {
-                    let records = self.stored_files.lock();
-                    if records.contains_key(&file_id) {
-                        log_msg(
-                            "WARN",
-                            "USER_NODE",
-                            Some(self.owner.owner_id.clone()),
-                            &format!("file_id {} 已存在，跳过覆盖旧的分发表。", file_id),
-                        );
-                        false
-                    } else {
-                        true
-                    }
+                let allow_distribution = if self.stored_files.contains_key(&file_id) {
+                    log_msg(
+                        "WARN",
+                        "USER_NODE",
+                        Some(self.owner.owner_id.clone()),
+                        &format!("file_id {} 已存在，跳过覆盖旧的分发表。", file_id),
+                    );
+                    false
+                } else {
+                    true
                 };
                 if allow_distribution {
                     let mut successful_assignments = self.distribute_file_to_providers(
@@ -1076,10 +1173,7 @@ impl UserNode {
                                 final_verified: false,
                                 round_assignments,
                             };
-                            {
-                                let mut records = self.stored_files.lock();
-                                records.insert(file_id.clone(), record);
-                            }
+                            self.stored_files.insert(file_id.clone(), record);
                         } else if finalize_attempted
                             && successful_assignments.len() < num_nodes_required
                         {
@@ -1106,33 +1200,29 @@ impl UserNode {
                 &format!("文件 {} 的存储请求失败。竞标数量不足。", file_id),
             );
         }
-        {
-            let mut bids_map = self.bids.lock();
-            bids_map.remove(&request_id);
-        }
-        {
-            let mut active = self.active_requests.lock();
-            active.remove(&request_id);
-        }
+        self.bid_book.clear(&request_id);
+        self.active_requests.remove(&request_id);
     }
 }
 
 impl UserNode {
     fn collect_known_peers(&self) -> Vec<SocketAddr> {
-        let peers = self.known_peers.lock();
-        peers.iter().copied().collect()
+        self.known_peers.iter().copied().collect()
     }
 
-    fn broadcast_storage_offer(&self, offer: &Value) {
-        let mut targets = self.collect_known_peers();
-        if targets.is_empty() {
-            targets = self.fetch_peer_targets();
+    fn broadcast_storage_offer(&mut self, offer: &Value, fanout: usize) {
+        if self.known_peers.len() < fanout {
+            let _ = self.fetch_peer_targets();
         }
+        if self.known_peers.is_empty() {
+            self.known_peers.insert(self.bootstrap_addr);
+        }
+        let mut targets = self.collect_known_peers();
         if targets.is_empty() {
             targets.push(self.bootstrap_addr);
         }
         targets.shuffle(&mut rand::thread_rng());
-        let max_targets = std::cmp::max(1, Self::MAX_STORAGE_BROADCAST_TARGETS);
+        let max_targets = fanout.max(1);
         let mut selected: Vec<SocketAddr> = targets.into_iter().take(max_targets).collect();
         self.ensure_bootstrap_target(&mut selected, max_targets);
         if selected.is_empty() {
@@ -1313,13 +1403,9 @@ impl UserNode {
         successes
     }
 
-    fn remember_peers(&self, peers: &[SocketAddr]) {
-        if peers.is_empty() {
-            return;
-        }
-        let mut known = self.known_peers.lock();
+    fn remember_peers(&mut self, peers: &[SocketAddr]) {
         for addr in peers {
-            known.insert(*addr);
+            self.known_peers.insert(*addr);
         }
     }
 
