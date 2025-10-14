@@ -243,6 +243,87 @@ impl Node {
         );
     }
 
+    fn resolve_advertise_host(node_id: &str, listen_host: &str, advertise_host: String) -> String {
+        let trimmed = advertise_host.trim();
+        if trimmed.is_empty() {
+            log_msg(
+                "WARN",
+                "P2P_NET",
+                Some(node_id.to_string()),
+                "未提供对外可见地址，回退为监听地址。",
+            );
+            return listen_host.to_string();
+        }
+
+        match trimmed.parse::<IpAddr>() {
+            Ok(ip) if ip.is_unspecified() => {
+                if let Ok(listen_ip) = listen_host.parse::<IpAddr>() {
+                    if !listen_ip.is_unspecified() {
+                        log_msg(
+                            "WARN",
+                            "P2P_NET",
+                            Some(node_id.to_string()),
+                            &format!("广告地址 {trimmed} 为非特定地址，改用监听地址 {listen_ip}.",),
+                        );
+                        return listen_ip.to_string();
+                    }
+                }
+                log_msg(
+                    "WARN",
+                    "P2P_NET",
+                    Some(node_id.to_string()),
+                    &format!(
+                        "广告地址 {trimmed} 为非特定地址，且监听地址 {listen_host} 同样不可用，仍将使用 {trimmed}.",
+                    ),
+                );
+                trimmed.to_string()
+            }
+            Ok(ip) => ip.to_string(),
+            Err(_) => trimmed.to_string(),
+        }
+    }
+
+    fn contact_addr_from_pair(
+        node_id: &str,
+        host: &str,
+        port: u64,
+        context: &str,
+    ) -> Option<SocketAddr> {
+        if port > u16::MAX as u64 {
+            log_msg(
+                "WARN",
+                "P2P_NET",
+                Some(node_id.to_string()),
+                &format!("{context} 提供的端口 {port} 超出范围，已忽略。"),
+            );
+            return None;
+        }
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            if ip.is_unspecified() {
+                log_msg(
+                    "WARN",
+                    "P2P_NET",
+                    Some(node_id.to_string()),
+                    &format!("{context} 提供的地址 {host}:{port} 为非特定地址，无法建立连接。",),
+                );
+                return None;
+            }
+            return Some(SocketAddr::new(ip, port as u16));
+        }
+        match format!("{host}:{port}").parse::<SocketAddr>() {
+            Ok(addr) => Some(addr),
+            Err(err) => {
+                log_msg(
+                    "WARN",
+                    "P2P_NET",
+                    Some(node_id.to_string()),
+                    &format!("无法解析 {context} 提供的地址 {host}:{port}: {err}，已忽略。",),
+                );
+                None
+            }
+        }
+    }
+
     fn record_seen_gossip_id(&mut self, gossip_id: String) {
         if self.seen_gossip_ids.insert(gossip_id.clone()) {
             self.seen_gossip_order.push_back(gossip_id);
@@ -269,6 +350,7 @@ impl Node {
         difficulty_override: Option<BigUint>,
         report_sender: Sender<NodeReport>,
     ) -> Self {
+        let advertise_host = Self::resolve_advertise_host(&node_id, &listen_host, advertise_host);
         // 初始化挖矿难度阈值
         let difficulty_threshold = difficulty_override.unwrap_or_else(|| {
             BigUint::parse_bytes(DEFAULT_DIFFICULTY_HEX.as_bytes(), 16).unwrap()
@@ -1301,27 +1383,31 @@ impl Node {
                                     if let (Some(host), Some(port)) =
                                         (reply[0].as_str(), reply[1].as_u64())
                                     {
-                                        let request_id = data
-                                            .get("request_id")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or("");
-                                        let payload = serde_json::json!({
-                                            "cmd": "storage_bid",
-                                            "data": {
-                                                "type": "storage_bid",
-                                                "request_id": request_id,
-                                                "bidder_id": self.node_id,
-                                                "bidder_addr": [self.advertise_host.clone(), self.port],
-                                            }
-                                        });
-                                        let addr =
-                                            SocketAddr::new(host.parse().unwrap(), port as u16);
-                                        let _ = send_json_line_without_response(addr, &payload);
+                                        if let Some(addr) = Self::contact_addr_from_pair(
+                                            &self.node_id,
+                                            host,
+                                            port,
+                                            "storage_offer",
+                                        ) {
+                                            let request_id = data
+                                                .get("request_id")
+                                                .and_then(Value::as_str)
+                                                .unwrap_or("");
+                                            let payload = serde_json::json!({
+                                                "cmd": "storage_bid",
+                                                "data": {
+                                                    "type": "storage_bid",
+                                                    "request_id": request_id,
+                                                    "bidder_id": self.node_id,
+                                                    "bidder_addr": [self.advertise_host.clone(), self.port],
+                                                }
+                                            });
+                                            let _ = send_json_line_without_response(addr, &payload);
+                                        }
                                     }
                                 }
                             }
                         }
-
                     }
                 }
                 "bobtail_proof" | "proof_request" => {
