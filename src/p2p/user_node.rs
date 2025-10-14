@@ -160,14 +160,9 @@ pub struct UserNode {
     bid_book: BidBook,
     active_requests: HashSet<String>,
     stored_files: HashMap<String, StoredFileRecord>,
-    known_peers: HashSet<SocketAddr>,
-    force_bootstrap_target: bool,
 }
 
 impl UserNode {
-    const MIN_STORAGE_BROADCAST_TARGETS: usize = 12;
-    const STORAGE_BROADCAST_DISCOVERY_ROUNDS: usize = 3;
-
     pub fn new(
         owner: FileOwner,
         host: String,
@@ -175,11 +170,8 @@ impl UserNode {
         port: u16,
         bootstrap_addr: SocketAddr,
         config: P2PSimConfig,
-        force_bootstrap_target: bool,
     ) -> Self {
         let advertise_host = Self::resolve_advertise_host(&owner.owner_id, &host, advertise_host);
-        let mut known_peers = HashSet::new();
-        known_peers.insert(bootstrap_addr);
         Self {
             owner,
             host,
@@ -191,8 +183,6 @@ impl UserNode {
             bid_book: BidBook::default(),
             active_requests: HashSet::new(),
             stored_files: HashMap::new(),
-            known_peers,
-            force_bootstrap_target,
         }
     }
 
@@ -236,58 +226,6 @@ impl UserNode {
             Ok(ip) => ip.to_string(),
             Err(_) => trimmed.to_string(),
         }
-    }
-
-    fn parse_peer_addr_value(addr_val: &Value) -> Option<SocketAddr> {
-        if let Some(arr) = addr_val.as_array() {
-            if arr.len() == 2 {
-                let host = arr.first()?.as_str()?;
-                let port = arr.get(1)?.as_u64()? as u16;
-                if let Ok(ip) = host.parse::<IpAddr>() {
-                    return Some(SocketAddr::new(ip, port));
-                }
-                if let Ok(sock) = format!("{}:{}", host, port).parse::<SocketAddr>() {
-                    return Some(sock);
-                }
-            }
-        }
-        if let Some(addr_str) = addr_val.as_str() {
-            return addr_str.parse().ok();
-        }
-        None
-    }
-
-    fn fetch_peer_targets(&mut self) -> Vec<SocketAddr> {
-        let payload = serde_json::json!({
-            "cmd": "get_peers",
-            "data": {},
-        });
-        let Some(resp_val) = super::node::send_json_line(self.bootstrap_addr, &payload) else {
-            return Vec::new();
-        };
-
-        let Ok(response) = serde_json::from_value::<CommandResponse>(resp_val) else {
-            return Vec::new();
-        };
-        if !response.ok {
-            return Vec::new();
-        }
-
-        let mut addrs: Vec<SocketAddr> = Vec::new();
-        let mut seen: HashSet<SocketAddr> = HashSet::new();
-        if let Some(map) = response.extra.get("peers").and_then(Value::as_object) {
-            for addr_val in map.values() {
-                if let Some(addr) = Self::parse_peer_addr_value(addr_val) {
-                    if seen.insert(addr) {
-                        addrs.push(addr);
-                    }
-                }
-            }
-        }
-        if !addrs.is_empty() {
-            self.remember_peers(&addrs);
-        }
-        addrs
     }
 
     pub fn stop_handle(&self) -> Arc<AtomicBool> {
@@ -950,8 +888,7 @@ impl UserNode {
         let mut collected_bids: Vec<TimedBid> = Vec::new();
 
         while attempt < max_attempts && !self.stop_flag.load(Ordering::SeqCst) {
-            let fanout = Self::MIN_STORAGE_BROADCAST_TARGETS + attempt * 2;
-            self.broadcast_storage_offer(&offer, fanout);
+            self.broadcast_storage_offer(&offer);
             if attempt > 0 {
                 log_msg(
                     "DEBUG",
@@ -975,20 +912,6 @@ impl UserNode {
             if attempt >= max_attempts {
                 collected_bids = self.bid_book.take(&request_id);
                 break;
-            }
-
-            let newly_found = self.fetch_peer_targets();
-            if !newly_found.is_empty() {
-                log_msg(
-                    "DEBUG",
-                    "USER_NODE",
-                    Some(self.owner.owner_id.clone()),
-                    &format!(
-                        "请求 {} 未收集到足够竞标，新增 {} 个候选节点。",
-                        request_id,
-                        newly_found.len()
-                    ),
-                );
             }
         }
 
@@ -1095,11 +1018,6 @@ impl UserNode {
                             ),
                         );
                         if successful_assignments.len() < num_nodes_required {
-                            let addrs: Vec<SocketAddr> =
-                                successful_assignments.iter().map(|a| a.addr).collect();
-                            if !addrs.is_empty() {
-                                self.remember_peers(&addrs);
-                            }
                             log_msg(
                                 "WARN",
                                 "USER_NODE",
@@ -1157,11 +1075,6 @@ impl UserNode {
                                     final_summary.join(", ")
                                 ),
                             );
-                            let addrs: Vec<SocketAddr> =
-                                successful_assignments.iter().map(|a| a.addr).collect();
-                            if !addrs.is_empty() {
-                                self.remember_peers(&addrs);
-                            }
                             let mut round_assignments = HashMap::new();
                             for round in 1..=storage_rounds {
                                 round_assignments.insert(round, successful_assignments.clone());
@@ -1206,48 +1119,8 @@ impl UserNode {
 }
 
 impl UserNode {
-    fn collect_known_peers(&self) -> Vec<SocketAddr> {
-        self.known_peers.iter().copied().collect()
-    }
-
-    fn broadcast_storage_offer(&mut self, offer: &Value, fanout: usize) {
-        let desired_targets = fanout.max(Self::MIN_STORAGE_BROADCAST_TARGETS);
-        let mut discovery_round = 0;
-        while self.known_peers.len() < desired_targets
-            && discovery_round < Self::STORAGE_BROADCAST_DISCOVERY_ROUNDS
-        {
-            discovery_round += 1;
-            if self.fetch_peer_targets().is_empty() {
-                break;
-            }
-        }
-
-        if self.known_peers.is_empty() {
-            self.known_peers.insert(self.bootstrap_addr);
-        }
-
-        let mut targets = self.collect_known_peers();
-        if !targets.iter().any(|addr| *addr == self.bootstrap_addr) {
-            targets.push(self.bootstrap_addr);
-        }
-
-        targets.sort_unstable_by(|a, b| a.ip().cmp(&b.ip()).then_with(|| a.port().cmp(&b.port())));
-        targets.dedup();
-
-        self.ensure_bootstrap_target(&mut targets);
-
-        let self_addr = self
-            .host
-            .parse::<IpAddr>()
-            .ok()
-            .map(|ip| SocketAddr::new(ip, self.port));
-
-        for target in targets {
-            if Some(target) == self_addr {
-                continue;
-            }
-            let _ = super::node::send_json_line_without_response(target, offer);
-        }
+    fn broadcast_storage_offer(&mut self, offer: &Value) {
+        let _ = super::node::send_json_line_without_response(self.bootstrap_addr, offer);
     }
 
     fn distribute_file_to_providers(
@@ -1418,27 +1291,5 @@ impl UserNode {
         }
 
         successes
-    }
-
-    fn remember_peers(&mut self, peers: &[SocketAddr]) {
-        for addr in peers {
-            self.known_peers.insert(*addr);
-        }
-    }
-
-    fn ensure_bootstrap_target(&self, selected: &mut Vec<SocketAddr>) {
-        if !self.force_bootstrap_target {
-            return;
-        }
-        if let Some(pos) = selected
-            .iter()
-            .position(|addr| *addr == self.bootstrap_addr)
-        {
-            if pos != 0 {
-                selected.swap(0, pos);
-            }
-        } else {
-            selected.insert(0, self.bootstrap_addr);
-        }
     }
 }
