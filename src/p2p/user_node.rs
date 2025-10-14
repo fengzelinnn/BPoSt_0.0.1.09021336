@@ -937,26 +937,16 @@ impl UserNode {
                     ),
                 );
             } else {
-                let addrs: Vec<SocketAddr> = provider_assignments
-                    .iter()
-                    .map(|assignment| assignment.addr)
-                    .collect();
-                if !addrs.is_empty() {
-                    self.remember_peers(&addrs);
-                }
                 log_msg(
                     "SUCCESS",
                     "USER_NODE",
                     Some(self.owner.owner_id.clone()),
                     &format!("文件 {} 的存储竞标完成。", file_id),
                 );
-                let mut round_assignments = HashMap::new();
-                for round in 1..=storage_rounds {
-                    round_assignments.insert(round, provider_assignments.clone());
-                }
-                let mut allow_distribution = true;
-                {
-                    let mut records = self.stored_files.lock();
+                let owner_pk_beta_hex =
+                    hex::encode(serialize_g2(&self.owner.get_dpdp_params().pk_beta));
+                let allow_distribution = {
+                    let records = self.stored_files.lock();
                     if records.contains_key(&file_id) {
                         log_msg(
                             "WARN",
@@ -964,62 +954,80 @@ impl UserNode {
                             Some(self.owner.owner_id.clone()),
                             &format!("file_id {} 已存在，跳过覆盖旧的分发表。", file_id),
                         );
-                        allow_distribution = false;
+                        false
                     } else {
-                        records.insert(
-                            file_id.clone(),
-                            StoredFileRecord {
+                        true
+                    }
+                };
+                if allow_distribution {
+                    let successful_assignments = self.distribute_file_to_providers(
+                        &file_id,
+                        &chunks,
+                        &provider_assignments,
+                        &owner_pk_beta_hex,
+                        storage_rounds,
+                        challenge_size,
+                    );
+                    if successful_assignments.is_empty() {
+                        log_msg(
+                            "ERROR",
+                            "USER_NODE",
+                            Some(self.owner.owner_id.clone()),
+                            &format!("文件 {} 的分发失败，所有目标节点均未确认存储。", file_id),
+                        );
+                    } else {
+                        let summary: Vec<String> = successful_assignments
+                            .iter()
+                            .map(|assignment| {
+                                format!("{}@{}", assignment.provider_id, assignment.addr)
+                            })
+                            .collect();
+                        log_msg(
+                            "INFO",
+                            "USER_NODE",
+                            Some(self.owner.owner_id.clone()),
+                            &format!(
+                                "文件 {} 的分发表: 存储轮次 {}，确认节点 {}。",
+                                file_id,
+                                storage_rounds,
+                                summary.join(", ")
+                            ),
+                        );
+                        let addrs: Vec<SocketAddr> =
+                            successful_assignments.iter().map(|a| a.addr).collect();
+                        if !addrs.is_empty() {
+                            self.remember_peers(&addrs);
+                        }
+                        if successful_assignments.len() < num_nodes_required {
+                            log_msg(
+                                "WARN",
+                                "USER_NODE",
+                                Some(self.owner.owner_id.clone()),
+                                &format!(
+                                    "文件 {} 实际确认节点 {} 个，低于预期的 {} 个。",
+                                    file_id,
+                                    successful_assignments.len(),
+                                    num_nodes_required
+                                ),
+                            );
+                        }
+                        if successful_assignments.len() >= num_nodes_required {
+                            let mut round_assignments = HashMap::new();
+                            for round in 1..=storage_rounds {
+                                round_assignments.insert(round, successful_assignments.clone());
+                            }
+                            let record = StoredFileRecord {
                                 chunks: chunks.clone(),
                                 required_rounds: storage_rounds,
                                 challenge_size,
                                 final_verified: false,
                                 round_assignments,
-                            },
-                        );
-                    }
-                }
-                if allow_distribution {
-                    let summary: Vec<String> = provider_assignments
-                        .iter()
-                        .map(|assignment| format!("{}@{}", assignment.provider_id, assignment.addr))
-                        .collect();
-                    log_msg(
-                        "INFO",
-                        "USER_NODE",
-                        Some(self.owner.owner_id.clone()),
-                        &format!(
-                            "文件 {} 的分发表: 存储轮次 {}，参与者 {}。",
-                            file_id,
-                            storage_rounds,
-                            summary.join(", ")
-                        ),
-                    );
-                    let owner_pk_beta_hex =
-                        hex::encode(serialize_g2(&self.owner.get_dpdp_params().pk_beta));
-                    for chunk in &chunks {
-                        let chunk_json = serde_json::to_value(chunk).unwrap();
-                        for addr in &addrs {
-                            let data = serde_json::json!({
-                                "chunk": chunk_json.clone(),
-                                "owner_pk_beta": owner_pk_beta_hex,
-                                "storage_period": storage_rounds,
-                                "challenge_size": challenge_size,
-                                "owner_addr": [self.host, self.port],
-                                "total_chunks": chunks.len(),
-                            });
-                            let payload = serde_json::json!({
-                                "cmd": "chunk_distribute",
-                                "data": data,
-                            });
-                            let _ = super::node::send_json_line(*addr, &payload);
+                            };
+                            {
+                                let mut records = self.stored_files.lock();
+                                records.insert(file_id.clone(), record);
+                            }
                         }
-                    }
-                    for addr in &addrs {
-                        let payload = serde_json::json!({
-                            "cmd": "finalize_storage",
-                            "data": {"file_id": file_id.clone()},
-                        });
-                        let _ = super::node::send_json_line(*addr, &payload);
                     }
                 }
             }
@@ -1046,6 +1054,147 @@ impl UserNode {
     fn collect_known_peers(&self) -> Vec<SocketAddr> {
         let peers = self.known_peers.lock();
         peers.iter().copied().collect()
+    }
+
+    fn distribute_file_to_providers(
+        &self,
+        file_id: &str,
+        chunks: &[FileChunk],
+        assignments: &[ProviderAssignment],
+        owner_pk_beta_hex: &str,
+        storage_rounds: usize,
+        challenge_size: usize,
+    ) -> Vec<ProviderAssignment> {
+        if assignments.is_empty() {
+            return Vec::new();
+        }
+
+        let chunk_values: Vec<Value> = chunks
+            .iter()
+            .map(|chunk| serde_json::to_value(chunk).unwrap())
+            .collect();
+        let total_chunks = chunks.len();
+        let owner_addr_value = serde_json::json!([self.advertise_host.clone(), self.port]);
+
+        let mut provider_success = vec![true; assignments.len()];
+        let mut provider_errors: Vec<Vec<String>> = vec![Vec::new(); assignments.len()];
+
+        let mut chunk_requests = Vec::new();
+        let mut chunk_meta = Vec::new();
+        for (provider_idx, assignment) in assignments.iter().enumerate() {
+            for (chunk_idx, chunk_json) in chunk_values.iter().enumerate() {
+                let data = serde_json::json!({
+                    "chunk": chunk_json.clone(),
+                    "owner_pk_beta": owner_pk_beta_hex,
+                    "storage_period": storage_rounds,
+                    "challenge_size": challenge_size,
+                    "owner_addr": owner_addr_value.clone(),
+                    "total_chunks": total_chunks,
+                });
+                let payload = serde_json::json!({
+                    "cmd": "chunk_distribute",
+                    "data": data,
+                });
+                chunk_requests.push((assignment.addr, payload));
+                chunk_meta.push((provider_idx, chunk_idx));
+            }
+        }
+
+        if !chunk_requests.is_empty() {
+            let responses = super::node::send_json_lines_parallel(chunk_requests);
+            for ((provider_idx, chunk_idx), response) in
+                chunk_meta.into_iter().zip(responses.into_iter())
+            {
+                if provider_success[provider_idx] {
+                    match response {
+                        Some(value) => match serde_json::from_value::<CommandResponse>(value) {
+                            Ok(resp) if resp.ok => {}
+                            Ok(resp) => {
+                                provider_success[provider_idx] = false;
+                                let reason = resp.error.unwrap_or_else(|| "未知错误".to_string());
+                                provider_errors[provider_idx]
+                                    .push(format!("chunk {}: {}", chunk_idx, reason));
+                            }
+                            Err(err) => {
+                                provider_success[provider_idx] = false;
+                                provider_errors[provider_idx]
+                                    .push(format!("chunk {}: 响应解析失败 {}", chunk_idx, err));
+                            }
+                        },
+                        None => {
+                            provider_success[provider_idx] = false;
+                            provider_errors[provider_idx]
+                                .push(format!("chunk {}: 无响应", chunk_idx));
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut finalize_requests = Vec::new();
+        let mut finalize_meta = Vec::new();
+        for (provider_idx, assignment) in assignments.iter().enumerate() {
+            if !provider_success[provider_idx] {
+                continue;
+            }
+            let payload = serde_json::json!({
+                "cmd": "finalize_storage",
+                "data": {"file_id": file_id},
+            });
+            finalize_requests.push((assignment.addr, payload));
+            finalize_meta.push(provider_idx);
+        }
+
+        if !finalize_requests.is_empty() {
+            let responses = super::node::send_json_lines_parallel(finalize_requests);
+            for (provider_idx, response) in finalize_meta.into_iter().zip(responses.into_iter()) {
+                if provider_success[provider_idx] {
+                    match response {
+                        Some(value) => match serde_json::from_value::<CommandResponse>(value) {
+                            Ok(resp) if resp.ok => {}
+                            Ok(resp) => {
+                                provider_success[provider_idx] = false;
+                                let reason = resp.error.unwrap_or_else(|| "未知错误".to_string());
+                                provider_errors[provider_idx].push(format!("finalize: {}", reason));
+                            }
+                            Err(err) => {
+                                provider_success[provider_idx] = false;
+                                provider_errors[provider_idx]
+                                    .push(format!("finalize: 响应解析失败 {}", err));
+                            }
+                        },
+                        None => {
+                            provider_success[provider_idx] = false;
+                            provider_errors[provider_idx].push(String::from("finalize: 无响应"));
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut successes = Vec::new();
+        for (idx, assignment) in assignments.iter().enumerate() {
+            if provider_success[idx] {
+                successes.push(assignment.clone());
+            } else {
+                let reason = if provider_errors[idx].is_empty() {
+                    String::from("未知原因")
+                } else {
+                    provider_errors[idx].join("; ")
+                };
+                log_msg(
+                    "WARN",
+                    "USER_NODE",
+                    Some(self.owner.owner_id.clone()),
+                    &format!(
+                        "分发文件 {} 至节点 {}@{} 失败: {}",
+                        file_id, assignment.provider_id, assignment.addr, reason
+                    ),
+                );
+            }
+        }
+
+        successes
     }
 
     fn remember_peers(&self, peers: &[SocketAddr]) {
