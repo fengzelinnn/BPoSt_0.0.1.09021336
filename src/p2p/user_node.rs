@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rand::seq::SliceRandom;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -166,7 +165,8 @@ pub struct UserNode {
 }
 
 impl UserNode {
-    const MAX_STORAGE_BROADCAST_TARGETS: usize = 5;
+    const MIN_STORAGE_BROADCAST_TARGETS: usize = 12;
+    const STORAGE_BROADCAST_DISCOVERY_ROUNDS: usize = 3;
 
     pub fn new(
         owner: FileOwner,
@@ -950,7 +950,7 @@ impl UserNode {
         let mut collected_bids: Vec<TimedBid> = Vec::new();
 
         while attempt < max_attempts && !self.stop_flag.load(Ordering::SeqCst) {
-            let fanout = Self::MAX_STORAGE_BROADCAST_TARGETS + attempt * 2;
+            let fanout = Self::MIN_STORAGE_BROADCAST_TARGETS + attempt * 2;
             self.broadcast_storage_offer(&offer, fanout);
             if attempt > 0 {
                 log_msg(
@@ -1211,24 +1211,41 @@ impl UserNode {
     }
 
     fn broadcast_storage_offer(&mut self, offer: &Value, fanout: usize) {
-        if self.known_peers.len() < fanout {
-            let _ = self.fetch_peer_targets();
+        let desired_targets = fanout.max(Self::MIN_STORAGE_BROADCAST_TARGETS);
+        let mut discovery_round = 0;
+        while self.known_peers.len() < desired_targets
+            && discovery_round < Self::STORAGE_BROADCAST_DISCOVERY_ROUNDS
+        {
+            discovery_round += 1;
+            if self.fetch_peer_targets().is_empty() {
+                break;
+            }
         }
+
         if self.known_peers.is_empty() {
             self.known_peers.insert(self.bootstrap_addr);
         }
+
         let mut targets = self.collect_known_peers();
-        if targets.is_empty() {
+        if !targets.iter().any(|addr| *addr == self.bootstrap_addr) {
             targets.push(self.bootstrap_addr);
         }
-        targets.shuffle(&mut rand::thread_rng());
-        let max_targets = fanout.max(1);
-        let mut selected: Vec<SocketAddr> = targets.into_iter().take(max_targets).collect();
-        self.ensure_bootstrap_target(&mut selected, max_targets);
-        if selected.is_empty() {
-            selected.push(self.bootstrap_addr);
-        }
-        for target in selected {
+
+        targets.sort_unstable_by(|a, b| a.ip().cmp(&b.ip()).then_with(|| a.port().cmp(&b.port())));
+        targets.dedup();
+
+        self.ensure_bootstrap_target(&mut targets);
+
+        let self_addr = self
+            .host
+            .parse::<IpAddr>()
+            .ok()
+            .map(|ip| SocketAddr::new(ip, self.port));
+
+        for target in targets {
+            if Some(target) == self_addr {
+                continue;
+            }
             let _ = super::node::send_json_line_without_response(target, offer);
         }
     }
@@ -1409,16 +1426,19 @@ impl UserNode {
         }
     }
 
-    fn ensure_bootstrap_target(&self, selected: &mut Vec<SocketAddr>, max_targets: usize) {
+    fn ensure_bootstrap_target(&self, selected: &mut Vec<SocketAddr>) {
         if !self.force_bootstrap_target {
             return;
         }
-        if selected.iter().any(|addr| *addr == self.bootstrap_addr) {
-            return;
+        if let Some(pos) = selected
+            .iter()
+            .position(|addr| *addr == self.bootstrap_addr)
+        {
+            if pos != 0 {
+                selected.swap(0, pos);
+            }
+        } else {
+            selected.insert(0, self.bootstrap_addr);
         }
-        if max_targets > 0 && selected.len() >= max_targets {
-            selected.pop();
-        }
-        selected.push(self.bootstrap_addr);
     }
 }
