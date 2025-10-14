@@ -1,14 +1,20 @@
+use std::collections::hash_map::DefaultHasher;
+use std::convert::TryFrom;
 use std::env;
+use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use chrono::Duration as ChronoDuration;
+use chrono::{DateTime, NaiveDateTime, SecondsFormat, TimeZone, Utc};
 use crossbeam_channel::unbounded;
 use rand::Rng;
 
 use crate::config::{
-    DeploymentConfig, DeploymentConfigError, NodeDeployment, P2PSimConfig, PeerConfig,
+    DeploymentConfig, DeploymentConfigError, DeploymentSchedule, NodeDeployment, P2PSimConfig,
+    PeerConfig,
 };
 use crate::p2p::node::{Node, DEFAULT_DIFFICULTY_HEX};
 use crate::p2p::observer_node::ObserverNode;
@@ -18,6 +24,295 @@ use crate::utils::log_msg;
 use num_bigint::BigUint;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+const DEFAULT_MAX_CLOCK_SKEW_SEC: u64 = 300;
+
+struct ResolvedSchedule {
+    start_at: DateTime<Utc>,
+    max_drift_sec: u64,
+    jitter_sec: Option<u64>,
+}
+
+fn resolve_deployment_schedule(
+    schedule_cfg: Option<&DeploymentSchedule>,
+) -> Result<Option<ResolvedSchedule>, DeploymentConfigError> {
+    let Some(schedule_cfg) = schedule_cfg else {
+        return Ok(None);
+    };
+
+    let start_at = if let Some(raw) = schedule_cfg.start_at_utc.as_ref().and_then(|s| {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_owned())
+        }
+    }) {
+        parse_schedule_datetime(&raw)?
+    } else if let Some(delay) = schedule_cfg.start_after_sec {
+        let delay = i64::try_from(delay).map_err(|_| DeploymentConfigError::Invalid {
+            message: String::from("schedule.start_after_sec 超出支持的范围"),
+        })?;
+        Utc::now() + ChronoDuration::seconds(delay)
+    } else {
+        return Ok(None);
+    };
+
+    let max_drift_sec = schedule_cfg
+        .max_clock_skew_sec
+        .unwrap_or(DEFAULT_MAX_CLOCK_SKEW_SEC);
+    if max_drift_sec == 0 {
+        return Err(DeploymentConfigError::Invalid {
+            message: String::from("schedule.max_clock_skew_sec 必须大于 0"),
+        });
+    }
+
+    let now = Utc::now();
+    if start_at < now {
+        let elapsed = now.signed_duration_since(start_at).num_seconds();
+        if elapsed > max_drift_sec as i64 {
+            return Err(DeploymentConfigError::Invalid {
+                message: format!(
+                    "统一启动时间 {} 已经过期 {} 秒，超过允许的时钟偏移 ±{} 秒",
+                    start_at.to_rfc3339_opts(SecondsFormat::Secs, true),
+                    elapsed,
+                    max_drift_sec
+                ),
+            });
+        }
+    }
+
+    let jitter_sec = schedule_cfg.jitter_sec.filter(|value| *value > 0);
+
+    Ok(Some(ResolvedSchedule {
+        start_at,
+        max_drift_sec,
+        jitter_sec,
+    }))
+}
+
+fn parse_schedule_datetime(raw: &str) -> Result<DateTime<Utc>, DeploymentConfigError> {
+    if let Ok(dt) = DateTime::parse_from_rfc3339(raw) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+
+    if let Ok(ts) = raw.parse::<i64>() {
+        if let Some(dt) = Utc.timestamp_opt(ts, 0).single() {
+            return Ok(dt);
+        }
+    }
+
+    if let Ok(naive) = NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S") {
+        return Ok(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc));
+    }
+
+    Err(DeploymentConfigError::Invalid {
+        message: format!("无法解析统一启动时间: {raw}"),
+    })
+}
+
+fn apply_schedule_env(cmd: &mut Command, schedule: &ResolvedSchedule) {
+    let iso = schedule.start_at.to_rfc3339_opts(SecondsFormat::Secs, true);
+    cmd.env("BPST_CLUSTER_START_UTC", iso);
+    cmd.env(
+        "BPST_CLUSTER_START_UNIX",
+        schedule.start_at.timestamp().to_string(),
+    );
+    cmd.env(
+        "BPST_CLUSTER_START_MAX_DRIFT_SEC",
+        schedule.max_drift_sec.to_string(),
+    );
+    if let Some(jitter) = schedule.jitter_sec {
+        cmd.env("BPST_CLUSTER_START_JITTER_SEC", jitter.to_string());
+    } else {
+        cmd.env_remove("BPST_CLUSTER_START_JITTER_SEC");
+    }
+}
+
+fn startup_schedule_from_env() -> Result<Option<ResolvedSchedule>, String> {
+    let start_at = if let Some(raw) = env_var_non_empty("BPST_CLUSTER_START_UNIX") {
+        let ts = raw
+            .parse::<i64>()
+            .map_err(|e| format!("无法解析 BPST_CLUSTER_START_UNIX: {e}"))?;
+        Utc.timestamp_opt(ts, 0)
+            .single()
+            .ok_or_else(|| String::from("BPST_CLUSTER_START_UNIX 超出有效范围"))?
+    } else if let Some(raw) = env_var_non_empty("BPST_CLUSTER_START_UTC") {
+        parse_schedule_datetime(&raw)
+            .map_err(|e| format!("解析 BPST_CLUSTER_START_UTC 失败: {e}"))?
+    } else if let Some(raw) = env_var_non_empty("BPST_CLUSTER_START_DELAY_SEC") {
+        let delay = raw
+            .parse::<i64>()
+            .map_err(|e| format!("无法解析 BPST_CLUSTER_START_DELAY_SEC: {e}"))?;
+        if delay < 0 {
+            return Err(String::from("BPST_CLUSTER_START_DELAY_SEC 不能为负数"));
+        }
+        Utc::now() + ChronoDuration::seconds(delay)
+    } else {
+        return Ok(None);
+    };
+
+    let max_drift_sec = env_var_non_empty("BPST_CLUSTER_START_MAX_DRIFT_SEC")
+        .map(|raw| {
+            raw.parse::<u64>()
+                .map_err(|e| format!("无法解析 BPST_CLUSTER_START_MAX_DRIFT_SEC: {e}"))
+        })
+        .transpose()?
+        .unwrap_or(DEFAULT_MAX_CLOCK_SKEW_SEC);
+    if max_drift_sec == 0 {
+        return Err(String::from("BPST_CLUSTER_START_MAX_DRIFT_SEC 必须大于 0"));
+    }
+
+    let jitter_sec = env_var_non_empty("BPST_CLUSTER_START_JITTER_SEC")
+        .map(|raw| {
+            raw.parse::<u64>()
+                .map_err(|e| format!("无法解析 BPST_CLUSTER_START_JITTER_SEC: {e}"))
+        })
+        .transpose()?
+        .filter(|value| *value > 0);
+
+    Ok(Some(ResolvedSchedule {
+        start_at,
+        max_drift_sec,
+        jitter_sec,
+    }))
+}
+
+fn env_var_non_empty(name: &str) -> Option<String> {
+    match env::var(name) {
+        Ok(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_owned())
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+fn wait_for_start_signal(role: &str, id: &str) {
+    match startup_schedule_from_env() {
+        Ok(Some(schedule)) => wait_on_schedule(&schedule, role, id),
+        Ok(None) => {}
+        Err(err) => {
+            log_msg(
+                "ERROR",
+                "STARTUP",
+                Some(format!("{}:{}", role, id)),
+                &format!("统一启动调度配置无效: {err}"),
+            );
+        }
+    }
+}
+
+fn wait_on_schedule(schedule: &ResolvedSchedule, role: &str, id: &str) {
+    let context = Some(format!("{}:{}", role, id));
+    let iso = schedule.start_at.to_rfc3339_opts(SecondsFormat::Secs, true);
+    let mut announced = false;
+    let mut last_reminder = Instant::now();
+
+    loop {
+        let now = Utc::now();
+        match schedule.start_at.signed_duration_since(now).to_std() {
+            Ok(remaining) if remaining > Duration::from_secs(0) => {
+                if !announced {
+                    log_msg(
+                        "INFO",
+                        "STARTUP",
+                        context.clone(),
+                        &format!(
+                            "统一启动时间 {} 尚未到达，剩余约 {} 秒，等待所有实例对齐...",
+                            iso,
+                            remaining.as_secs()
+                        ),
+                    );
+                    announced = true;
+                    last_reminder = Instant::now();
+                } else if last_reminder.elapsed() >= Duration::from_secs(30)
+                    && remaining.as_secs() > 30
+                {
+                    log_msg(
+                        "INFO",
+                        "STARTUP",
+                        context.clone(),
+                        &format!(
+                            "距离统一启动时间 {} 仍有约 {} 秒...",
+                            iso,
+                            remaining.as_secs()
+                        ),
+                    );
+                    last_reminder = Instant::now();
+                }
+
+                let sleep_for = if remaining > Duration::from_secs(5) {
+                    Duration::from_secs(5)
+                } else {
+                    remaining
+                };
+                thread::sleep(sleep_for);
+            }
+            _ => break,
+        }
+    }
+
+    let now = Utc::now();
+    let lateness = now.signed_duration_since(schedule.start_at).num_seconds();
+    if lateness > 0 {
+        let message = if lateness > schedule.max_drift_sec as i64 {
+            format!(
+                "已经晚于统一启动时间 {} 共 {} 秒，超过允许的偏移 ±{} 秒，仍尝试继续启动。",
+                iso, lateness, schedule.max_drift_sec
+            )
+        } else {
+            format!(
+                "比统一启动时间 {} 晚 {} 秒，但仍在允许的偏移 ±{} 秒内。",
+                iso, lateness, schedule.max_drift_sec
+            )
+        };
+        log_msg("WARN", "STARTUP", context.clone(), &message);
+    } else {
+        log_msg(
+            "INFO",
+            "STARTUP",
+            context.clone(),
+            &format!("达到统一启动时间 {}，开始初始化。", iso),
+        );
+    }
+
+    if let Some(jitter_max) = schedule.jitter_sec {
+        let jitter = deterministic_jitter_secs(role, id, jitter_max);
+        if jitter > 0 {
+            log_msg(
+                "INFO",
+                "STARTUP",
+                context,
+                &format!(
+                    "应用启动抖动 {} 秒以平滑连接洪峰（上限 {} 秒）。",
+                    jitter, jitter_max
+                ),
+            );
+            thread::sleep(Duration::from_secs(jitter));
+        }
+    }
+}
+
+fn deterministic_jitter_secs(role: &str, id: &str, max: u64) -> u64 {
+    if max == 0 {
+        return 0;
+    }
+    let mut hasher = DefaultHasher::new();
+    role.hash(&mut hasher);
+    id.hash(&mut hasher);
+    let range = max.saturating_add(1);
+    let value = hasher.finish();
+    if range == 0 {
+        max
+    } else {
+        (value % range) as u64
+    }
+}
 
 pub fn run_p2p_simulation(config: P2PSimConfig) {
     log_msg(
@@ -194,6 +489,7 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
     } else {
         None
     };
+    let resolved_schedule = resolve_deployment_schedule(config.schedule.as_ref())?;
 
     log_msg(
         "INFO",
@@ -218,6 +514,30 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
         Some(String::from("CONFIG")),
         &format!("默认挖矿难度阈值: 0x{}", difficulty_for_log),
     );
+
+    if let Some(schedule) = &resolved_schedule {
+        let iso = schedule.start_at.to_rfc3339_opts(SecondsFormat::Secs, true);
+        let now = Utc::now();
+        let delta = schedule.start_at.signed_duration_since(now).num_seconds();
+        let timing_note = if delta > 0 {
+            format!("距离当前时间约 {} 秒", delta)
+        } else {
+            format!("比当前时间早 {} 秒", -delta)
+        };
+        let jitter_note = schedule
+            .jitter_sec
+            .map(|j| format!(", 启动抖动 ≤ {} 秒", j))
+            .unwrap_or_default();
+        log_msg(
+            "INFO",
+            "DEPLOY",
+            Some(String::from("CONFIG")),
+            &format!(
+                "统一启动时间: {} (允许时钟偏移 ±{} 秒{}，{}).",
+                iso, schedule.max_drift_sec, jitter_note, timing_note
+            ),
+        );
+    }
 
     let mut children: Vec<(String, Child)> = Vec::new();
     for (idx, node_cfg) in config.nodes.iter().enumerate() {
@@ -265,6 +585,9 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
             .arg(bobtail_k.to_string())
             .env("P2P_SIM_CONFIG", config_json.clone());
         cmd.env_remove("BPST_STATIC_PEERS");
+        if let Some(schedule) = &resolved_schedule {
+            apply_schedule_env(&mut cmd, schedule);
+        }
         if !node_cfg.peers.is_empty() {
             let peers_json =
                 serde_json::to_string(&node_cfg.peers).expect("无法序列化静态对等节点配置");
@@ -317,6 +640,9 @@ pub fn run_deployment(config: DeploymentConfig) -> Result<(), DeploymentConfigEr
             .arg(user_cfg.port.to_string())
             .arg(bootstrap)
             .env("P2P_SIM_CONFIG", config_json.clone());
+        if let Some(schedule) = &resolved_schedule {
+            apply_schedule_env(&mut cmd, schedule);
+        }
         match cmd.spawn() {
             Ok(child) => {
                 log_msg(
@@ -535,6 +861,7 @@ where
         .expect("缺少 bobtail_k 参数")
         .parse()
         .expect("无法解析 bobtail_k");
+    wait_for_start_signal("NODE", &node_id);
     let difficulty_override = load_difficulty_override_from_env();
     let (report_tx, _report_rx) = unbounded();
     let static_peers = load_static_peers_from_env();
@@ -569,6 +896,7 @@ where
         .expect("缺少引导节点参数")
         .parse()
         .expect("无法解析引导节点地址");
+    wait_for_start_signal("USER", &owner_id);
     let config = load_config_from_env();
     // --- 新增逻辑 ---
     // 从环境变量 BPST_ADVERTISE_IP 读取外部IP，如果不存在则回退为监听IP
@@ -605,6 +933,7 @@ where
         .expect("缺少引导节点参数")
         .parse()
         .expect("无法解析引导节点地址");
+    wait_for_start_signal("OBSERVER", &observer_id);
     let _config = load_config_from_env();
     let observer = ObserverNode::new(observer_id, host, port, bootstrap, Duration::from_secs(60));
     observer.run();

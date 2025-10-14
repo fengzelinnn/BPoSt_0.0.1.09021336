@@ -5,6 +5,12 @@
   "bobtail_k": 3,
   "default_storage_kb": 4096,
   "mining_difficulty_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "schedule": {
+    "start_at_utc": "${BPST_CLUSTER_START_UTC:-}",
+    "start_after_sec": ${BPST_CLUSTER_START_DELAY_SEC:-180},
+    "max_clock_skew_sec": ${BPST_CLUSTER_START_MAX_DRIFT_SEC:-300},
+    "jitter_sec": ${BPST_CLUSTER_START_JITTER_SEC:-0}
+  },
   "nodes": [
     {
       "node_id": "S0",
