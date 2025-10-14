@@ -629,21 +629,6 @@ where
     node.run();
 }
 
-fn should_force_bootstrap_gossip() -> bool {
-    match env::var("BPST_FORCE_BOOTSTRAP_GOSSIP") {
-        Ok(raw) => {
-            let trimmed = raw.trim();
-            if trimmed.is_empty() {
-                true
-            } else {
-                let normalized = trimmed.to_ascii_lowercase();
-                !matches!(normalized.as_str(), "0" | "false" | "no")
-            }
-        }
-        Err(_) => false,
-    }
-}
-
 pub fn run_user_process_from_args<I>(mut args: I)
 where
     I: Iterator<Item = String>,
@@ -667,7 +652,6 @@ where
     // ----------------
 
     let owner = FileOwner::new(owner_id, config.chunk_size);
-    let force_bootstrap_target = should_force_bootstrap_gossip();
     let user = Box::new(UserNode::new(
         owner,
         host,
@@ -675,7 +659,6 @@ where
         port,
         bootstrap,
         config.clone(),
-        force_bootstrap_target,
     ));
     user.run();
 }
