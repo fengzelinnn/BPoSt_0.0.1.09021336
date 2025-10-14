@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -389,18 +389,18 @@ impl ObserverNode {
 
     fn handle_get_peers(&self) -> CommandResponse {
         let mut peers_obj: Map<String, Value> = Map::new();
-        peers_obj.insert(
-            self.observer_id.clone(),
-            serde_json::json!([self.host.clone(), self.port]),
-        );
+        let mut self_entry = Map::new();
+        self_entry.insert(String::from("host"), Value::from(self.host.clone()));
+        self_entry.insert(String::from("port"), Value::from(self.port));
+        peers_obj.insert(self.observer_id.clone(), Value::Object(self_entry));
         for (node_id, addr) in &self.peers {
             if node_id == &self.observer_id {
                 continue;
             }
-            peers_obj.insert(
-                node_id.clone(),
-                serde_json::json!([addr.ip().to_string(), addr.port()]),
-            );
+            let mut entry = Map::new();
+            entry.insert(String::from("host"), Value::from(addr.ip().to_string()));
+            entry.insert(String::from("port"), Value::from(addr.port()));
+            peers_obj.insert(node_id.clone(), Value::Object(entry));
         }
         let mut extra = HashMap::new();
         extra.insert(String::from("peers"), Value::Object(peers_obj));
@@ -560,18 +560,39 @@ impl ObserverNode {
 }
 
 fn parse_peer_addr(val: &Value) -> Option<SocketAddr> {
-    let arr = val.as_array()?;
-    if arr.len() != 2 {
-        return None;
+    if let Some(obj) = val.as_object() {
+        let host = obj.get("host")?.as_str()?;
+        let port = obj.get("port")?.as_u64()? as u16;
+        return if let Ok(ip) = host.parse::<IpAddr>() {
+            Some(SocketAddr::new(ip, port))
+        } else {
+            format!("{}:{}", host, port).parse().ok()
+        };
     }
-    let host = arr.first()?.as_str()?;
-    let port = arr.get(1)?.as_u64()? as u16;
-    Some(SocketAddr::new(host.parse().ok()?, port))
+    if let Some(arr) = val.as_array() {
+        if arr.len() >= 2 {
+            let host = arr.first()?.as_str()?;
+            let port = arr.get(1)?.as_u64()? as u16;
+            return if let Ok(ip) = host.parse::<IpAddr>() {
+                Some(SocketAddr::new(ip, port))
+            } else {
+                format!("{}:{}", host, port).parse().ok()
+            };
+        }
+    }
+    if let Some(addr_str) = val.as_str() {
+        return addr_str.parse().ok();
+    }
+    None
 }
 
 fn parse_announce(data: &Value) -> Option<(String, SocketAddr)> {
     let node_id = data.get("node_id")?.as_str()?.to_string();
     let host = data.get("host")?.as_str()?;
     let port = data.get("port")?.as_u64()? as u16;
-    Some((node_id, SocketAddr::new(host.parse().ok()?, port)))
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        Some((node_id, SocketAddr::new(ip, port)))
+    } else {
+        Some((node_id, format!("{}:{}", host, port).parse().ok()?))
+    }
 }

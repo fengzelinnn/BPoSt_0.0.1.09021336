@@ -14,6 +14,7 @@ use crate::config::{
 use crate::p2p::node::{Node, DEFAULT_DIFFICULTY_HEX};
 use crate::p2p::observer_node::ObserverNode;
 use crate::p2p::user_node::UserNode;
+use crate::p2p::NodeType;
 use crate::roles::file_owner::FileOwner;
 use crate::utils::log_msg;
 use num_bigint::BigUint;
@@ -613,12 +614,18 @@ where
     let (report_tx, _report_rx) = unbounded();
     let static_peers = load_static_peers_from_env();
     let advertise_host = env::var("BPST_ADVERTISE_IP").unwrap_or_else(|_| listen_host.clone());
+    let role = if bootstrap_addr.is_none() {
+        NodeType::Bootstrap
+    } else {
+        NodeType::Storage
+    };
     let node = Box::new(Node::new(
         node_id,
         listen_host,
         advertise_host,
         port,
         bootstrap_addr,
+        role,
         static_peers,
         chunk_size,
         max_storage,
