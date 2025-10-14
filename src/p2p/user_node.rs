@@ -960,7 +960,7 @@ impl UserNode {
                     }
                 };
                 if allow_distribution {
-                    let successful_assignments = self.distribute_file_to_providers(
+                    let mut successful_assignments = self.distribute_file_to_providers(
                         &file_id,
                         &chunks,
                         &provider_assignments,
@@ -968,6 +968,7 @@ impl UserNode {
                         storage_rounds,
                         challenge_size,
                     );
+                    let mut finalize_attempted = false;
                     if successful_assignments.is_empty() {
                         log_msg(
                             "ERROR",
@@ -976,7 +977,7 @@ impl UserNode {
                             &format!("文件 {} 的分发失败，所有目标节点均未确认存储。", file_id),
                         );
                     } else {
-                        let summary: Vec<String> = successful_assignments
+                        let chunk_summary: Vec<String> = successful_assignments
                             .iter()
                             .map(|assignment| {
                                 format!("{}@{}", assignment.provider_id, assignment.addr)
@@ -990,15 +991,15 @@ impl UserNode {
                                 "文件 {} 的分发表: 存储轮次 {}，确认节点 {}。",
                                 file_id,
                                 storage_rounds,
-                                summary.join(", ")
+                                chunk_summary.join(", ")
                             ),
                         );
-                        let addrs: Vec<SocketAddr> =
-                            successful_assignments.iter().map(|a| a.addr).collect();
-                        if !addrs.is_empty() {
-                            self.remember_peers(&addrs);
-                        }
                         if successful_assignments.len() < num_nodes_required {
+                            let addrs: Vec<SocketAddr> =
+                                successful_assignments.iter().map(|a| a.addr).collect();
+                            if !addrs.is_empty() {
+                                self.remember_peers(&addrs);
+                            }
                             log_msg(
                                 "WARN",
                                 "USER_NODE",
@@ -1010,8 +1011,57 @@ impl UserNode {
                                     num_nodes_required
                                 ),
                             );
+                            log_msg(
+                                "INFO",
+                                "USER_NODE",
+                                Some(self.owner.owner_id.clone()),
+                                &format!(
+                                    "文件 {} 未达到确认阈值，跳过 finalize_storage 操作。",
+                                    file_id
+                                ),
+                            );
                         }
                         if successful_assignments.len() >= num_nodes_required {
+                            let finalized_assignments = self
+                                .finalize_storage_for_providers(&file_id, &successful_assignments);
+                            finalize_attempted = true;
+                            if finalized_assignments.len() < successful_assignments.len() {
+                                log_msg(
+                                    "WARN",
+                                    "USER_NODE",
+                                    Some(self.owner.owner_id.clone()),
+                                    &format!(
+                                        "文件 {} 有 {} 个节点在 finalize 阶段失败。",
+                                        file_id,
+                                        successful_assignments.len() - finalized_assignments.len()
+                                    ),
+                                );
+                            }
+                            successful_assignments = finalized_assignments;
+                        }
+                        if successful_assignments.len() >= num_nodes_required {
+                            let final_summary: Vec<String> = successful_assignments
+                                .iter()
+                                .map(|assignment| {
+                                    format!("{}@{}", assignment.provider_id, assignment.addr)
+                                })
+                                .collect();
+                            log_msg(
+                                "INFO",
+                                "USER_NODE",
+                                Some(self.owner.owner_id.clone()),
+                                &format!(
+                                    "文件 {} finalize 完成: 存储轮次 {}，最终节点 {}。",
+                                    file_id,
+                                    storage_rounds,
+                                    final_summary.join(", ")
+                                ),
+                            );
+                            let addrs: Vec<SocketAddr> =
+                                successful_assignments.iter().map(|a| a.addr).collect();
+                            if !addrs.is_empty() {
+                                self.remember_peers(&addrs);
+                            }
                             let mut round_assignments = HashMap::new();
                             for round in 1..=storage_rounds {
                                 round_assignments.insert(round, successful_assignments.clone());
@@ -1027,6 +1077,20 @@ impl UserNode {
                                 let mut records = self.stored_files.lock();
                                 records.insert(file_id.clone(), record);
                             }
+                        } else if finalize_attempted
+                            && successful_assignments.len() < num_nodes_required
+                        {
+                            log_msg(
+                                "WARN",
+                                "USER_NODE",
+                                Some(self.owner.owner_id.clone()),
+                                &format!(
+                                    "文件 {} finalize 后确认节点 {} 个，低于预期的 {} 个。",
+                                    file_id,
+                                    successful_assignments.len(),
+                                    num_nodes_required
+                                ),
+                            );
                         }
                     }
                 }
@@ -1131,47 +1195,6 @@ impl UserNode {
             }
         }
 
-        let mut finalize_requests = Vec::new();
-        let mut finalize_meta = Vec::new();
-        for (provider_idx, assignment) in assignments.iter().enumerate() {
-            if !provider_success[provider_idx] {
-                continue;
-            }
-            let payload = serde_json::json!({
-                "cmd": "finalize_storage",
-                "data": {"file_id": file_id},
-            });
-            finalize_requests.push((assignment.addr, payload));
-            finalize_meta.push(provider_idx);
-        }
-
-        if !finalize_requests.is_empty() {
-            let responses = super::node::send_json_lines_parallel(finalize_requests);
-            for (provider_idx, response) in finalize_meta.into_iter().zip(responses.into_iter()) {
-                if provider_success[provider_idx] {
-                    match response {
-                        Some(value) => match serde_json::from_value::<CommandResponse>(value) {
-                            Ok(resp) if resp.ok => {}
-                            Ok(resp) => {
-                                provider_success[provider_idx] = false;
-                                let reason = resp.error.unwrap_or_else(|| "未知错误".to_string());
-                                provider_errors[provider_idx].push(format!("finalize: {}", reason));
-                            }
-                            Err(err) => {
-                                provider_success[provider_idx] = false;
-                                provider_errors[provider_idx]
-                                    .push(format!("finalize: 响应解析失败 {}", err));
-                            }
-                        },
-                        None => {
-                            provider_success[provider_idx] = false;
-                            provider_errors[provider_idx].push(String::from("finalize: 无响应"));
-                        }
-                    }
-                }
-            }
-        }
-
         let mut successes = Vec::new();
         for (idx, assignment) in assignments.iter().enumerate() {
             if provider_success[idx] {
@@ -1191,6 +1214,76 @@ impl UserNode {
                         file_id, assignment.provider_id, assignment.addr, reason
                     ),
                 );
+            }
+        }
+
+        successes
+    }
+
+    fn finalize_storage_for_providers(
+        &self,
+        file_id: &str,
+        assignments: &[ProviderAssignment],
+    ) -> Vec<ProviderAssignment> {
+        if assignments.is_empty() {
+            return Vec::new();
+        }
+
+        let finalize_requests: Vec<(SocketAddr, Value)> = assignments
+            .iter()
+            .map(|assignment| {
+                let payload = serde_json::json!({
+                    "cmd": "finalize_storage",
+                    "data": {"file_id": file_id},
+                });
+                (assignment.addr, payload)
+            })
+            .collect();
+
+        let responses = super::node::send_json_lines_parallel(finalize_requests);
+        let mut successes = Vec::new();
+
+        for (assignment, response) in assignments.iter().cloned().zip(responses.into_iter()) {
+            match response {
+                Some(value) => match serde_json::from_value::<CommandResponse>(value) {
+                    Ok(resp) if resp.ok => {
+                        successes.push(assignment);
+                    }
+                    Ok(resp) => {
+                        let reason = resp.error.unwrap_or_else(|| "未知错误".to_string());
+                        log_msg(
+                            "WARN",
+                            "USER_NODE",
+                            Some(self.owner.owner_id.clone()),
+                            &format!(
+                                "文件 {} 在 finalize 阶段确认节点 {}@{} 失败: {}",
+                                file_id, assignment.provider_id, assignment.addr, reason
+                            ),
+                        );
+                    }
+                    Err(err) => {
+                        log_msg(
+                            "WARN",
+                            "USER_NODE",
+                            Some(self.owner.owner_id.clone()),
+                            &format!(
+                                "文件 {} finalize 响应解析失败 {} 来自节点 {}@{}",
+                                file_id, err, assignment.provider_id, assignment.addr
+                            ),
+                        );
+                    }
+                },
+                None => {
+                    log_msg(
+                        "WARN",
+                        "USER_NODE",
+                        Some(self.owner.owner_id.clone()),
+                        &format!(
+                            "文件 {} finalize 阶段节点 {}@{} 无响应",
+                            file_id, assignment.provider_id, assignment.addr
+                        ),
+                    );
+                }
             }
         }
 
