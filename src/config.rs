@@ -43,6 +43,18 @@ pub enum DeploymentConfigError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DeploymentSchedule {
+    #[serde(default)]
+    pub start_at_utc: Option<String>,
+    #[serde(default)]
+    pub start_after_sec: Option<u64>,
+    #[serde(default)]
+    pub max_clock_skew_sec: Option<u64>,
+    #[serde(default)]
+    pub jitter_sec: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DeploymentConfig {
     #[serde(default)]
     pub nodes: Vec<NodeDeployment>,
@@ -62,6 +74,8 @@ pub struct DeploymentConfig {
     pub default_storage_kb: Option<usize>,
     #[serde(default)]
     pub mining_difficulty_hex: Option<String>,
+    #[serde(default)]
+    pub schedule: Option<DeploymentSchedule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
