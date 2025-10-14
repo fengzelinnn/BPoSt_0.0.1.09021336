@@ -31,6 +31,7 @@ use crate::common::datastructures::{
 use crate::consensus::blockchain::Blockchain; // 区块链逻辑
 use crate::crypto::deserialize_g2; // G2点反序列化工具
 use crate::crypto::dpdp::DPDP; // dPDP 密码学逻辑
+use crate::p2p::NodeType;
 use crate::roles::miner::Miner; // 矿工角色
 use crate::roles::prover::Prover; // 证明者角色
 use crate::storage::manager::{FileDataError, StorageManager}; // 存储管理器
@@ -123,10 +124,12 @@ pub struct Node {
     advertise_host: String,                                      // 对外通告的主机地址
     port: u16,                                                   // 节点监听的端口
     bootstrap_addr: Option<SocketAddr>, // 引导节点的地址，如果没有则自己是引导节点
+    role: NodeType,                     // 节点角色
     storage_manager: StorageManager,    // 存储管理器，负责文件的存储和检索
     prover: Prover,                     // 证明者，负责生成dPDP证明
     miner: Miner,                       // 矿工，负责挖矿（生成Bobtail证明）
     peers: HashMap<String, SocketAddr>, // 对等节点列表 <node_id, addr>
+    peer_roles: HashMap<String, NodeType>, // 对等节点角色记录
     mempool: VecDeque<Value>,           // 内存池，暂存待处理的gossip消息
     new_block_buffer: VecDeque<Block>,  // 新区块消息缓冲区
     outstanding_proof_requests: HashMap<usize, HashSet<String>>, // 尚未满足的证明请求
@@ -188,25 +191,102 @@ impl Node {
         None
     }
 
+    fn parse_peer_entry(addr_val: &Value) -> Option<(SocketAddr, Option<NodeType>)> {
+        if let Some(obj) = addr_val.as_object() {
+            let host = obj.get("host")?.as_str()?;
+            let port = obj.get("port")?.as_u64()? as u16;
+            let role = obj
+                .get("role")
+                .and_then(Value::as_str)
+                .and_then(NodeType::from_str);
+            let addr = if let Ok(ip) = host.parse::<IpAddr>() {
+                SocketAddr::new(ip, port)
+            } else {
+                format!("{}:{}", host, port).parse().ok()?
+            };
+            return Some((addr, role));
+        }
+        if let Some(arr) = addr_val.as_array() {
+            if arr.len() >= 2 {
+                let host = arr.first()?.as_str()?;
+                let port = arr.get(1)?.as_u64()? as u16;
+                let role = arr
+                    .get(2)
+                    .and_then(Value::as_str)
+                    .and_then(NodeType::from_str);
+                let addr = if let Ok(ip) = host.parse::<IpAddr>() {
+                    SocketAddr::new(ip, port)
+                } else {
+                    format!("{}:{}", host, port).parse().ok()?
+                };
+                return Some((addr, role));
+            }
+        }
+        Self::parse_peer_addr(addr_val).map(|addr| (addr, None))
+    }
+
+    fn build_peer_entry(host: String, port: u16, role: Option<NodeType>) -> Value {
+        let mut entry = Map::new();
+        entry.insert(String::from("host"), Value::from(host));
+        entry.insert(String::from("port"), Value::from(port));
+        if let Some(role_val) = role {
+            entry.insert(String::from("role"), Value::from(role_val.as_str()));
+        }
+        Value::Object(entry)
+    }
+
+    fn record_peer_role(&mut self, node_id: &str, role: Option<NodeType>) {
+        if node_id == self.node_id {
+            self.peer_roles.insert(node_id.to_string(), self.role);
+        } else if let Some(role_val) = role {
+            self.peer_roles.insert(node_id.to_string(), role_val);
+        }
+    }
+
+    fn ensure_self_role(&mut self) {
+        self.peer_roles.insert(self.node_id.clone(), self.role);
+    }
+
+    fn is_bootstrap(&self) -> bool {
+        self.bootstrap_addr.is_none()
+    }
+
+    fn should_include_peer(
+        role_filter: Option<NodeType>,
+        peer_role: Option<NodeType>,
+        enforce: bool,
+    ) -> bool {
+        match role_filter {
+            None => true,
+            Some(filter_role) => match peer_role {
+                Some(role) => role == filter_role,
+                None => !enforce,
+            },
+        }
+    }
+
     fn try_add_peer_entry(&mut self, node_id: &str, addr_val: &Value) -> bool {
         if node_id == self.node_id {
+            self.record_peer_role(node_id, Some(self.role));
             return false;
         }
-        let Some(addr) = Self::parse_peer_addr(addr_val) else {
+        let Some((addr, role)) = Self::parse_peer_entry(addr_val) else {
             return false;
         };
+        let mut added = false;
         match self.peers.entry(node_id.to_string()) {
             Entry::Vacant(entry) => {
                 entry.insert(addr);
-                true
+                added = true;
             }
             Entry::Occupied(mut entry) => {
                 if entry.get() != &addr {
                     entry.insert(addr);
                 }
-                false
             }
         }
+        self.record_peer_role(node_id, role);
+        added
     }
 
     fn share_peer_sample_with_neighbors(&mut self) {
@@ -343,6 +423,7 @@ impl Node {
         advertise_host: String,
         port: u16,
         bootstrap_addr: Option<SocketAddr>,
+        role: NodeType,
         initial_peers: Vec<(String, SocketAddr)>,
         chunk_size: usize,
         max_storage: usize,
@@ -357,6 +438,8 @@ impl Node {
         });
         let broadcast_threshold = Self::calculate_broadcast_threshold(&difficulty_threshold);
         let (mined_proof_tx, mined_proof_rx) = unbounded::<(usize, BobtailProof)>();
+        let mut peer_roles = HashMap::new();
+        peer_roles.insert(node_id.clone(), role);
         Self {
             storage_manager: StorageManager::new(node_id.clone(), chunk_size, max_storage),
             prover: Prover::new(node_id.clone()),
@@ -366,7 +449,9 @@ impl Node {
             advertise_host,
             port,
             bootstrap_addr,
+            role,
             peers: initial_peers.into_iter().collect(),
+            peer_roles,
             mempool: VecDeque::new(),
             proof_pool: HashMap::new(),
             known_blocks: HashMap::new(),
@@ -641,20 +726,39 @@ impl Node {
     fn dispatch_command(&mut self, req: CommandRequest) -> CommandResponse {
         match req.cmd.as_str() {
             "get_peers" => {
-                // 返回当前节点知道的所有对等节点
+                let role_filter = match &req.data {
+                    Value::Object(map) => map
+                        .get("role")
+                        .and_then(Value::as_str)
+                        .and_then(NodeType::from_str),
+                    Value::String(s) => NodeType::from_str(s),
+                    _ => None,
+                };
+                let enforce_filter = self.is_bootstrap();
                 let mut peers_obj: Map<String, Value> = Map::new();
-                peers_obj.insert(
-                    self.node_id.clone(),
-                    serde_json::json!([self.advertise_host.clone(), self.port]),
-                );
+                if Self::should_include_peer(role_filter, Some(self.role), enforce_filter) {
+                    peers_obj.insert(
+                        self.node_id.clone(),
+                        Self::build_peer_entry(
+                            self.advertise_host.clone(),
+                            self.port,
+                            Some(self.role),
+                        ),
+                    );
+                }
                 for (k, v) in &self.peers {
                     if k == &self.node_id {
                         continue;
                     }
-                    let entry = serde_json::json!([v.ip().to_string(), v.port()]);
-                    peers_obj.insert(k.clone(), entry);
+                    let peer_role = self.peer_roles.get(k).copied();
+                    if !Self::should_include_peer(role_filter, peer_role, enforce_filter) {
+                        continue;
+                    }
+                    peers_obj.insert(
+                        k.clone(),
+                        Self::build_peer_entry(v.ip().to_string(), v.port(), peer_role),
+                    );
                 }
-
                 let mut extra = HashMap::new();
                 extra.insert(String::from("peers"), Value::Object(peers_obj));
                 CommandResponse {
@@ -665,10 +769,11 @@ impl Node {
             }
             "announce" => {
                 // 处理一个新节点的宣告，将其加入对等节点列表
-                if let Some((node_id, addr)) = parse_announce(&req.data) {
+                if let Some((node_id, addr, role)) = parse_announce(&req.data) {
                     if node_id != self.node_id {
-                        self.peers.insert(node_id, addr);
+                        self.peers.insert(node_id.clone(), addr);
                     }
+                    self.record_peer_role(&node_id, role);
                 }
                 CommandResponse {
                     ok: true,
@@ -1062,9 +1167,10 @@ impl Node {
         let announce_payload = serde_json::json!({
             "cmd": "announce",
             "data": {
-                "node_id": self.node_id,
+                "node_id": self.node_id.clone(),
                 "host": self.advertise_host.clone(),
                 "port": self.port,
+                "role": self.role.as_str(),
             }
         });
 
@@ -1144,6 +1250,11 @@ impl Node {
             .retain(|node_id, addr| keep.contains(node_id) || Some(*addr) == bootstrap_addr);
         self.peer_reachability
             .retain(|peer_id, _| self.peers.contains_key(peer_id));
+        let allowed: HashSet<String> = self.peers.keys().cloned().collect();
+        let self_id = self.node_id.clone();
+        self.peer_roles
+            .retain(|peer_id, _| *peer_id == self_id || allowed.contains(peer_id));
+        self.peer_roles.insert(self.node_id.clone(), self.role);
     }
 
     fn drop_unreachable_peers(&mut self) {
@@ -1195,9 +1306,13 @@ impl Node {
         }
         for peer_id in removed {
             self.peers.remove(&peer_id);
+            if peer_id != self.node_id {
+                self.peer_roles.remove(&peer_id);
+            }
         }
         self.peer_reachability
             .retain(|peer_id, _| self.peers.contains_key(peer_id));
+        self.ensure_self_role();
         if self.peers.len() < Self::MIN_ACTIVE_PEERS {
             if let Some(bootstrap) = self.bootstrap_addr {
                 self.fetch_peers_from_bootstrap(bootstrap, false);
@@ -2545,11 +2660,20 @@ impl Node {
 }
 
 /// 解析 "announce" 命令的数据
-fn parse_announce(data: &Value) -> Option<(String, SocketAddr)> {
+fn parse_announce(data: &Value) -> Option<(String, SocketAddr, Option<NodeType>)> {
     let node_id = data.get("node_id")?.as_str()?.to_string();
     let host = data.get("host")?.as_str()?;
     let port = data.get("port")?.as_u64()? as u16;
-    Some((node_id, SocketAddr::new(host.parse().ok()?, port)))
+    let role = data
+        .get("role")
+        .and_then(Value::as_str)
+        .and_then(NodeType::from_str);
+    let addr = if let Ok(ip) = host.parse::<IpAddr>() {
+        SocketAddr::new(ip, port)
+    } else {
+        format!("{}:{}", host, port).parse().ok()?
+    };
+    Some((node_id, addr, role))
 }
 
 /// 异步发送JSON行数据，并忽略响应结果
