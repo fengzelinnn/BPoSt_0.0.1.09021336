@@ -64,8 +64,8 @@ fn main() {
         chunk_size: 64,          // 数据块大小
         min_file_kb: 1,          // 最小文件大小 (KB)
         max_file_kb: 1,          // 最大文件大小 (KB)
-        min_storage_nodes: 2,    // 最小存储节点数
-        max_storage_nodes: 5,    // 最大存储节点数
+        min_storage_nodes: 5 ,    // 最小存储节点数
+        max_storage_nodes: 9,    // 最大存储节点数
         base_port: 62000,        // 基础端口号
         bobtail_k: 3,            // Bobtail 参数 K
         min_storage_kb: 128,     // 最小存储空间 (KB)
