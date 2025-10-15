@@ -1644,6 +1644,10 @@ impl Node {
             self.chain.blocks.pop();
         }
 
+        if is_reorg {
+            self.storage_manager.rollback_to_height(prefix_len as u64);
+        }
+
         for block in &branch {
             self.register_known_block(block);
             self.chain.add_block(block.clone(), None);
