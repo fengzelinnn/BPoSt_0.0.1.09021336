@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 
-use ark_bn254::{G1Projective, G2Projective};
+use ark_bn254::{Fr, G1Projective, G2Projective};
 use ark_ec::PrimeGroup;
 use num_bigint::BigUint;
 use parking_lot::Mutex;
@@ -11,6 +11,7 @@ use crate::crypto::deserialize_g2;
 use crate::crypto::folding::{
     block_validation_relaxed_r1cs, dpdp_verification_relaxed_r1cs, fr_to_padded_hex,
     state_update_relaxed_r1cs, NovaFinalProof, NovaFoldingCycle, NovaFoldingError, NovaRoundResult,
+    RelaxedR1CS,
 };
 use crate::storage::state::ServerStorage;
 use crate::utils::{h_join, sha256_hex};
@@ -35,10 +36,24 @@ struct StorageManagerInner {
 
 #[derive(Debug, Clone)]
 pub struct StoredRoundRecord {
+    pub height: u64,
     pub round: usize,
     pub challenge: Vec<(usize, BigUint)>,
     pub proof: DPDPProof,
     pub accumulator: String,
+}
+
+#[derive(Debug, Clone)]
+struct LeafUpdateRecord {
+    index: usize,
+    previous: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct RoundHistoryEntry {
+    circuits: Vec<RelaxedR1CS<Fr>>,
+    leaf_updates: Vec<LeafUpdateRecord>,
+    record: StoredRoundRecord,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +79,7 @@ struct FileCycleState {
     final_artifact: Option<FinalFoldArtifact>,
     final_sent: bool,
     released: bool,
+    round_history: BTreeMap<u64, RoundHistoryEntry>,
 }
 
 impl FileCycleState {
@@ -76,21 +92,35 @@ impl FileCycleState {
             final_artifact: None,
             final_sent: false,
             released: false,
+            round_history: BTreeMap::new(),
         }
     }
 
     fn record_round(
         &mut self,
-        result: NovaRoundResult,
+        height: u64,
+        result: &NovaRoundResult,
         challenge: Vec<(usize, BigUint)>,
         proof: DPDPProof,
+        circuits: Vec<RelaxedR1CS<Fr>>,
+        leaf_updates: Vec<LeafUpdateRecord>,
     ) {
-        self.pending_rounds.push_back(StoredRoundRecord {
+        let record = StoredRoundRecord {
+            height,
             round: result.step_index,
             challenge,
             proof,
             accumulator: fr_to_padded_hex(&result.accumulator),
-        });
+        };
+        self.pending_rounds.push_back(record.clone());
+        self.round_history.insert(
+            height,
+            RoundHistoryEntry {
+                circuits,
+                leaf_updates,
+                record,
+            },
+        );
     }
 
     fn set_final_artifact(&mut self, proof: NovaFinalProof) {
@@ -105,6 +135,65 @@ impl FileCycleState {
 
     fn is_expired(&self) -> bool {
         self.final_artifact.is_some()
+    }
+
+    fn rollback_to_height(&mut self, target_height: u64) -> (Vec<LeafUpdateRecord>, bool) {
+        let to_remove: Vec<u64> = self
+            .round_history
+            .keys()
+            .copied()
+            .filter(|h| *h > target_height)
+            .collect();
+        if to_remove.is_empty() {
+            return (Vec::new(), false);
+        }
+
+        let mut revert_updates = Vec::new();
+        for height in to_remove {
+            if let Some(entry) = self.round_history.remove(&height) {
+                revert_updates.extend(entry.leaf_updates.into_iter().rev());
+            }
+        }
+
+        let retained: Vec<(u64, RoundHistoryEntry)> = self
+            .round_history
+            .iter()
+            .map(|(height, entry)| (*height, entry.clone()))
+            .collect();
+
+        self.nova = NovaFoldingCycle::new(self.storage_period);
+        let mut rebuilt_history = BTreeMap::new();
+        for (height, mut entry) in retained {
+            match self.nova.absorb_round(entry.circuits.clone()) {
+                Ok(result) => {
+                    entry.record.round = result.step_index;
+                    entry.record.accumulator = fr_to_padded_hex(&result.accumulator);
+                    rebuilt_history.insert(height, entry);
+                }
+                Err(err) => {
+                    crate::utils::log_msg(
+                        "ERROR",
+                        "Nova",
+                        None,
+                        &format!("回滚后重建 Nova 折叠状态失败: {}", err),
+                    );
+                    break;
+                }
+            }
+        }
+
+        self.round_history = rebuilt_history;
+        self.pending_rounds
+            .retain(|record| record.height <= target_height);
+        for record in self.pending_rounds.iter_mut() {
+            if let Some(entry) = self.round_history.get(&record.height) {
+                record.round = entry.record.round;
+                record.accumulator = entry.record.accumulator.clone();
+            }
+        }
+        self.final_artifact = None;
+        self.final_sent = false;
+        (revert_updates, true)
     }
 }
 
@@ -438,6 +527,57 @@ impl StorageManager {
             .map(|cycle| cycle.challenge_size)
     }
 
+    pub fn rollback_to_height(&self, target_height: u64) {
+        let mut inner = self.inner.lock();
+        let mut affected = false;
+        let file_ids: Vec<String> = inner.file_cycles.keys().cloned().collect();
+        for file_id in file_ids {
+            let mut updates_to_apply = Vec::new();
+            let mut changed = false;
+            if let Some(cycle) = inner.file_cycles.get_mut(&file_id) {
+                let before_steps = cycle.nova.steps_completed();
+                let (updates, did_change) = cycle.rollback_to_height(target_height);
+                let after_steps = cycle.nova.steps_completed();
+                if did_change {
+                    updates_to_apply = updates;
+                    changed = true;
+                    if after_steps != before_steps {
+                        affected = true;
+                    }
+                }
+            }
+            if changed {
+                affected = true;
+                {
+                    let tst = inner.storage.time_trees.entry(file_id.clone()).or_default();
+                    for update in &updates_to_apply {
+                        match &update.previous {
+                            Some(prev) => {
+                                tst.leaves.insert(update.index, prev.clone());
+                            }
+                            None => {
+                                tst.leaves.remove(&update.index);
+                            }
+                        }
+                    }
+                }
+                if inner
+                    .storage
+                    .time_trees
+                    .get(&file_id)
+                    .map(|tst| tst.leaves.is_empty())
+                    .unwrap_or(false)
+                {
+                    inner.storage.time_trees.remove(&file_id);
+                }
+            }
+        }
+        if affected {
+            let completed = inner.file_completed.clone();
+            inner.storage.build_state(Some(&completed));
+        }
+    }
+
     pub fn process_round(
         &self,
         file_id: &str,
@@ -448,6 +588,7 @@ impl StorageManager {
         round_salt: &str,
     ) -> Option<NovaRoundResult> {
         let mut inner = self.inner.lock();
+        let block_height = block.height;
         if inner
             .file_cycles
             .get(file_id)
@@ -459,6 +600,23 @@ impl StorageManager {
                 "Nova",
                 Some(self.node_id.clone()),
                 &format!("文件 {} 的存储周期已完成，跳过新的折叠轮次。", file_id),
+            );
+            return None;
+        }
+        if inner
+            .file_cycles
+            .get(file_id)
+            .and_then(|cycle| cycle.round_history.get(&block_height))
+            .is_some()
+        {
+            crate::utils::log_msg(
+                "WARN",
+                "Nova",
+                Some(self.node_id.clone()),
+                &format!(
+                    "文件 {} 在高度 {} 已执行折叠，忽略重复请求。",
+                    file_id, block_height
+                ),
             );
             return None;
         }
@@ -486,12 +644,12 @@ impl StorageManager {
         before_state.build();
 
         let mut pending_leaf_updates = Vec::new();
+        let mut history_leaf_updates = Vec::new();
         if let Some(tst) = inner.storage.time_trees.get(file_id) {
             for (idx, mu_i, sigma_bytes) in contributions {
-                let prev_leaf = tst
-                    .leaves
-                    .get(idx)
-                    .cloned()
+                let prev_value = tst.leaves.get(idx).cloned();
+                let prev_leaf = prev_value
+                    .clone()
                     .unwrap_or_else(|| h_join(["missing", &idx.to_string()]));
                 let sigma_hex = hex::encode(sigma_bytes);
                 let new_leaf = h_join([
@@ -503,7 +661,11 @@ impl StorageManager {
                     &sigma_hex,
                     round_salt,
                 ]);
-                pending_leaf_updates.push((*idx, new_leaf));
+                pending_leaf_updates.push((*idx, new_leaf.clone()));
+                history_leaf_updates.push(LeafUpdateRecord {
+                    index: *idx,
+                    previous: prev_value,
+                });
             }
         }
         for (idx, new_leaf) in pending_leaf_updates {
@@ -550,23 +712,20 @@ impl StorageManager {
                 Some(self.node_id.clone()),
                 &format!("准备吸收文件 {} 的第 {} 个折叠轮次。", file_id, next_step),
             );
-            let result =
-                match cycle
-                    .nova
-                    .absorb_round(vec![dpdp_circuit, block_circuit, state_circuit])
-                {
-                    Ok(res) => res,
-                    Err(NovaFoldingError::CycleComplete) => return None,
-                    Err(err) => {
-                        crate::utils::log_msg(
-                            "ERROR",
-                            "Nova",
-                            Some(self.node_id.clone()),
-                            &format!("文件 {} 的 Nova 折叠失败: {}", file_id, err),
-                        );
-                        return None;
-                    }
-                };
+            let circuits = vec![dpdp_circuit, block_circuit, state_circuit];
+            let result = match cycle.nova.absorb_round(circuits.clone()) {
+                Ok(res) => res,
+                Err(NovaFoldingError::CycleComplete) => return None,
+                Err(err) => {
+                    crate::utils::log_msg(
+                        "ERROR",
+                        "Nova",
+                        Some(self.node_id.clone()),
+                        &format!("文件 {} 的 Nova 折叠失败: {}", file_id, err),
+                    );
+                    return None;
+                }
+            };
             crate::utils::log_msg(
                 "INFO",
                 "Nova",
@@ -579,7 +738,14 @@ impl StorageManager {
                 ),
             );
 
-            cycle.record_round(result.clone(), challenge.to_vec(), proof.clone());
+            cycle.record_round(
+                block_height,
+                &result,
+                challenge.to_vec(),
+                proof.clone(),
+                circuits,
+                history_leaf_updates,
+            );
 
             if result.step_index >= cycle.storage_period && cycle.final_artifact.is_none() {
                 crate::utils::log_msg(
@@ -634,6 +800,7 @@ impl StorageManager {
                     .map(|(idx, val)| serde_json::json!([*idx as u64, val.to_string()]))
                     .collect();
                 rounds.push(serde_json::json!({
+                    "height": record.height,
                     "round": record.round,
                     "challenge": challenge_json,
                     "proof": record.proof,
