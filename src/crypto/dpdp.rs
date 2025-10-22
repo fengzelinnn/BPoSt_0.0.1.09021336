@@ -11,7 +11,7 @@ use crate::common::datastructures::{DPDPParams, DPDPProof, DPDPTags};
 use crate::crypto::folding::{dpdp_verification_relaxed_r1cs, RelaxedR1CS};
 use crate::crypto::{curve_order, deserialize_g1, serialize_g1};
 use crate::merkle::MerkleTree;
-use crate::monitoring::perf;
+use crate::monitoring::criterion;
 use crate::utils::{hash_to_field, sha256_hex};
 
 /// Merkle 证明路径，按从叶子到根的顺序存储相邻节点及其方向。
@@ -22,7 +22,7 @@ pub type ChallengedChunkData = HashMap<usize, (Vec<u8>, MerkleProofPath)>;
 
 /// 将任意消息哈希到 BN254 G1 群，作为 dPDP 中的基点。
 pub fn hash_to_g1(message: &[u8]) -> G1Projective {
-    let _span = perf::span(["dPDP", "hash_to_g1"]);
+    let _span = criterion::span(["dPDP", "hash_to_g1"]);
     let field_elem = hash_to_field(message);
     let mut bytes = field_elem.to_bytes_be();
     if bytes.len() > 32 {
@@ -90,7 +90,7 @@ pub struct DPDPVerificationOutput {
 impl DPDP {
     /// 生成 dPDP 公私钥参数。
     pub fn key_gen() -> DPDPParams {
-        let _span = perf::span(["dPDP", "key_gen"]);
+        let _span = criterion::span(["dPDP", "key_gen"]);
         let sk_alpha = random_scalar();
         let g: G2Projective = G2Affine::generator().into();
         let u: G1Projective = G1Affine::generator().into();
@@ -106,7 +106,7 @@ impl DPDP {
 
     /// 使用 dPDP 私钥为文件块生成标签。
     pub fn tag_file(params: &DPDPParams, file_chunks: &[Vec<u8>]) -> DPDPTags {
-        let span = perf::span(["dPDP", "tag_file"]);
+        let span = criterion::span(["dPDP", "tag_file"]);
         let mut tags_bytes = Vec::with_capacity(file_chunks.len());
         let sk_fr = biguint_to_fr(&params.sk_alpha);
         for (i, chunk) in file_chunks.iter().enumerate() {
@@ -131,7 +131,7 @@ impl DPDP {
         tags: &DPDPTags,
         m: Option<usize>,
     ) -> Vec<(usize, BigUint)> {
-        let span = perf::span(["dPDP", "gen_chal"]);
+        let span = criterion::span(["dPDP", "gen_chal"]);
         if tags.is_empty() {
             return Vec::new();
         }
@@ -168,7 +168,7 @@ impl DPDP {
         file_chunks: &HashMap<usize, Vec<u8>>,
         challenge: &[(usize, BigUint)],
     ) -> Vec<(usize, BigUint, Vec<u8>)> {
-        let span = perf::span(["dPDP", "gen_contributions"]);
+        let span = criterion::span(["dPDP", "gen_contributions"]);
         let order = curve_order();
         let mut contributions = Vec::new();
         for (i, v_i) in challenge {
@@ -194,7 +194,7 @@ impl DPDP {
         file_chunks: &HashMap<usize, Vec<u8>>,
         challenge: &[(usize, BigUint)],
     ) -> DPDPProof {
-        let span = perf::span(["dPDP", "gen_proof"]);
+        let span = criterion::span(["dPDP", "gen_proof"]);
         let order = curve_order();
         let mut agg_mu = BigUint::from(0u32);
         let mut agg_sigma = G1Projective::zero();
@@ -220,7 +220,7 @@ impl DPDP {
         proof: &DPDPProof,
         challenge: &[(usize, BigUint)],
     ) -> bool {
-        let _span = perf::span(["dPDP", "check_proof"]);
+        let _span = criterion::span(["dPDP", "check_proof"]);
         Self::check_proof_with_relaxed(params, proof, challenge).valid
     }
 
@@ -230,7 +230,7 @@ impl DPDP {
         proof: &DPDPProof,
         challenge: &[(usize, BigUint)],
     ) -> DPDPVerificationOutput {
-        let span = perf::span(["dPDP", "check_with_relaxed"]);
+        let span = criterion::span(["dPDP", "check_with_relaxed"]);
         let sigma = deserialize_g1(&proof.sigma);
         if sigma.is_zero() {
             let (circuit, _) = {
@@ -258,7 +258,7 @@ impl DPDP {
         challenged_data: &ChallengedChunkData,
         merkle_root: &str,
     ) -> bool {
-        let span = perf::span(["dPDP", "verify_with_merkle"]);
+        let span = criterion::span(["dPDP", "verify_with_merkle"]);
         let order = curve_order();
         let mut recomputed_mu = BigUint::from(0u32);
         if challenge.len() != challenged_data.len() {

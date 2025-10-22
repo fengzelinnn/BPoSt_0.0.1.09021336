@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rand = "0.8"
@@ -15,7 +16,6 @@ thiserror = "1.0"
 hex = "0.4"
 parking_lot = "0.12"
 crossbeam-channel = "0.5"
-inferno = "0.11"
 ark-ff = "0.5"
 ark-ec = "0.5"
 ark-std = { version = "0.5", default-features = false, features = ["std"] }
@@ -34,17 +34,9 @@ ff = "0.13"
 ctrlc = "3.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
 
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.54", features = [
-    "Win32_Foundation",
-    "Win32_System_Threading",
-] }
 
 [features]
 default = []
-
-[dev-dependencies]
-criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 
 [[bench]]
 name = "dpdp_folding"

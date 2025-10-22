@@ -46,30 +46,31 @@
 
 ## 查看性能监控数据
 
-性能监控通过 `bpst::monitoring::perf` 模块自动采集 Span 信息，并在 Windows 上使用 `QueryThreadCycleTime` 记录 CPU cycle。采集结果可通过以下方式导出：
+性能监控通过 `bpst::monitoring::criterion` 模块采集 span 信息，并使用 Criterion 的 WallTime 计量器对执行时间进行统计分析。采集结果
+可通过以下方式导出：
 
 1. 设置导出环境变量并启动程序：
    ```bash
-   BPST_PERF_CSV=perf.csv \
-   BPST_PERF_FLAME=perf.svg \
-   BPST_PERF_CLEAR=1 \
+   BPST_CRITERION_CSV=criterion.csv \
+   BPST_CRITERION_JSON=criterion.json \
+   BPST_CRITERION_CLEAR=1 \
    cargo run -- node node-1 127.0.0.1 62000 none 1024 2097152 3
    ```
-   - `BPST_PERF_CSV`：导出记录为 CSV。
-   - `BPST_PERF_FLAME`：导出压缩火焰图（SVG）。
-   - `BPST_PERF_CLEAR`：程序退出后是否清空内存数据（默认 `true`）。
-2. 使用 `PerfExportGuard` 会在程序结束时写出文件，并将 CSV 中的 `cpu_cycles` 与 `instructions_est` 列对齐。
-3. `consensus_pressure_report()` 会优先以 CPU cycle 计算各根 Span 的算力占比，当 cycle 不可用时回退到纳秒时长。
+   - `BPST_CRITERION_CSV`：导出聚合统计为 CSV，包含均值、中位数与标准差（纳秒）。
+   - `BPST_CRITERION_JSON`：导出与 CSV 同步的详细统计，便于集成自动化分析工具。
+   - `BPST_CRITERION_CLEAR`：程序退出后是否清空内存数据（默认 `true`）。
+2. 使用 `CriterionExportGuard` 会在程序结束时写出文件，并自动根据 span 层级聚合统计数据。
+3. `consensus_pressure_report()` 会依据总执行时间计算根 span 的算力占比，方便定位性能热点。
 
 ## 清理监控数据
 
 在需要重新采集数据时，可调用：
 ```rust
-bpst::monitoring::perf::monitor().clear();
+bpst::monitoring::criterion::monitor().clear();
 ```
-或直接删除导出的 CSV/SVG 文件。
+或直接删除导出的 CSV/JSON 文件。
 
 ## 注意事项
 
-- 在非 Windows 平台上，系统将回退到 `_rdtsc` 指令或执行时间统计，仍可生成压力分布报告。
-- 若在生产环境部署，请确保程序具备写入 `BPST_PERF_*` 路径的权限。
+- 当前实现基于 Criterion 的 WallTime 计量器，所有统计均以纳秒为单位。
+- 若在生产环境部署，请确保程序具备写入 `BPST_CRITERION_*` 路径的权限。
