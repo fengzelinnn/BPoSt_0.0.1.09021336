@@ -14,10 +14,17 @@
    ```
 3. 以子命令方式启动特定角色（示例）：
    ```bash
-   cargo run -- node
-   cargo run -- user
+   # 启动单个节点进程（参数依次为：节点ID、监听IP、监听端口、引导地址或 none、数据块大小、最大存储字节、bobtail_k）
+   cargo run -- node node-1 127.0.0.1 62000 none 1024 2097152 3
+
+   # 启动单个用户进程（参数依次为：用户ID、监听IP、监听端口、引导节点地址）
+   cargo run -- user user-1 127.0.0.1 62010 127.0.0.1:62000
+
+   # 基于部署配置文件启动
    cargo run -- deploy ./deployment/config.json
    ```
+   - 若需要连接现有节点，将 `none` 替换为形如 `127.0.0.1:62000` 的引导节点地址。
+   - `最大存储字节` 示例中取值为 2 MiB (`2048 * 1024`)。
 
 ## 基准测试 dPDP 与 Folding
 
@@ -46,7 +53,7 @@
    BPST_PERF_CSV=perf.csv \
    BPST_PERF_FLAME=perf.svg \
    BPST_PERF_CLEAR=1 \
-   cargo run -- node
+   cargo run -- node node-1 127.0.0.1 62000 none 1024 2097152 3
    ```
    - `BPST_PERF_CSV`：导出记录为 CSV。
    - `BPST_PERF_FLAME`：导出压缩火焰图（SVG）。
