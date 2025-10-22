@@ -22,6 +22,7 @@ pub type ChallengedChunkData = HashMap<usize, (Vec<u8>, MerkleProofPath)>;
 
 /// 将任意消息哈希到 BN254 G1 群，作为 dPDP 中的基点。
 pub fn hash_to_g1(message: &[u8]) -> G1Projective {
+    let _span = perf::span(["dPDP", "hash_to_g1"]);
     let field_elem = hash_to_field(message);
     let mut bytes = field_elem.to_bytes_be();
     if bytes.len() > 32 {

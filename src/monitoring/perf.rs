@@ -1,10 +1,14 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::io::{Cursor, Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+
+use inferno::flamegraph::{from_reader, Options};
 
 #[derive(Clone, Default)]
 struct PerfContext {
@@ -138,8 +142,8 @@ impl PerformanceMonitor {
         csv
     }
 
-    pub fn export_flamegraph(&self) -> String {
-        let mut out = String::new();
+    fn collapsed_stacks(&self) -> Vec<(String, u128)> {
+        let mut aggregated: HashMap<String, u128> = HashMap::new();
         for record in self.records.lock().iter() {
             let mut stack = Vec::new();
             if let Some(node) = &record.node_id {
@@ -153,9 +157,31 @@ impl PerformanceMonitor {
                 stack.push("unknown".to_string());
             }
             let duration = record.duration_ns.max(1);
-            out.push_str(&format!("{} {}\n", stack.join(";"), duration));
+            let entry = aggregated.entry(stack.join(";")).or_insert(0);
+            *entry = entry.saturating_add(duration);
+        }
+        let mut collapsed: Vec<_> = aggregated.into_iter().collect();
+        collapsed.sort_by(|a, b| a.0.cmp(&b.0));
+        collapsed
+    }
+
+    pub fn export_collapsed_flamegraph(&self) -> String {
+        let mut out = String::new();
+        for (stack, duration) in self.collapsed_stacks() {
+            out.push_str(&format!("{} {}\n", stack, duration));
         }
         out
+    }
+
+    pub fn export_flamegraph_svg(&self) -> std::io::Result<String> {
+        let mut options = Options::default();
+        options.count_name = "ns".to_string();
+        let collapsed = self.export_collapsed_flamegraph();
+        let mut reader = Cursor::new(collapsed);
+        let mut output = Vec::new();
+        from_reader(&mut options, &mut reader, &mut output)
+            .map_err(|err| Error::new(ErrorKind::Other, err.to_string()))?;
+        String::from_utf8(output).map_err(|err| Error::new(ErrorKind::InvalidData, err))
     }
 
     pub fn write_csv_to<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
@@ -163,7 +189,8 @@ impl PerformanceMonitor {
     }
 
     pub fn write_flamegraph_to<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
-        std::fs::write(path, self.export_flamegraph())
+        let svg = self.export_flamegraph_svg()?;
+        std::fs::write(path, svg)
     }
 
     pub fn clear(&self) {
@@ -387,5 +414,16 @@ mod tests {
         assert!(records
             .iter()
             .any(|rec| rec.node_id.as_deref() == Some("node-test")));
+    }
+
+    #[test]
+    fn exports_svg_flamegraph() {
+        monitor().clear();
+        {
+            let _ctx = enter_context(Some("node-a".to_string()), Some("user-a".to_string()));
+            let _span = span(["task", "unit"]);
+        }
+        let svg = monitor().export_flamegraph_svg().expect("svg output");
+        assert!(svg.contains("<svg"));
     }
 }
