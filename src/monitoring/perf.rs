@@ -1,7 +1,9 @@
 use std::cell::RefCell;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io::{Cursor, Error, ErrorKind};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
@@ -9,6 +11,11 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 
 use inferno::flamegraph::{from_reader, Options};
+
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::BOOL;
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Threading::{GetCurrentThread, QueryThreadCycleTime};
 
 #[derive(Clone, Default)]
 struct PerfContext {
@@ -38,12 +45,25 @@ fn pop_context() {
 }
 
 fn read_cpu_cycles() -> Option<u64> {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(target_os = "windows")]
+    {
+        unsafe {
+            let mut cycles: u64 = 0;
+            let handle = GetCurrentThread();
+            let result: BOOL = QueryThreadCycleTime(handle, &mut cycles);
+            if result.as_bool() {
+                Some(cycles)
+            } else {
+                None
+            }
+        }
+    }
+    #[cfg(all(not(target_os = "windows"), target_arch = "x86_64"))]
     {
         // Safety: _rdtsc has no safety requirements beyond running on x86/x86_64.
         Some(unsafe { core::arch::x86_64::_rdtsc() })
     }
-    #[cfg(target_arch = "x86")]
+    #[cfg(all(not(target_os = "windows"), target_arch = "x86"))]
     {
         Some(unsafe { core::arch::x86::_rdtsc() })
     }
@@ -69,6 +89,7 @@ pub struct PerformanceMonitor {
 }
 
 static PERFORMANCE_MONITOR: Lazy<PerformanceMonitor> = Lazy::new(PerformanceMonitor::default);
+static MONITOR_ENABLED: AtomicBool = AtomicBool::new(true);
 
 pub fn monitor() -> &'static PerformanceMonitor {
     &PERFORMANCE_MONITOR
@@ -111,7 +132,19 @@ impl PerformanceMonitor {
     }
 
     pub fn record(&self, record: PerfRecord) {
+        if !MONITOR_ENABLED.load(AtomicOrdering::Relaxed) {
+            return;
+        }
         self.records.lock().push(record);
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        MONITOR_ENABLED.store(enabled, AtomicOrdering::SeqCst);
+    }
+
+    pub fn scoped_disable(&'static self) -> PerfDisableGuard {
+        let previous = MONITOR_ENABLED.swap(false, AtomicOrdering::SeqCst);
+        PerfDisableGuard::new(previous)
     }
 
     pub fn export_csv(&self) -> String {
@@ -140,6 +173,52 @@ impl PerformanceMonitor {
             csv.push_str(&row);
         }
         csv
+    }
+
+    pub fn consensus_pressure_report(&self) -> Vec<(String, f64)> {
+        let mut totals: HashMap<String, (u128, u128)> = HashMap::new();
+        let mut total_duration: u128 = 0;
+        let mut total_cycles: u128 = 0;
+        let mut any_cycles = false;
+        for record in self.records.lock().iter() {
+            if record.stack.is_empty() {
+                continue;
+            }
+            let duration = record.duration_ns.max(1);
+            total_duration = total_duration.saturating_add(duration);
+            let cycles = record.cpu_cycles.unwrap_or(0) as u128;
+            if record.cpu_cycles.is_some() {
+                any_cycles = true;
+                total_cycles = total_cycles.saturating_add(cycles);
+            }
+            let root = record
+                .stack
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string());
+            let entry = totals.entry(root).or_insert((0, 0));
+            entry.0 = entry.0.saturating_add(duration);
+            if record.cpu_cycles.is_some() {
+                entry.1 = entry.1.saturating_add(cycles);
+            }
+        }
+        let (use_cycles, total_metric) = if any_cycles && total_cycles > 0 {
+            (true, total_cycles)
+        } else if total_duration > 0 {
+            (false, total_duration)
+        } else {
+            return Vec::new();
+        };
+        let mut breakdown: Vec<(String, f64)> = totals
+            .into_iter()
+            .map(|(label, (duration, cycles))| {
+                let metric = if use_cycles { cycles } else { duration };
+                let share = (metric as f64 / total_metric as f64) * 100.0;
+                (label, share)
+            })
+            .collect();
+        breakdown.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+        breakdown
     }
 
     fn collapsed_stacks(&self) -> Vec<(String, u128)> {
@@ -257,6 +336,10 @@ impl PerfSpan {
 
     fn close(&mut self) {
         if self.closed {
+            return;
+        }
+        if !MONITOR_ENABLED.load(AtomicOrdering::Relaxed) {
+            self.closed = true;
             return;
         }
         let duration = self.start_instant.elapsed().as_nanos();
@@ -392,9 +475,27 @@ where
     monitor().start_span_with_context(node_id, user_id, labels)
 }
 
+pub struct PerfDisableGuard {
+    previous: bool,
+}
+
+impl PerfDisableGuard {
+    fn new(previous: bool) -> Self {
+        Self { previous }
+    }
+}
+
+impl Drop for PerfDisableGuard {
+    fn drop(&mut self) {
+        MONITOR_ENABLED.store(self.previous, AtomicOrdering::SeqCst);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::dpdp::DPDP;
+    use std::collections::HashMap;
 
     #[test]
     fn records_span_duration_and_stack() {
@@ -425,5 +526,68 @@ mod tests {
         }
         let svg = monitor().export_flamegraph_svg().expect("svg output");
         assert!(svg.contains("<svg"));
+    }
+
+    #[test]
+    fn consensus_pressure_reports_root_labels() {
+        monitor().clear();
+        let params = DPDP::key_gen();
+        let chunks: Vec<Vec<u8>> = (0..8).map(|i| vec![i as u8; 128]).collect();
+        let tags = DPDP::tag_file(&params, &chunks);
+        let challenge = DPDP::gen_chal("seed", 42, &tags, Some(4));
+        let mut chunk_map: HashMap<usize, Vec<u8>> = HashMap::new();
+        for (i, chunk) in chunks.iter().enumerate() {
+            chunk_map.insert(i, chunk.clone());
+        }
+        let proof = DPDP::gen_proof(&tags, &chunk_map, &challenge);
+        let _ = DPDP::check_proof_with_relaxed(&params, &proof, &challenge);
+
+        let breakdown = monitor().consensus_pressure_report();
+        assert!(breakdown
+            .iter()
+            .any(|(label, share)| label == "dPDP" && *share > 0.0));
+        assert!(breakdown
+            .iter()
+            .any(|(label, share)| label == "Folding" && *share > 0.0));
+        let total_share: f64 = breakdown.iter().map(|(_, share)| share).sum();
+        assert!(total_share > 0.0);
+        monitor().clear();
+    }
+
+    #[test]
+    fn consensus_pressure_prefers_cpu_cycles_when_available() {
+        monitor().clear();
+        let now = Utc::now();
+        monitor().record(PerfRecord {
+            start_time: now,
+            node_id: None,
+            user_id: None,
+            stack: vec!["alpha".to_string()],
+            duration_ns: 10,
+            cpu_cycles: Some(10),
+        });
+        monitor().record(PerfRecord {
+            start_time: now,
+            node_id: None,
+            user_id: None,
+            stack: vec!["beta".to_string()],
+            duration_ns: 10_000,
+            cpu_cycles: Some(10),
+        });
+
+        let breakdown = monitor().consensus_pressure_report();
+        assert_eq!(breakdown.len(), 2);
+        let alpha_share = breakdown
+            .iter()
+            .find(|(label, _)| label == "alpha")
+            .map(|(_, share)| *share)
+            .unwrap();
+        let beta_share = breakdown
+            .iter()
+            .find(|(label, _)| label == "beta")
+            .map(|(_, share)| *share)
+            .unwrap();
+        assert!((alpha_share - beta_share).abs() < f64::EPSILON);
+        monitor().clear();
     }
 }
