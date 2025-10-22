@@ -29,6 +29,7 @@ use crate::common::datastructures::{
 use crate::consensus::blockchain::Blockchain; // 区块链逻辑
 use crate::crypto::deserialize_g2; // G2点反序列化工具
 use crate::crypto::dpdp::DPDP; // dPDP 密码学逻辑
+use crate::monitoring::perf;
 use crate::roles::miner::Miner; // 矿工角色
 use crate::roles::prover::Prover; // 证明者角色
 use crate::storage::manager::{FileDataError, StorageManager}; // 存储管理器
@@ -557,6 +558,8 @@ impl Node {
 
     /// 处理dPDP挑战请求，生成并返回证明
     fn handle_dpdp_challenge(&mut self, data: &Value) -> CommandResponse {
+        let _ctx = perf::enter_context(Some(self.node_id.clone()), None::<String>);
+        let _span = perf::span(["dPDP", "handle_challenge"]);
         let file_id = data.get("file_id").and_then(Value::as_str).unwrap_or("");
         let indices: Vec<usize> = data
             .get("indices")
@@ -1343,6 +1346,8 @@ impl Node {
 
     /// 创建新区块（仅由领导者调用）
     fn create_block(&mut self, height: usize, winning_proofs: Vec<BobtailProof>) {
+        let _ctx = perf::enter_context(Some(self.node_id.clone()), None::<String>);
+        let _span = perf::span(["CONSENSUS", "create_block"]);
         log_msg(
             "SUCCESS",
             "CONSENSUS",

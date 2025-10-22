@@ -11,6 +11,7 @@ use crate::common::datastructures::{DPDPParams, DPDPProof, DPDPTags};
 use crate::crypto::folding::{dpdp_verification_relaxed_r1cs, RelaxedR1CS};
 use crate::crypto::{curve_order, deserialize_g1, serialize_g1};
 use crate::merkle::MerkleTree;
+use crate::monitoring::perf;
 use crate::utils::{hash_to_field, sha256_hex};
 
 /// Merkle 证明路径，按从叶子到根的顺序存储相邻节点及其方向。
@@ -88,6 +89,7 @@ pub struct DPDPVerificationOutput {
 impl DPDP {
     /// 生成 dPDP 公私钥参数。
     pub fn key_gen() -> DPDPParams {
+        let _span = perf::span(["dPDP", "key_gen"]);
         let sk_alpha = random_scalar();
         let g: G2Projective = G2Affine::generator().into();
         let u: G1Projective = G1Affine::generator().into();
@@ -103,9 +105,12 @@ impl DPDP {
 
     /// 使用 dPDP 私钥为文件块生成标签。
     pub fn tag_file(params: &DPDPParams, file_chunks: &[Vec<u8>]) -> DPDPTags {
+        let span = perf::span(["dPDP", "tag_file"]);
         let mut tags_bytes = Vec::with_capacity(file_chunks.len());
         let sk_fr = biguint_to_fr(&params.sk_alpha);
         for (i, chunk) in file_chunks.iter().enumerate() {
+            let chunk_label = format!("chunk_{}", i);
+            let _chunk_span = span.child(vec![String::from("chunk"), chunk_label]);
             let mut b_i = chunk_to_int(chunk);
             let order = curve_order();
             b_i %= &order;
@@ -125,6 +130,7 @@ impl DPDP {
         tags: &DPDPTags,
         m: Option<usize>,
     ) -> Vec<(usize, BigUint)> {
+        let span = perf::span(["dPDP", "gen_chal"]);
         if tags.is_empty() {
             return Vec::new();
         }
@@ -142,6 +148,7 @@ impl DPDP {
         let order = curve_order();
         let mut challenges = Vec::new();
         for j in 0..count {
+            let _round_span = span.child(vec![String::from("entry"), format!("index_{}", j)]);
             let seed = format!("{}:{}:{}", prev_hash, timestamp, j);
             let idx = (hash_to_field(seed.as_bytes()) % n.to_biguint().unwrap())
                 .to_usize()
@@ -160,9 +167,12 @@ impl DPDP {
         file_chunks: &HashMap<usize, Vec<u8>>,
         challenge: &[(usize, BigUint)],
     ) -> Vec<(usize, BigUint, Vec<u8>)> {
+        let span = perf::span(["dPDP", "gen_contributions"]);
         let order = curve_order();
         let mut contributions = Vec::new();
         for (i, v_i) in challenge {
+            let _chunk_span =
+                span.child(vec![String::from("contribution"), format!("chunk_{}", i)]);
             let chunk = file_chunks
                 .get(i)
                 .expect("missing chunk for challenge index");
@@ -183,10 +193,12 @@ impl DPDP {
         file_chunks: &HashMap<usize, Vec<u8>>,
         challenge: &[(usize, BigUint)],
     ) -> DPDPProof {
+        let span = perf::span(["dPDP", "gen_proof"]);
         let order = curve_order();
         let mut agg_mu = BigUint::from(0u32);
         let mut agg_sigma = G1Projective::zero();
         for (i, v_i) in challenge {
+            let _chunk_span = span.child(vec![String::from("aggregate"), format!("chunk_{}", i)]);
             let chunk = file_chunks.get(i).expect("missing chunk");
             let mut b_i = chunk_to_int(chunk);
             b_i %= &order;
@@ -207,6 +219,7 @@ impl DPDP {
         proof: &DPDPProof,
         challenge: &[(usize, BigUint)],
     ) -> bool {
+        let _span = perf::span(["dPDP", "check_proof"]);
         Self::check_proof_with_relaxed(params, proof, challenge).valid
     }
 
@@ -216,16 +229,23 @@ impl DPDP {
         proof: &DPDPProof,
         challenge: &[(usize, BigUint)],
     ) -> DPDPVerificationOutput {
+        let span = perf::span(["dPDP", "check_with_relaxed"]);
         let sigma = deserialize_g1(&proof.sigma);
         if sigma.is_zero() {
-            let (circuit, _) = dpdp_verification_relaxed_r1cs(params, proof, challenge);
+            let (circuit, _) = {
+                let _relaxed_span = span.child(vec![String::from("relaxed_r1cs")]);
+                dpdp_verification_relaxed_r1cs(params, proof, challenge)
+            };
             return DPDPVerificationOutput {
                 valid: challenge.is_empty(),
                 circuit,
             };
         }
 
-        let (circuit, valid) = dpdp_verification_relaxed_r1cs(params, proof, challenge);
+        let (circuit, valid) = {
+            let _relaxed_span = span.child(vec![String::from("relaxed_r1cs")]);
+            dpdp_verification_relaxed_r1cs(params, proof, challenge)
+        };
         DPDPVerificationOutput { valid, circuit }
     }
 
@@ -237,12 +257,15 @@ impl DPDP {
         challenged_data: &ChallengedChunkData,
         merkle_root: &str,
     ) -> bool {
+        let span = perf::span(["dPDP", "verify_with_merkle"]);
         let order = curve_order();
         let mut recomputed_mu = BigUint::from(0u32);
         if challenge.len() != challenged_data.len() {
             return false;
         }
         for (i, v_i) in challenge {
+            let _challenge_span =
+                span.child(vec![String::from("verify_entry"), format!("chunk_{}", i)]);
             let Some((chunk, proof_path)) = challenged_data.get(i) else {
                 return false;
             };

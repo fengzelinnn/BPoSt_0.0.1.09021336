@@ -20,6 +20,7 @@ use thiserror::Error;
 use crate::common::datastructures::{Block, DPDPParams, DPDPProof};
 use crate::crypto::deserialize_g1;
 use crate::crypto::dpdp::hash_to_g1;
+use crate::monitoring::perf;
 use crate::storage::state::StorageStateTree;
 use crate::utils::{h_join, log_msg};
 
@@ -935,6 +936,7 @@ impl NovaFoldingCycle {
         &mut self,
         circuits: Vec<RelaxedR1CS<Fr>>,
     ) -> Result<NovaRoundResult, NovaFoldingError> {
+        let span = perf::span(["Nova", "absorb_round"]);
         if circuits.is_empty() {
             log_msg("WARN", "NOVA", None, "尝试吸收折叠轮次时电路集合为空。");
             return Err(NovaFoldingError::EmptyRound);
@@ -978,19 +980,27 @@ impl NovaFoldingCycle {
         let step_circuit = NovaStepCircuit::new(circuits.clone());
 
         if self.pp.is_none() {
-            let pp = PublicParams::<NovaEngine1, NovaEngine2, NovaStepCircuit>::setup(
-                &step_circuit,
-                &*NovaSNARK1::ck_floor(),
-                &*NovaSNARK2::ck_floor(),
-            )?;
-            let mut recursive_snark =
+            let pp = {
+                let _setup_span = span.child(vec![String::from("pp_setup")]);
+                PublicParams::<NovaEngine1, NovaEngine2, NovaStepCircuit>::setup(
+                    &step_circuit,
+                    &*NovaSNARK1::ck_floor(),
+                    &*NovaSNARK2::ck_floor(),
+                )?
+            };
+            let mut recursive_snark = {
+                let _new_span = span.child(vec![String::from("recursive_new")]);
                 RecursiveSNARK::<NovaEngine1, NovaEngine2, NovaStepCircuit>::new(
                     &pp,
                     &step_circuit,
                     &self.initial_z,
-                )?;
-            // 将内部计数推进到第一步
-            recursive_snark.prove_step(&pp, &step_circuit)?;
+                )?
+            };
+            {
+                let _prove_span = span.child(vec![String::from("prove_step")]);
+                // 将内部计数推进到第一步
+                recursive_snark.prove_step(&pp, &step_circuit)?;
+            }
             log_msg(
                 "DEBUG",
                 "NOVA",
@@ -1005,7 +1015,10 @@ impl NovaFoldingCycle {
                 .recursive_snark
                 .as_mut()
                 .ok_or(NovaFoldingError::NotInitialized)?;
-            recursive_snark.prove_step(pp, &step_circuit)?;
+            {
+                let _prove_span = span.child(vec![String::from("prove_step")]);
+                recursive_snark.prove_step(pp, &step_circuit)?;
+            }
             log_msg(
                 "DEBUG",
                 "NOVA",
@@ -1045,6 +1058,7 @@ impl NovaFoldingCycle {
 
     /// 完成折叠周期并生成最终证明。
     pub fn finalize(&mut self) -> Result<Option<NovaFinalProof>, NovaFoldingError> {
+        let span = perf::span(["Nova", "finalize"]);
         log_msg(
             "DEBUG",
             "NOVA",
@@ -1070,25 +1084,37 @@ impl NovaFoldingCycle {
             .ok_or(NovaFoldingError::NotInitialized)?;
 
         log_msg("DEBUG", "NOVA", None, "验证递归 SNARK 并生成压缩证明。");
-        recursive_snark.verify(pp, self.steps, &self.initial_z)?;
+        {
+            let _verify_span = span.child(vec![String::from("recursive_verify")]);
+            recursive_snark.verify(pp, self.steps, &self.initial_z)?;
+        }
 
-        let (pk, vk) = CompressedSNARK::<
-            NovaEngine1,
-            NovaEngine2,
-            NovaStepCircuit,
-            NovaSNARK1,
-            NovaSNARK2,
-        >::setup(pp)?;
+        let (pk, vk) = {
+            let _setup_span = span.child(vec![String::from("compressed_setup")]);
+            CompressedSNARK::<
+                NovaEngine1,
+                NovaEngine2,
+                NovaStepCircuit,
+                NovaSNARK1,
+                NovaSNARK2,
+            >::setup(pp)?
+        };
 
-        let compressed = CompressedSNARK::<
-            NovaEngine1,
-            NovaEngine2,
-            NovaStepCircuit,
-            NovaSNARK1,
-            NovaSNARK2,
-        >::prove(pp, &pk, recursive_snark)?;
+        let compressed = {
+            let _prove_span = span.child(vec![String::from("compressed_prove")]);
+            CompressedSNARK::<
+                NovaEngine1,
+                NovaEngine2,
+                NovaStepCircuit,
+                NovaSNARK1,
+                NovaSNARK2,
+            >::prove(pp, &pk, recursive_snark)?
+        };
 
-        compressed.verify(&vk, self.steps, &self.initial_z)?;
+        {
+            let _verify_span = span.child(vec![String::from("compressed_verify")]);
+            compressed.verify(&vk, self.steps, &self.initial_z)?;
+        }
 
         let proof_bytes = bincode::serialize(&compressed)
             .map_err(|err| NovaFoldingError::Serialization(err.to_string()))?;
@@ -1120,16 +1146,25 @@ impl NovaFoldingCycle {
         compressed_snark: &[u8],
         verifier_key: &[u8],
     ) -> Result<String, NovaFoldingError> {
+        let span = perf::span(["Nova", "verify_final_accumulator"]);
         type NovaCompressed =
             CompressedSNARK<NovaEngine1, NovaEngine2, NovaStepCircuit, NovaSNARK1, NovaSNARK2>;
-        let snark: NovaCompressed = bincode::deserialize(compressed_snark)
-            .map_err(|err| NovaFoldingError::Serialization(err.to_string()))?;
-        let vk: VerifierKey<NovaEngine1, NovaEngine2, NovaStepCircuit, NovaSNARK1, NovaSNARK2> =
+        let snark: NovaCompressed = {
+            let _deserialize_span = span.child(vec![String::from("deserialize_snark")]);
+            bincode::deserialize(compressed_snark)
+                .map_err(|err| NovaFoldingError::Serialization(err.to_string()))?
+        };
+        let vk: VerifierKey<NovaEngine1, NovaEngine2, NovaStepCircuit, NovaSNARK1, NovaSNARK2> = {
+            let _deserialize_span = span.child(vec![String::from("deserialize_vk")]);
             bincode::deserialize(verifier_key)
-                .map_err(|err| NovaFoldingError::Serialization(err.to_string()))?;
-        let outputs = snark
-            .verify(&vk, expected_steps, &[NovaScalar::ZERO, NovaScalar::ZERO])
-            .map_err(NovaFoldingError::NovaInternal)?;
+                .map_err(|err| NovaFoldingError::Serialization(err.to_string()))?
+        };
+        let outputs = {
+            let _verify_span = span.child(vec![String::from("verify")]);
+            snark
+                .verify(&vk, expected_steps, &[NovaScalar::ZERO, NovaScalar::ZERO])
+                .map_err(NovaFoldingError::NovaInternal)?
+        };
         if outputs.len() < 2 {
             return Err(NovaFoldingError::Validation(format!(
                 "expected 2 outputs, received {}",

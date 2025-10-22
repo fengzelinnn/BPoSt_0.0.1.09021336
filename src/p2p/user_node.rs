@@ -15,6 +15,7 @@ use serde_json::Value;
 use crate::common::datastructures::FileChunk;
 use crate::config::P2PSimConfig;
 use crate::crypto::{folding::NovaFoldingCycle, serialize_g2};
+use crate::monitoring::perf;
 use crate::roles::file_owner::FileOwner;
 use crate::utils::{log_msg, with_cpu_heavy_limit};
 
@@ -487,6 +488,8 @@ impl UserNode {
         stored_files: &Arc<Mutex<HashMap<String, StoredFileRecord>>>,
         args: FinalProofArgs<'_>,
     ) -> Result<(), String> {
+        let _ctx = perf::enter_context(None::<String>, Some(args.owner_id.to_string()));
+        let _span = perf::span(["Nova", "user_verify_final"]);
         let (record_opt, already_verified) = {
             let map = stored_files.lock();
             match map.get(args.file_id) {

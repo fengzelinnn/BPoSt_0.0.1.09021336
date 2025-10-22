@@ -4,6 +4,7 @@ use rand::{Rng, RngCore};
 // 导入项目内的数据结构和密码学模块
 use crate::common::datastructures::{DPDPParams, DPDPTags, FileChunk};
 use crate::crypto::dpdp::DPDP;
+use crate::monitoring::perf;
 use crate::utils::log_msg;
 
 /// FileOwner 结构体定义了文件所有者的角色
@@ -69,6 +70,8 @@ impl FileOwner {
     /// dPDP 设置阶段：为文件生成标签并打包成块
     /// 这是将原始文件转化为可被 dPDP 方案保护的格式的关键步骤
     pub fn dpdp_setup(&mut self, file_bytes: &[u8]) -> Vec<FileChunk> {
+        let _ctx = perf::enter_context(None::<String>, Some(self.owner_id.clone()));
+        let _span = perf::span(["dPDP", "owner_setup"]);
         // 1. 将文件字节流分割成原始数据块
         let raw_chunks = self.split_file(file_bytes);
         // 2. 使用 dPDP 私钥为所有数据块生成对应的标签
@@ -102,6 +105,8 @@ impl FileOwner {
         max_size_bytes: usize, // 随机生成文件的最大尺寸
         num_nodes: usize,      // 期望存储该文件的节点数量（当前实现中未直接使用，但可用于分发策略）
     ) -> (Vec<FileChunk>, usize) {
+        let _ctx = perf::enter_context(None::<String>, Some(self.owner_id.clone()));
+        let _span = perf::span(["dPDP", "prepare_request"]);
         // 在发起新的存储请求前生成一个全新的文件 ID，避免重复使用导致冲突
         self.file_id = Self::generate_file_id(&self.owner_id);
         // 1. 在指定范围内随机确定文件大小

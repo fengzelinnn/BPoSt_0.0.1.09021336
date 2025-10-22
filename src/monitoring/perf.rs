@@ -1,0 +1,391 @@
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+use chrono::{DateTime, Utc};
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
+
+#[derive(Clone, Default)]
+struct PerfContext {
+    node_id: Option<String>,
+    user_id: Option<String>,
+}
+
+thread_local! {
+    static CONTEXT_STACK: RefCell<Vec<PerfContext>> = RefCell::new(vec![PerfContext::default()]);
+}
+
+fn current_context() -> PerfContext {
+    CONTEXT_STACK.with(|stack| stack.borrow().last().cloned().unwrap_or_default())
+}
+
+fn push_context(ctx: PerfContext) {
+    CONTEXT_STACK.with(|stack| stack.borrow_mut().push(ctx));
+}
+
+fn pop_context() {
+    CONTEXT_STACK.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        if stack.len() > 1 {
+            stack.pop();
+        }
+    });
+}
+
+fn read_cpu_cycles() -> Option<u64> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        // Safety: _rdtsc has no safety requirements beyond running on x86/x86_64.
+        Some(unsafe { core::arch::x86_64::_rdtsc() })
+    }
+    #[cfg(target_arch = "x86")]
+    {
+        Some(unsafe { core::arch::x86::_rdtsc() })
+    }
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    {
+        None
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PerfRecord {
+    pub start_time: DateTime<Utc>,
+    pub node_id: Option<String>,
+    pub user_id: Option<String>,
+    pub stack: Vec<String>,
+    pub duration_ns: u128,
+    pub cpu_cycles: Option<u64>,
+}
+
+#[derive(Default)]
+pub struct PerformanceMonitor {
+    records: Mutex<Vec<PerfRecord>>,
+}
+
+static PERFORMANCE_MONITOR: Lazy<PerformanceMonitor> = Lazy::new(PerformanceMonitor::default);
+
+pub fn monitor() -> &'static PerformanceMonitor {
+    &PERFORMANCE_MONITOR
+}
+
+impl PerformanceMonitor {
+    pub fn start_span<I, L>(&'static self, labels: I) -> PerfSpan
+    where
+        I: IntoIterator<Item = L>,
+        L: Into<String>,
+    {
+        self.start_span_with_context(None::<String>, None::<String>, labels)
+    }
+
+    pub fn start_span_with_context<I, L, N, U>(
+        &'static self,
+        node_id: Option<N>,
+        user_id: Option<U>,
+        labels: I,
+    ) -> PerfSpan
+    where
+        I: IntoIterator<Item = L>,
+        L: Into<String>,
+        N: Into<String>,
+        U: Into<String>,
+    {
+        let context = current_context();
+        let node_id = node_id
+            .map(|n| n.into())
+            .or_else(|| context.node_id.clone());
+        let user_id = user_id
+            .map(|u| u.into())
+            .or_else(|| context.user_id.clone());
+        PerfSpan::new(
+            self,
+            node_id,
+            user_id,
+            labels.into_iter().map(|label| label.into()).collect(),
+        )
+    }
+
+    pub fn record(&self, record: PerfRecord) {
+        self.records.lock().push(record);
+    }
+
+    pub fn export_csv(&self) -> String {
+        let mut csv = String::from(
+            "start_time,node_id,user_id,stack,duration_ns,cpu_cycles,instructions_est\n",
+        );
+        for record in self.records.lock().iter() {
+            let stack = record.stack.join(";");
+            let node = record.node_id.clone().unwrap_or_else(|| "-".to_string());
+            let user = record.user_id.clone().unwrap_or_else(|| "-".to_string());
+            let cycles = record
+                .cpu_cycles
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            let row = format!(
+                "{timestamp}.{subsec:09},{node},{user},\"{stack}\",{duration},{cycles},{instructions}\n",
+                timestamp = record.start_time.format("%Y-%m-%dT%H:%M:%S"),
+                subsec = record.start_time.timestamp_subsec_nanos(),
+                node = node,
+                user = user,
+                stack = stack,
+                duration = record.duration_ns,
+                cycles = cycles,
+                instructions = cycles,
+            );
+            csv.push_str(&row);
+        }
+        csv
+    }
+
+    pub fn export_flamegraph(&self) -> String {
+        let mut out = String::new();
+        for record in self.records.lock().iter() {
+            let mut stack = Vec::new();
+            if let Some(node) = &record.node_id {
+                stack.push(format!("node:{}", node));
+            }
+            if let Some(user) = &record.user_id {
+                stack.push(format!("user:{}", user));
+            }
+            stack.extend(record.stack.iter().cloned());
+            if stack.is_empty() {
+                stack.push("unknown".to_string());
+            }
+            let duration = record.duration_ns.max(1);
+            out.push_str(&format!("{} {}\n", stack.join(";"), duration));
+        }
+        out
+    }
+
+    pub fn write_csv_to<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
+        std::fs::write(path, self.export_csv())
+    }
+
+    pub fn write_flamegraph_to<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
+        std::fs::write(path, self.export_flamegraph())
+    }
+
+    pub fn clear(&self) {
+        self.records.lock().clear();
+    }
+
+    pub fn records(&self) -> Vec<PerfRecord> {
+        self.records.lock().clone()
+    }
+}
+
+#[must_use = "performance span must be kept alive to record metrics"]
+pub struct PerfSpan {
+    monitor: &'static PerformanceMonitor,
+    node_id: Option<String>,
+    user_id: Option<String>,
+    stack: Vec<String>,
+    start_time: DateTime<Utc>,
+    start_instant: Instant,
+    start_cycles: Option<u64>,
+    closed: bool,
+}
+
+impl PerfSpan {
+    fn new(
+        monitor: &'static PerformanceMonitor,
+        node_id: Option<String>,
+        user_id: Option<String>,
+        stack: Vec<String>,
+    ) -> Self {
+        let start_time = Utc::now();
+        let start_instant = Instant::now();
+        let start_cycles = read_cpu_cycles();
+        Self {
+            monitor,
+            node_id,
+            user_id,
+            stack,
+            start_time,
+            start_instant,
+            start_cycles,
+            closed: false,
+        }
+    }
+
+    pub fn child<I, L>(&self, labels: I) -> PerfSpan
+    where
+        I: IntoIterator<Item = L>,
+        L: Into<String>,
+    {
+        let mut stack = self.stack.clone();
+        stack.extend(labels.into_iter().map(|label| label.into()));
+        PerfSpan::new(
+            self.monitor,
+            self.node_id.clone(),
+            self.user_id.clone(),
+            stack,
+        )
+    }
+
+    pub fn finish(mut self) {
+        self.close();
+    }
+
+    fn close(&mut self) {
+        if self.closed {
+            return;
+        }
+        let duration = self.start_instant.elapsed().as_nanos();
+        let end_cycles = read_cpu_cycles();
+        let cpu_cycles = match (self.start_cycles, end_cycles) {
+            (Some(start), Some(end)) => Some(end.saturating_sub(start)),
+            _ => None,
+        };
+        self.monitor.record(PerfRecord {
+            start_time: self.start_time,
+            node_id: self.node_id.clone(),
+            user_id: self.user_id.clone(),
+            stack: self.stack.clone(),
+            duration_ns: duration,
+            cpu_cycles,
+        });
+        self.closed = true;
+    }
+}
+
+impl Drop for PerfSpan {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+pub struct PerfContextGuard {
+    active: bool,
+}
+
+impl PerfContextGuard {
+    pub fn new<N, U>(node_id: Option<N>, user_id: Option<U>) -> Self
+    where
+        N: Into<String>,
+        U: Into<String>,
+    {
+        let ctx = PerfContext {
+            node_id: node_id.map(|n| n.into()),
+            user_id: user_id.map(|u| u.into()),
+        };
+        push_context(ctx);
+        Self { active: true }
+    }
+}
+
+impl Drop for PerfContextGuard {
+    fn drop(&mut self) {
+        if self.active {
+            pop_context();
+            self.active = false;
+        }
+    }
+}
+
+pub struct PerfExportGuard {
+    csv_path: Option<PathBuf>,
+    flame_path: Option<PathBuf>,
+    clear_after: bool,
+}
+
+impl PerfExportGuard {
+    pub fn from_env() -> Self {
+        let csv_path = std::env::var("BPST_PERF_CSV").ok().map(PathBuf::from);
+        let flame_path = std::env::var("BPST_PERF_FLAME").ok().map(PathBuf::from);
+        let clear_after = std::env::var("BPST_PERF_CLEAR")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(true);
+        Self {
+            csv_path,
+            flame_path,
+            clear_after,
+        }
+    }
+
+    pub fn new(csv_path: Option<PathBuf>, flame_path: Option<PathBuf>, clear_after: bool) -> Self {
+        Self {
+            csv_path,
+            flame_path,
+            clear_after,
+        }
+    }
+}
+
+impl Drop for PerfExportGuard {
+    fn drop(&mut self) {
+        if let Some(path) = &self.csv_path {
+            if let Err(err) = monitor().write_csv_to(path) {
+                eprintln!(
+                    "failed to write performance CSV {}: {}",
+                    path.display(),
+                    err
+                );
+            }
+        }
+        if let Some(path) = &self.flame_path {
+            if let Err(err) = monitor().write_flamegraph_to(path) {
+                eprintln!(
+                    "failed to write performance flamegraph {}: {}",
+                    path.display(),
+                    err
+                );
+            }
+        }
+        if self.clear_after {
+            monitor().clear();
+        }
+    }
+}
+
+pub fn enter_context<N, U>(node_id: Option<N>, user_id: Option<U>) -> PerfContextGuard
+where
+    N: Into<String>,
+    U: Into<String>,
+{
+    PerfContextGuard::new(node_id, user_id)
+}
+
+pub fn span<I, L>(labels: I) -> PerfSpan
+where
+    I: IntoIterator<Item = L>,
+    L: Into<String>,
+{
+    monitor().start_span(labels)
+}
+
+pub fn span_with_context<I, L, N, U>(node_id: Option<N>, user_id: Option<U>, labels: I) -> PerfSpan
+where
+    I: IntoIterator<Item = L>,
+    L: Into<String>,
+    N: Into<String>,
+    U: Into<String>,
+{
+    monitor().start_span_with_context(node_id, user_id, labels)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn records_span_duration_and_stack() {
+        monitor().clear();
+        {
+            let _ctx = enter_context(Some("node-test".to_string()), None::<String>);
+            let span = span(["module", "operation"]);
+            {
+                let _child = span.child(vec![String::from("sub")]);
+            }
+            span.finish();
+        }
+        let records = monitor().records();
+        assert!(records
+            .iter()
+            .any(|rec| rec.stack.contains(&"module".to_string())));
+        assert!(records
+            .iter()
+            .any(|rec| rec.node_id.as_deref() == Some("node-test")));
+    }
+}

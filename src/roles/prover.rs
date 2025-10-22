@@ -7,6 +7,7 @@ use num_bigint::BigUint;
 // 导入项目内的数据结构和密码学模块
 use crate::common::datastructures::{DPDPProof, DPDPTags};
 use crate::crypto::dpdp::DPDP;
+use crate::monitoring::perf;
 use crate::utils::log_msg;
 
 /// dPDP 挑战向量类型别名，元素为 (块索引, 挑战系数)。
@@ -53,6 +54,8 @@ impl Prover {
         timestamp: u64,
         challenge_size: Option<usize>,
     ) -> (DPDPProof, ChallengeVector, ContributionVector) {
+        let _ctx = perf::enter_context(Some(self.node_id.clone()), None::<String>);
+        let _span = perf::span(["dPDP", "prove"]);
         // 1. 根据上下文（前一个块哈希、时间戳）和文件标签生成一个确定性的随机挑战
         let challenge = DPDP::gen_chal(prev_hash, timestamp, file_tags, challenge_size);
 
