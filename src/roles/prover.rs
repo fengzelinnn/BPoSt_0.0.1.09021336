@@ -6,6 +6,7 @@ use num_bigint::BigUint;
 
 // 导入项目内的数据结构和密码学模块
 use crate::common::datastructures::{DPDPProof, DPDPTags};
+use crate::common::perf_monitor::perf_scope;
 use crate::crypto::dpdp::DPDP;
 use crate::utils::log_msg;
 
@@ -54,14 +55,35 @@ impl Prover {
         challenge_size: Option<usize>,
     ) -> (DPDPProof, ChallengeVector, ContributionVector) {
         // 1. 根据上下文（前一个块哈希、时间戳）和文件标签生成一个确定性的随机挑战
-        let challenge = DPDP::gen_chal(prev_hash, timestamp, file_tags, challenge_size);
+        let challenge = {
+            let _guard = perf_scope(
+                Some(self.node_id.as_str()),
+                None,
+                &["dPDP", "prove", "gen_chal"],
+            );
+            DPDP::gen_chal(prev_hash, timestamp, file_tags, challenge_size)
+        };
 
         // 2. 使用文件块、标签和挑战来生成聚合的 dPDP 证明
-        let proof = DPDP::gen_proof(file_tags, file_chunks, &challenge);
+        let proof = {
+            let _guard = perf_scope(
+                Some(self.node_id.as_str()),
+                None,
+                &["dPDP", "prove", "gen_proof"],
+            );
+            DPDP::gen_proof(file_tags, file_chunks, &challenge)
+        };
 
         // 3. 生成用于更新文件状态的“贡献值”
         // 这些值是证明过程的副产品，但对于维护文件的版本和状态至关重要
-        let contributions = DPDP::gen_contributions(file_tags, file_chunks, &challenge);
+        let contributions = {
+            let _guard = perf_scope(
+                Some(self.node_id.as_str()),
+                None,
+                &["dPDP", "prove", "gen_contributions"],
+            );
+            DPDP::gen_contributions(file_tags, file_chunks, &challenge)
+        };
 
         log_msg(
             "DEBUG",

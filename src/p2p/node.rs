@@ -28,6 +28,7 @@ use once_cell::sync::Lazy;
 use crate::common::datastructures::{
     Block, BlockBody, BobtailProof, ChallengeEntry, DPDPParams, DPDPProof, FileChunk, ProofSummary,
 }; // 数据结构
+use crate::common::perf_monitor::perf_scope;
 use crate::consensus::blockchain::Blockchain; // 区块链逻辑
 use crate::crypto::deserialize_g2; // G2点反序列化工具
 use crate::crypto::dpdp::DPDP; // dPDP 密码学逻辑
@@ -2239,7 +2240,15 @@ impl Node {
                             }
                         };
 
-                        if !DPDP::check_proof(&params, &proof, &challenge) {
+                        let proof_valid = {
+                            let _guard = perf_scope(
+                                Some(self.node_id.as_str()),
+                                None,
+                                &["dPDP", "verify", "check_proof"],
+                            );
+                            DPDP::check_proof(&params, &proof, &challenge)
+                        };
+                        if !proof_valid {
                             log_msg(
                                 "CRITICAL",
                                 "CONSENSUS",
