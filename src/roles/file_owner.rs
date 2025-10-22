@@ -3,6 +3,7 @@ use rand::{Rng, RngCore};
 
 // 导入项目内的数据结构和密码学模块
 use crate::common::datastructures::{DPDPParams, DPDPTags, FileChunk};
+use crate::common::perf_monitor::perf_scope;
 use crate::crypto::dpdp::DPDP;
 use crate::utils::log_msg;
 
@@ -33,7 +34,10 @@ impl FileOwner {
     /// 创建一个新的 FileOwner 实例
     pub fn new(owner_id: String, chunk_size: usize) -> Self {
         // 1. 生成 dPDP 密钥对
-        let params = DPDP::key_gen();
+        let params = {
+            let _guard = perf_scope(None, Some(owner_id.as_str()), &["dPDP", "key_gen"]);
+            DPDP::key_gen()
+        };
         // 2. 初始化一个空的标签集合
         let tags = DPDPTags { tags: Vec::new() };
         // 3. 创建一个唯一的 file_id
@@ -72,7 +76,10 @@ impl FileOwner {
         // 1. 将文件字节流分割成原始数据块
         let raw_chunks = self.split_file(file_bytes);
         // 2. 使用 dPDP 私钥为所有数据块生成对应的标签
-        let tags = DPDP::tag_file(&self.params, &raw_chunks);
+        let tags = {
+            let _guard = perf_scope(None, Some(self.owner_id.as_str()), &["dPDP", "tag_file"]);
+            DPDP::tag_file(&self.params, &raw_chunks)
+        };
         // 3. 将原始数据块和生成的标签打包成 FileChunk 结构体
         let chunks: Vec<FileChunk> = raw_chunks
             .into_iter()

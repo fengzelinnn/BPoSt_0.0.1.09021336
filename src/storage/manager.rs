@@ -7,6 +7,7 @@ use num_bigint::BigUint;
 use parking_lot::Mutex;
 
 use crate::common::datastructures::{Block, DPDPParams, DPDPProof, DPDPTags, FileChunk};
+use crate::common::perf_monitor::perf_scope;
 use crate::crypto::deserialize_g2;
 use crate::crypto::folding::{
     block_validation_relaxed_r1cs, dpdp_verification_relaxed_r1cs, fr_to_padded_hex,
@@ -588,7 +589,14 @@ impl StorageManager {
             sk_alpha: BigUint::from(0u32),
         };
 
-        let (dpdp_circuit, valid) = dpdp_verification_relaxed_r1cs(&params, proof, challenge);
+        let (dpdp_circuit, valid) = {
+            let _guard = perf_scope(
+                Some(self.node_id.as_str()),
+                None,
+                &["Folding", "dpdp_verification"],
+            );
+            dpdp_verification_relaxed_r1cs(&params, proof, challenge)
+        };
         if !valid {
             crate::utils::log_msg(
                 "ERROR",
@@ -599,9 +607,22 @@ impl StorageManager {
             return None;
         }
 
-        let block_circuit = block_validation_relaxed_r1cs(block, &block.prev_hash, block.height);
-        let state_circuit =
-            state_update_relaxed_r1cs(&before_state, &[(file_id.to_string(), claimed_root)]);
+        let block_circuit = {
+            let _guard = perf_scope(
+                Some(self.node_id.as_str()),
+                None,
+                &["Folding", "block_validation"],
+            );
+            block_validation_relaxed_r1cs(block, &block.prev_hash, block.height)
+        };
+        let state_circuit = {
+            let _guard = perf_scope(
+                Some(self.node_id.as_str()),
+                None,
+                &["Folding", "state_update"],
+            );
+            state_update_relaxed_r1cs(&before_state, &[(file_id.to_string(), claimed_root)])
+        };
 
         let result = {
             let cycle = inner.file_cycles.get_mut(file_id)?;
@@ -613,7 +634,15 @@ impl StorageManager {
                 &format!("准备吸收文件 {} 的第 {} 个折叠轮次。", file_id, next_step),
             );
             let circuits = vec![dpdp_circuit, block_circuit, state_circuit];
-            let result = match cycle.nova.absorb_round(circuits.clone()) {
+            let absorb_result = {
+                let _guard = perf_scope(
+                    Some(self.node_id.as_str()),
+                    None,
+                    &["Folding", "absorb_round"],
+                );
+                cycle.nova.absorb_round(circuits.clone())
+            };
+            let result = match absorb_result {
                 Ok(res) => res,
                 Err(NovaFoldingError::CycleComplete) => return None,
                 Err(err) => {
@@ -653,7 +682,12 @@ impl StorageManager {
                     Some(self.node_id.clone()),
                     &format!("文件 {} 达到存储周期阈值，尝试生成最终折叠证明。", file_id),
                 );
-                match cycle.nova.finalize() {
+                let finalize_result = {
+                    let _guard =
+                        perf_scope(Some(self.node_id.as_str()), None, &["Folding", "finalize"]);
+                    cycle.nova.finalize()
+                };
+                match finalize_result {
                     Ok(Some(final_proof)) => cycle.set_final_artifact(final_proof),
                     Ok(None) | Err(NovaFoldingError::CycleComplete) => {}
                     Err(err) => {

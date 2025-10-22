@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -8,6 +9,7 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::unbounded;
 use rand::Rng;
 
+use crate::common::perf_monitor::PerformanceMonitor;
 use crate::config::{
     DeploymentConfig, DeploymentConfigError, NodeDeployment, P2PSimConfig, PeerConfig,
 };
@@ -619,7 +621,9 @@ where
     } else {
         NodeType::Storage
     };
-    let node = Box::new(Node::new(
+    let node_label = node_id.clone();
+    let perf_dir = std::env::var_os("BPST_PERF_DIR").map(PathBuf::from);
+    let node = Node::new(
         node_id,
         listen_host,
         advertise_host,
@@ -632,8 +636,34 @@ where
         bobtail_k,
         difficulty_override,
         report_tx,
-    ));
+    );
     node.run();
+    if let Some(dir) = perf_dir {
+        let prefix = format!("node-{}", node_label);
+        match PerformanceMonitor::global().save_reports(&dir, &prefix) {
+            Ok((csv, flame)) => {
+                log_msg(
+                    "INFO",
+                    "PERF",
+                    Some(node_label.clone()),
+                    &format!(
+                        "节点 {} 的性能报告已生成：{} 与 {}",
+                        node_label,
+                        csv.display(),
+                        flame.display()
+                    ),
+                );
+            }
+            Err(err) => {
+                log_msg(
+                    "ERROR",
+                    "PERF",
+                    Some(node_label.clone()),
+                    &format!("节点 {} 写入性能报告失败: {err}", node_label),
+                );
+            }
+        }
+    }
 }
 
 pub fn run_user_process_from_args<I>(mut args: I)
@@ -659,15 +689,36 @@ where
     // ----------------
 
     let owner = FileOwner::new(owner_id, config.chunk_size);
-    let user = Box::new(UserNode::new(
-        owner,
-        host,
-        advertise_host,
-        port,
-        bootstrap,
-        config.clone(),
-    ));
+    let owner_label = owner.owner_id.clone();
+    let perf_dir = std::env::var_os("BPST_PERF_DIR").map(PathBuf::from);
+    let user = UserNode::new(owner, host, advertise_host, port, bootstrap, config.clone());
     user.run();
+    if let Some(dir) = perf_dir {
+        let prefix = format!("user-{}", owner_label);
+        match PerformanceMonitor::global().save_reports(&dir, &prefix) {
+            Ok((csv, flame)) => {
+                log_msg(
+                    "INFO",
+                    "PERF",
+                    Some(owner_label.clone()),
+                    &format!(
+                        "用户 {} 的性能报告已生成：{} 与 {}",
+                        owner_label,
+                        csv.display(),
+                        flame.display()
+                    ),
+                );
+            }
+            Err(err) => {
+                log_msg(
+                    "ERROR",
+                    "PERF",
+                    Some(owner_label.clone()),
+                    &format!("用户 {} 写入性能报告失败: {err}", owner_label),
+                );
+            }
+        }
+    }
 }
 
 pub fn run_observer_process_from_args<I>(mut args: I)
