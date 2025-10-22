@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io::{Cursor, Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
@@ -154,82 +154,19 @@ impl PerformanceMonitor {
     }
 
     pub fn export_csv(&self) -> String {
-        let mut csv = String::from(
-            "start_time,node_id,user_id,stack,duration_ns,cpu_cycles,instructions_est\n",
-        );
-        for record in self.records.lock().iter() {
-            let stack = record.stack.join(";");
-            let node = record.node_id.clone().unwrap_or_else(|| "-".to_string());
-            let user = record.user_id.clone().unwrap_or_else(|| "-".to_string());
-            let cycles = record
-                .cpu_cycles
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "-".to_string());
-            let row = format!(
-                "{timestamp}.{subsec:09},{node},{user},\"{stack}\",{duration},{cycles},{instructions}\n",
-                timestamp = record.start_time.format("%Y-%m-%dT%H:%M:%S"),
-                subsec = record.start_time.timestamp_subsec_nanos(),
-                node = node,
-                user = user,
-                stack = stack,
-                duration = record.duration_ns,
-                cycles = cycles,
-                instructions = cycles,
-            );
-            csv.push_str(&row);
-        }
-        csv
+        let records = self.records.lock();
+        let summary = PerfSummary::from_records(&*records);
+        summary.to_csv()
     }
 
     pub fn consensus_pressure_report(&self) -> Vec<(String, f64)> {
-        let mut totals: HashMap<String, (u128, u128)> = HashMap::new();
-        let mut total_duration: u128 = 0;
-        let mut total_cycles: u128 = 0;
-        let mut any_cycles = false;
-        for record in self.records.lock().iter() {
-            if record.stack.is_empty() {
-                continue;
-            }
-            let duration = record.duration_ns.max(1);
-            total_duration = total_duration.saturating_add(duration);
-            let cycles = record.cpu_cycles.unwrap_or(0) as u128;
-            if record.cpu_cycles.is_some() {
-                any_cycles = true;
-                total_cycles = total_cycles.saturating_add(cycles);
-            }
-            let root = record
-                .stack
-                .first()
-                .cloned()
-                .unwrap_or_else(|| "unknown".to_string());
-            let entry = totals.entry(root).or_insert((0, 0));
-            entry.0 = entry.0.saturating_add(duration);
-            if record.cpu_cycles.is_some() {
-                entry.1 = entry.1.saturating_add(cycles);
-            }
-        }
-        let (use_cycles, total_metric) = if any_cycles && total_cycles > 0 {
-            (true, total_cycles)
-        } else if total_duration > 0 {
-            (false, total_duration)
-        } else {
-            return Vec::new();
-        };
-        let mut breakdown: Vec<(String, f64)> = totals
-            .into_iter()
-            .map(|(label, (duration, cycles))| {
-                let metric = if use_cycles { cycles } else { duration };
-                let share = (metric as f64 / total_metric as f64) * 100.0;
-                (label, share)
-            })
-            .collect();
-        breakdown.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
-        breakdown
+        let records = self.records.lock();
+        PerfSummary::from_records(&*records).module_breakdown()
     }
 
-    fn collapsed_stacks(&self) -> Vec<(String, u128)> {
-        let mut aggregated: HashMap<String, u128> = HashMap::new();
-        for record in self.records.lock().iter() {
+    fn collapsed_stacks(records: &[PerfRecord]) -> Vec<(String, u128)> {
+        let mut aggregated: BTreeMap<String, u128> = BTreeMap::new();
+        for record in records.iter() {
             let mut stack = Vec::new();
             if let Some(node) = &record.node_id {
                 stack.push(format!("node:{}", node));
@@ -237,31 +174,41 @@ impl PerformanceMonitor {
             if let Some(user) = &record.user_id {
                 stack.push(format!("user:{}", user));
             }
-            stack.extend(record.stack.iter().cloned());
-            if stack.is_empty() {
+            if record.stack.is_empty() {
                 stack.push("unknown".to_string());
+            } else {
+                stack.extend(record.stack.iter().cloned());
             }
             let duration = record.duration_ns.max(1);
             let entry = aggregated.entry(stack.join(";")).or_insert(0);
             *entry = entry.saturating_add(duration);
         }
-        let mut collapsed: Vec<_> = aggregated.into_iter().collect();
-        collapsed.sort_by(|a, b| a.0.cmp(&b.0));
-        collapsed
+        aggregated.into_iter().collect()
     }
 
     pub fn export_collapsed_flamegraph(&self) -> String {
+        let records = self.records.lock().clone();
         let mut out = String::new();
-        for (stack, duration) in self.collapsed_stacks() {
+        for (stack, duration) in Self::collapsed_stacks(&records) {
             out.push_str(&format!("{} {}\n", stack, duration));
         }
         out
     }
 
     pub fn export_flamegraph_svg(&self) -> std::io::Result<String> {
+        let records = self.records.lock().clone();
+        if records.is_empty() {
+            return Ok(empty_flamegraph());
+        }
         let mut options = Options::default();
         options.count_name = "ns".to_string();
-        let collapsed = self.export_collapsed_flamegraph();
+        let collapsed = {
+            let mut out = String::new();
+            for (stack, duration) in Self::collapsed_stacks(&records) {
+                out.push_str(&format!("{} {}\n", stack, duration));
+            }
+            out
+        };
         let mut reader = Cursor::new(collapsed);
         let mut output = Vec::new();
         from_reader(&mut options, &mut reader, &mut output)
@@ -270,16 +217,14 @@ impl PerformanceMonitor {
     }
 
     pub fn write_csv_to<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
+        let path = path.as_ref();
+        ensure_parent_directory(path)?;
         std::fs::write(path, self.export_csv())
     }
 
     pub fn write_flamegraph_to<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
-        {
-            let records = self.records.lock();
-            if records.is_empty() {
-                return Ok(());
-            }
-        }
+        let path = path.as_ref();
+        ensure_parent_directory(path)?;
         let svg = self.export_flamegraph_svg()?;
         std::fs::write(path, svg)
     }
@@ -501,6 +446,201 @@ impl Drop for PerfDisableGuard {
     fn drop(&mut self) {
         MONITOR_ENABLED.store(self.previous, AtomicOrdering::SeqCst);
     }
+}
+
+#[derive(Clone, Default)]
+struct PerfSummaryRow {
+    node_id: String,
+    user_id: String,
+    module: String,
+    operation: String,
+    count: u64,
+    total_duration_ns: u128,
+    total_cycles: u128,
+}
+
+struct PerfSummary {
+    rows: Vec<PerfSummaryRow>,
+    total_duration_ns: u128,
+    total_cycles: u128,
+    has_cycles: bool,
+}
+
+impl PerfSummary {
+    fn from_records(records: &[PerfRecord]) -> Self {
+        let mut totals: BTreeMap<(String, String, String, String), PerfSummaryRow> =
+            BTreeMap::new();
+        let mut total_duration_ns = 0u128;
+        let mut total_cycles = 0u128;
+        let mut has_cycles = false;
+
+        for record in records {
+            let node_id = record.node_id.clone().unwrap_or_else(|| "-".to_string());
+            let user_id = record.user_id.clone().unwrap_or_else(|| "-".to_string());
+            let module = record
+                .stack
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string());
+            let operation = if record.stack.len() > 1 {
+                record.stack[1..].join("::")
+            } else {
+                "-".to_string()
+            };
+            let key = (node_id, user_id, module, operation);
+            let entry = totals.entry(key).or_insert_with(PerfSummaryRow::default);
+            entry.count = entry.count.saturating_add(1);
+            entry.total_duration_ns = entry.total_duration_ns.saturating_add(record.duration_ns);
+            if let Some(cycles) = record.cpu_cycles {
+                has_cycles = true;
+                let cycles = cycles as u128;
+                entry.total_cycles = entry.total_cycles.saturating_add(cycles);
+                total_cycles = total_cycles.saturating_add(cycles);
+            }
+            total_duration_ns = total_duration_ns.saturating_add(record.duration_ns);
+        }
+
+        let mut rows: Vec<PerfSummaryRow> = totals
+            .into_iter()
+            .map(|((node_id, user_id, module, operation), mut row)| {
+                row.node_id = node_id;
+                row.user_id = user_id;
+                row.module = module;
+                row.operation = operation;
+                row
+            })
+            .collect();
+
+        rows.sort_by(|a, b| {
+            let metric_a = if has_cycles && total_cycles > 0 {
+                a.total_cycles
+            } else {
+                a.total_duration_ns
+            };
+            let metric_b = if has_cycles && total_cycles > 0 {
+                b.total_cycles
+            } else {
+                b.total_duration_ns
+            };
+            metric_b
+                .cmp(&metric_a)
+                .then_with(|| a.module.cmp(&b.module))
+                .then_with(|| a.operation.cmp(&b.operation))
+                .then_with(|| a.node_id.cmp(&b.node_id))
+                .then_with(|| a.user_id.cmp(&b.user_id))
+        });
+
+        Self {
+            rows,
+            total_duration_ns,
+            total_cycles,
+            has_cycles,
+        }
+    }
+
+    fn to_csv(&self) -> String {
+        let mut csv = String::from(
+            "node_id,user_id,module,operation,count,total_duration_ns,total_cycles,percent_duration,percent_cycles\n",
+        );
+        for row in &self.rows {
+            let percent_duration = if self.total_duration_ns > 0 {
+                (row.total_duration_ns as f64 / self.total_duration_ns as f64) * 100.0
+            } else {
+                0.0
+            };
+            let percent_cycles = if self.has_cycles && self.total_cycles > 0 {
+                Some((row.total_cycles as f64 / self.total_cycles as f64) * 100.0)
+            } else {
+                None
+            };
+            let operation = if row.operation.trim().is_empty() {
+                "-"
+            } else {
+                &row.operation
+            };
+            let cycles_value = if self.has_cycles {
+                row.total_cycles.to_string()
+            } else {
+                "-".to_string()
+            };
+            let percent_cycles_value = percent_cycles
+                .map(|value| format!("{value:.4}"))
+                .unwrap_or_else(|| "-".to_string());
+            let percent_duration_value = if self.total_duration_ns > 0 {
+                format!("{percent_duration:.4}")
+            } else {
+                "-".to_string()
+            };
+            csv.push_str(&format!(
+                "{node},{user},{module},{operation},{count},{duration},{cycles},{percent_duration},{percent_cycles}\n",
+                node = row.node_id,
+                user = row.user_id,
+                module = row.module,
+                operation = operation,
+                count = row.count,
+                duration = row.total_duration_ns,
+                cycles = cycles_value,
+                percent_duration = percent_duration_value,
+                percent_cycles = percent_cycles_value,
+            ));
+        }
+        csv
+    }
+
+    fn module_breakdown(&self) -> Vec<(String, f64)> {
+        if self.rows.is_empty() {
+            return Vec::new();
+        }
+        let mut totals: BTreeMap<String, u128> = BTreeMap::new();
+        for row in &self.rows {
+            let metric = if self.has_cycles && self.total_cycles > 0 {
+                row.total_cycles
+            } else {
+                row.total_duration_ns
+            };
+            if metric == 0 {
+                continue;
+            }
+            let entry = totals.entry(row.module.clone()).or_insert(0);
+            *entry = entry.saturating_add(metric);
+        }
+        let total_metric = if self.has_cycles && self.total_cycles > 0 {
+            self.total_cycles
+        } else {
+            self.total_duration_ns
+        };
+        if total_metric == 0 {
+            return Vec::new();
+        }
+        let mut breakdown: Vec<(String, f64)> = totals
+            .into_iter()
+            .map(|(module, total)| {
+                let share = (total as f64 / total_metric as f64) * 100.0;
+                (module, share)
+            })
+            .collect();
+        breakdown.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
+        breakdown
+    }
+}
+
+fn ensure_parent_directory(path: &Path) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    Ok(())
+}
+
+fn empty_flamegraph() -> String {
+    [
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"600\" height=\"80\">",
+        "  <rect width=\"600\" height=\"80\" fill=\"#1f2933\"/>",
+        "  <text x=\"20\" y=\"45\" fill=\"#f9fafb\" font-family=\"monospace\" font-size=\"16\">No performance samples collected</text>",
+        "</svg>",
+    ]
+    .join("\n")
 }
 
 #[cfg(test)]
