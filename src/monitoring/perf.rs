@@ -13,9 +13,15 @@ use parking_lot::Mutex;
 use inferno::flamegraph::{from_reader, Options};
 
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::BOOL;
+use windows::Win32::Foundation::{BOOL, HANDLE};
 #[cfg(target_os = "windows")]
-use windows::Win32::System::Threading::{GetCurrentThread, QueryThreadCycleTime};
+use windows::Win32::System::Threading::GetCurrentThread;
+
+#[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
+extern "system" {
+    fn QueryThreadCycleTime(ThreadHandle: HANDLE, CycleTime: *mut u64) -> BOOL;
+}
 
 #[derive(Clone, Default)]
 struct PerfContext {
