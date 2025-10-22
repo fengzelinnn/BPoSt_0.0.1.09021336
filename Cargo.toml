@@ -34,5 +34,18 @@ ff = "0.13"
 ctrlc = "3.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.54", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+] }
+
 [features]
 default = []
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "dpdp_folding"
+harness = false
