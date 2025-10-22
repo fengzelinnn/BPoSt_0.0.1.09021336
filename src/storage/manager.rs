@@ -13,7 +13,7 @@ use crate::crypto::folding::{
     state_update_relaxed_r1cs, NovaFinalProof, NovaFoldingCycle, NovaFoldingError, NovaRoundResult,
     RelaxedR1CS,
 };
-use crate::monitoring::perf;
+use crate::monitoring::criterion;
 use crate::storage::state::ServerStorage;
 use crate::utils::{h_join, sha256_hex};
 use serde_json::Value as JsonValue;
@@ -529,8 +529,8 @@ impl StorageManager {
     }
 
     pub fn rollback_to_height(&self, target_height: u64) {
-        let _ctx = perf::enter_context(Some(self.node_id.clone()), None::<String>);
-        let _span = perf::span(["Nova", "rollback_to_height"]);
+        let _ctx = criterion::enter_context(Some(self.node_id.clone()), None::<String>);
+        let _span = criterion::span(["Nova", "rollback_to_height"]);
         let mut inner = self.inner.lock();
         let mut affected = false;
         let file_ids: Vec<String> = inner.file_cycles.keys().cloned().collect();
@@ -590,8 +590,8 @@ impl StorageManager {
         contributions: &[(usize, BigUint, Vec<u8>)],
         round_salt: &str,
     ) -> Option<NovaRoundResult> {
-        let _ctx = perf::enter_context(Some(self.node_id.clone()), None::<String>);
-        let _span = perf::span(["Nova", "process_round"]);
+        let _ctx = criterion::enter_context(Some(self.node_id.clone()), None::<String>);
+        let _span = criterion::span(["Nova", "process_round"]);
         let mut inner = self.inner.lock();
         let block_height = block.height;
         if inner

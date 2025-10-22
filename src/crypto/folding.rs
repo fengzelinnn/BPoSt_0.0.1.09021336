@@ -20,7 +20,7 @@ use thiserror::Error;
 use crate::common::datastructures::{Block, DPDPParams, DPDPProof};
 use crate::crypto::deserialize_g1;
 use crate::crypto::dpdp::hash_to_g1;
-use crate::monitoring::perf;
+use crate::monitoring::criterion;
 use crate::storage::state::StorageStateTree;
 use crate::utils::{h_join, log_msg};
 
@@ -41,7 +41,7 @@ pub struct RelaxedR1CSConstraint<F: PrimeField> {
 impl<F: PrimeField> RelaxedR1CSConstraint<F> {
     /// 创建一个新的松弛 R1CS 约束。
     pub fn new(a: Vec<(usize, F)>, b: Vec<(usize, F)>, c: Vec<(usize, F)>, error: F) -> Self {
-        let _span = perf::span(["Folding", "RelaxedR1CSConstraint::new"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CSConstraint::new"]);
         Self { a, b, c, error }
     }
 }
@@ -68,7 +68,7 @@ pub struct RelaxedR1CS<F: PrimeField> {
 impl<F: PrimeField> RelaxedR1CS<F> {
     /// 检查存储的赋值是否满足所有约束。
     pub fn is_satisfied(&self) -> bool {
-        let _span = perf::span(["Folding", "RelaxedR1CS::is_satisfied"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CS::is_satisfied"]);
         let eval = |lc: &[(usize, F)], assignments: &[F]| -> F {
             lc.iter().fold(F::zero(), |acc, (idx, coeff)| {
                 let val = assignments.get(*idx).copied().unwrap_or_else(F::zero);
@@ -93,7 +93,7 @@ impl<F: PrimeField> RelaxedR1CS<F> {
 
     /// 返回序列化后的见证，用于后续的折叠操作。
     pub fn witness_serialized(&self) -> Vec<Vec<u8>> {
-        let _span = perf::span(["Folding", "RelaxedR1CS::witness_serialized"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CS::witness_serialized"]);
         self.witness
             .iter()
             .map(|value| {
@@ -127,7 +127,7 @@ pub struct RelaxedR1CSBuilder<F: PrimeField> {
 impl<F: PrimeField> RelaxedR1CSBuilder<F> {
     /// 创建一个新的构建器。
     pub fn new() -> Self {
-        let _span = perf::span(["Folding", "RelaxedR1CSBuilder::new"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CSBuilder::new"]);
         Self {
             // 预分配一个值为 1 的常量
             assignments: vec![F::one()],
@@ -140,7 +140,7 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
 
     /// 设置松弛标量 u。
     pub fn set_relaxation_parameter(&mut self, u: F) {
-        let _span = perf::span(["Folding", "RelaxedR1CSBuilder::set_relaxation_parameter"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CSBuilder::set_relaxation_parameter"]);
         self.u = u;
     }
 
@@ -154,7 +154,7 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
 
     /// 分配一个公共输入变量。
     pub fn alloc_input(&mut self, value: F) -> usize {
-        let _span = perf::span(["Folding", "RelaxedR1CSBuilder::alloc_input"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CSBuilder::alloc_input"]);
         let idx = self.alloc_variable(value);
         self.is_input[idx] = true;
         self.input_indexes.push(idx);
@@ -163,13 +163,13 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
 
     /// 分配一个私有见证变量。
     pub fn alloc_witness(&mut self, value: F) -> usize {
-        let _span = perf::span(["Folding", "RelaxedR1CSBuilder::alloc_witness"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CSBuilder::alloc_witness"]);
         self.alloc_variable(value)
     }
 
     /// 分配一个常量值。
     pub fn alloc_constant(&mut self, value: F) -> usize {
-        let _span = perf::span(["Folding", "RelaxedR1CSBuilder::alloc_constant"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CSBuilder::alloc_constant"]);
         let idx = self.alloc_witness(value);
         let mut a = vec![(idx, F::one())];
         if !value.is_zero() {
@@ -186,7 +186,7 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
 
     /// 强制两个变量相等。
     pub fn enforce_equal(&mut self, left: usize, right: usize) {
-        let _span = perf::span(["Folding", "RelaxedR1CSBuilder::enforce_equal"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CSBuilder::enforce_equal"]);
         self.constraints.push(RelaxedR1CSConstraint::new(
             vec![(left, F::one()), (right, -F::one())], // left - right
             vec![(0, F::one())],                        // * 1
@@ -197,7 +197,7 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
 
     /// 强制一个变量为布尔值 (0 或 1)。
     pub fn enforce_boolean(&mut self, var: usize) {
-        let _span = perf::span(["Folding", "RelaxedR1CSBuilder::enforce_boolean"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CSBuilder::enforce_boolean"]);
         let minus_one = self.assignments[var] - F::one();
         let minus_one_idx = self.alloc_witness(minus_one);
         // 添加约束: var * (var - 1) = 0
@@ -220,7 +220,7 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
 
     /// 两个变量相乘。
     pub fn mul(&mut self, left: usize, right: usize) -> usize {
-        let _span = perf::span(["Folding", "RelaxedR1CSBuilder::mul"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CSBuilder::mul"]);
         let value = self.assignments[left] * self.assignments[right];
         let out = self.alloc_witness(value);
         self.constraints.push(RelaxedR1CSConstraint::new(
@@ -234,7 +234,7 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
 
     /// 计算变量的线性组合。
     pub fn linear_combination(&mut self, terms: &[(usize, F)], constant: F) -> usize {
-        let _span = perf::span(["Folding", "RelaxedR1CSBuilder::linear_combination"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CSBuilder::linear_combination"]);
         let mut value = constant;
         for (idx, coeff) in terms {
             value += self.assignments[*idx] * coeff;
@@ -258,7 +258,7 @@ impl<F: PrimeField> RelaxedR1CSBuilder<F> {
 
     /// 完成构建并返回松弛 R1CS 实例。
     pub fn finish(mut self) -> RelaxedR1CS<F> {
-        let _span = perf::span(["Folding", "RelaxedR1CSBuilder::finish"]);
+        let _span = criterion::span(["Folding", "RelaxedR1CSBuilder::finish"]);
         let u = self.u;
         self.assignments.push(u);
         self.is_input.push(false);
@@ -394,7 +394,7 @@ pub fn dpdp_verification_relaxed_r1cs(
     proof: &DPDPProof,
     challenge: &[(usize, BigUint)],
 ) -> (RelaxedR1CS<Fr>, bool) {
-    let span = perf::span(["Folding", "dpdp_verification_relaxed_r1cs"]);
+    let span = criterion::span(["Folding", "dpdp_verification_relaxed_r1cs"]);
     // 验证 dPDP 证明
     let sigma = deserialize_g1(&proof.sigma);
     let sigma_affine = G1Affine::from(sigma);
@@ -472,7 +472,7 @@ pub fn block_validation_relaxed_r1cs(
     expected_prev_hash: &str,
     expected_height: u64,
 ) -> RelaxedR1CS<Fr> {
-    let span = perf::span(["Folding", "block_validation_relaxed_r1cs"]);
+    let span = criterion::span(["Folding", "block_validation_relaxed_r1cs"]);
     let mut builder = RelaxedR1CSBuilder::<Fr>::new();
 
     // 约束 prev_hash
@@ -509,7 +509,7 @@ pub fn state_update_relaxed_r1cs(
     state: &StorageStateTree,
     updates: &[(String, String)],
 ) -> RelaxedR1CS<Fr> {
-    let span = perf::span(["Folding", "state_update_relaxed_r1cs"]);
+    let span = criterion::span(["Folding", "state_update_relaxed_r1cs"]);
     let mut builder = RelaxedR1CSBuilder::<Fr>::new();
 
     // 计算更新前的状态树根
@@ -579,7 +579,7 @@ pub struct IncrementalRelaxedCircuit<F: PrimeField> {
 
 impl<F: PrimeField> IncrementalRelaxedCircuit<F> {
     pub fn new() -> Self {
-        let _span = perf::span(["Folding", "IncrementalRelaxedCircuit::new"]);
+        let _span = criterion::span(["Folding", "IncrementalRelaxedCircuit::new"]);
         Self {
             steps: Vec::new(),
             accumulator: F::zero(),
@@ -588,7 +588,7 @@ impl<F: PrimeField> IncrementalRelaxedCircuit<F> {
 
     /// 吸收一个新的电路实例。
     pub fn absorb(&mut self, circuit: RelaxedR1CS<F>) {
-        let _span = perf::span(["Folding", "IncrementalRelaxedCircuit::absorb"]);
+        let _span = criterion::span(["Folding", "IncrementalRelaxedCircuit::absorb"]);
         let delta = F::from((self.steps.len() + 1) as u64);
         self.accumulator += delta;
         self.steps.push(circuit);
@@ -596,14 +596,14 @@ impl<F: PrimeField> IncrementalRelaxedCircuit<F> {
 
     /// 合并另一个累积电路。
     pub fn merge(&mut self, other: &Self) {
-        let _span = perf::span(["Folding", "IncrementalRelaxedCircuit::merge"]);
+        let _span = criterion::span(["Folding", "IncrementalRelaxedCircuit::merge"]);
         self.accumulator += other.accumulator;
         self.steps.extend(other.steps.clone());
     }
 
     /// 返回总约束数。
     pub fn total_constraints(&self) -> usize {
-        let _span = perf::span(["Folding", "IncrementalRelaxedCircuit::total_constraints"]);
+        let _span = criterion::span(["Folding", "IncrementalRelaxedCircuit::total_constraints"]);
         self.steps
             .iter()
             .map(|circuit| circuit.num_constraints)
@@ -949,7 +949,7 @@ pub struct NovaFoldingCycle {
 
 impl NovaFoldingCycle {
     pub fn new(storage_period: usize) -> Self {
-        let _span = perf::span(["Folding", "NovaFoldingCycle::new"]);
+        let _span = criterion::span(["Folding", "NovaFoldingCycle::new"]);
         // log_msg(
         //     "DEBUG",
         //     "NOVA",
@@ -969,12 +969,12 @@ impl NovaFoldingCycle {
     }
 
     pub fn storage_period(&self) -> usize {
-        let _span = perf::span(["Folding", "NovaFoldingCycle::storage_period"]);
+        let _span = criterion::span(["Folding", "NovaFoldingCycle::storage_period"]);
         self.storage_period
     }
 
     pub fn steps_completed(&self) -> usize {
-        let _span = perf::span(["Folding", "NovaFoldingCycle::steps_completed"]);
+        let _span = criterion::span(["Folding", "NovaFoldingCycle::steps_completed"]);
         self.steps
     }
 
@@ -983,7 +983,7 @@ impl NovaFoldingCycle {
         &mut self,
         circuits: Vec<RelaxedR1CS<Fr>>,
     ) -> Result<NovaRoundResult, NovaFoldingError> {
-        let span = perf::span(["Nova", "absorb_round"]);
+        let span = criterion::span(["Nova", "absorb_round"]);
         if circuits.is_empty() {
             log_msg("WARN", "NOVA", None, "尝试吸收折叠轮次时电路集合为空。");
             return Err(NovaFoldingError::EmptyRound);
@@ -1105,7 +1105,7 @@ impl NovaFoldingCycle {
 
     /// 完成折叠周期并生成最终证明。
     pub fn finalize(&mut self) -> Result<Option<NovaFinalProof>, NovaFoldingError> {
-        let span = perf::span(["Nova", "finalize"]);
+        let span = criterion::span(["Nova", "finalize"]);
         log_msg(
             "DEBUG",
             "NOVA",
@@ -1193,7 +1193,7 @@ impl NovaFoldingCycle {
         compressed_snark: &[u8],
         verifier_key: &[u8],
     ) -> Result<String, NovaFoldingError> {
-        let span = perf::span(["Nova", "verify_final_accumulator"]);
+        let span = criterion::span(["Nova", "verify_final_accumulator"]);
         type NovaCompressed =
             CompressedSNARK<NovaEngine1, NovaEngine2, NovaStepCircuit, NovaSNARK1, NovaSNARK2>;
         let snark: NovaCompressed = {

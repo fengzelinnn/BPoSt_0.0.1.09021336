@@ -7,7 +7,7 @@ use num_bigint::BigUint;
 use bpst::common::datastructures::{DPDPParams, DPDPProof, DPDPTags};
 use bpst::crypto::dpdp::DPDP;
 use bpst::crypto::folding::{dpdp_verification_relaxed_r1cs, RelaxedR1CS};
-use bpst::monitoring::perf;
+use bpst::monitoring::criterion;
 
 #[derive(Clone)]
 struct BenchmarkFixture {
@@ -37,7 +37,7 @@ fn build_fixture(
     chunk_size: usize,
     challenge_count: usize,
 ) -> BenchmarkFixture {
-    let _guard = perf::monitor().scoped_disable();
+    let _guard = criterion::monitor().scoped_disable();
     let params = DPDP::key_gen();
     let chunks = sample_chunks(chunk_count, chunk_size);
     let tags = DPDP::tag_file(&params, &chunks);
@@ -62,7 +62,7 @@ fn build_fixture(
 
 fn bench_dpdp(c: &mut Criterion) {
     let fixture = build_fixture(64, 1024, 16);
-    perf::monitor().clear();
+    criterion::monitor().clear();
 
     let mut group = c.benchmark_group("dPDP");
     let params = fixture.params.clone();
@@ -104,15 +104,15 @@ fn bench_dpdp(c: &mut Criterion) {
     group.finish();
 
     println!("=== dPDP consensus pressure ===");
-    for (label, share) in perf::monitor().consensus_pressure_report() {
+    for (label, share) in criterion::monitor().consensus_pressure_report() {
         println!("  {label}: {share:.2}%");
     }
-    perf::monitor().clear();
+    criterion::monitor().clear();
 }
 
 fn bench_folding(c: &mut Criterion) {
     let fixture = build_fixture(64, 1024, 16);
-    perf::monitor().clear();
+    criterion::monitor().clear();
 
     let mut group = c.benchmark_group("Folding");
     let params = fixture.params.clone();
@@ -140,10 +140,10 @@ fn bench_folding(c: &mut Criterion) {
     group.finish();
 
     println!("=== Folding consensus pressure ===");
-    for (label, share) in perf::monitor().consensus_pressure_report() {
+    for (label, share) in criterion::monitor().consensus_pressure_report() {
         println!("  {label}: {share:.2}%");
     }
-    perf::monitor().clear();
+    criterion::monitor().clear();
 }
 
 criterion_group!(benches, bench_dpdp, bench_folding);
