@@ -274,6 +274,12 @@ impl PerformanceMonitor {
     }
 
     pub fn write_flamegraph_to<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
+        {
+            let records = self.records.lock();
+            if records.is_empty() {
+                return Ok(());
+            }
+        }
         let svg = self.export_flamegraph_svg()?;
         std::fs::write(path, svg)
     }
