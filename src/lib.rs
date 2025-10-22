@@ -3,6 +3,7 @@ pub mod config;
 pub mod consensus;
 pub mod crypto;
 pub mod merkle;
+pub mod monitoring;
 pub mod p2p;
 pub mod roles;
 pub mod simulation;
