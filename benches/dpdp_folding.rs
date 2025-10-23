@@ -1,12 +1,13 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
+use ::criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use ark_bn254::Fr;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use num_bigint::BigUint;
 
 use bpst::common::datastructures::{DPDPParams, DPDPProof, DPDPTags};
 use bpst::crypto::dpdp::DPDP;
-use bpst::crypto::folding::{dpdp_verification_relaxed_r1cs, RelaxedR1CS};
+use bpst::crypto::folding::{dpdp_verification_relaxed_r1cs, NovaFoldingCycle, RelaxedR1CS};
 use bpst::monitoring::criterion;
 
 #[derive(Clone)]
@@ -65,6 +66,14 @@ fn bench_dpdp(c: &mut Criterion) {
     criterion::monitor().clear();
 
     let mut group = c.benchmark_group("dPDP");
+
+    group.bench_function("key_gen", |b| {
+        b.iter(|| {
+            let params = DPDP::key_gen();
+            black_box(params);
+        });
+    });
+
     let params = fixture.params.clone();
     let chunks = fixture.chunks.clone();
     group.bench_function("tag_file", |b| {
@@ -77,6 +86,19 @@ fn bench_dpdp(c: &mut Criterion) {
     let tags_for_proof = fixture.tags.clone();
     let chunk_map = fixture.chunk_map.clone();
     let challenge = fixture.challenge.clone();
+    let challenge_len = challenge.len();
+    group.bench_function("gen_chal", |b| {
+        b.iter(|| {
+            let chal = DPDP::gen_chal(
+                black_box("bench-fixture"),
+                black_box(1),
+                black_box(&tags_for_proof),
+                Some(challenge_len),
+            );
+            black_box(chal);
+        });
+    });
+
     group.bench_function("gen_proof", |b| {
         b.iter(|| {
             let proof = DPDP::gen_proof(
@@ -138,6 +160,75 @@ fn bench_folding(c: &mut Criterion) {
     });
 
     group.finish();
+
+    let mut nova_group = c.benchmark_group("Folding/Nova");
+    nova_group.sample_size(10);
+    nova_group.warm_up_time(Duration::from_secs(1));
+    nova_group.measurement_time(Duration::from_secs(45));
+
+    let base_circuit = fixture.circuit.clone();
+    nova_group.bench_function("nova_absorb_round", |b| {
+        let base_circuit = base_circuit.clone();
+        b.iter_batched(
+            move || {
+                let cycle = NovaFoldingCycle::new(1);
+                let circuits = vec![base_circuit.clone()];
+                (cycle, circuits)
+            },
+            |(mut cycle, circuits)| {
+                let result = cycle.absorb_round(circuits).unwrap();
+                black_box(result);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    let base_circuit = fixture.circuit.clone();
+    nova_group.bench_function("nova_finalize", |b| {
+        let base_circuit = base_circuit.clone();
+        b.iter_batched(
+            move || {
+                let mut cycle = NovaFoldingCycle::new(2);
+                for _ in 0..2 {
+                    let circuits = vec![base_circuit.clone()];
+                    cycle.absorb_round(circuits).unwrap();
+                }
+                cycle
+            },
+            |mut cycle| {
+                let proof = cycle.finalize().unwrap().unwrap();
+                black_box(proof);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    let base_circuit = fixture.circuit.clone();
+    nova_group.bench_function("nova_verify_final", |b| {
+        let base_circuit = base_circuit.clone();
+        b.iter_batched(
+            move || {
+                let mut cycle = NovaFoldingCycle::new(2);
+                for _ in 0..2 {
+                    let circuits = vec![base_circuit.clone()];
+                    cycle.absorb_round(circuits).unwrap();
+                }
+                cycle.finalize().unwrap().unwrap()
+            },
+            |proof| {
+                let accumulator = NovaFoldingCycle::verify_final_accumulator(
+                    proof.steps,
+                    &proof.compressed_snark,
+                    &proof.verifier_key,
+                )
+                .unwrap();
+                black_box(accumulator);
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    nova_group.finish();
 
     println!("=== Folding consensus pressure ===");
     for (label, share) in criterion::monitor().consensus_pressure_report() {
