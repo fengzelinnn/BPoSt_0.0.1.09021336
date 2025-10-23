@@ -163,7 +163,25 @@ fn copy_function_estimates_to_category_level_inner() -> io::Result<()> {
         if !category_path.is_dir() {
             continue;
         }
+        copy_category_new_estimate(&category_path)?;
         copy_estimates_for_category(&category_path, &category_path)?;
+    }
+
+    Ok(())
+}
+
+fn copy_category_new_estimate(category_path: &Path) -> io::Result<()> {
+    let Some(category_name) = category_path.file_name().and_then(|n| n.to_str()) else {
+        return Ok(());
+    };
+    if !matches!(category_name, "Folding" | "Nova") {
+        return Ok(());
+    }
+
+    let source_estimates = category_path.join("new").join("estimates.json");
+    if source_estimates.exists() {
+        let destination = category_path.join("new.json");
+        fs::copy(source_estimates, destination)?;
     }
 
     Ok(())
@@ -180,6 +198,10 @@ fn copy_estimates_for_category(path: &Path, category_root: &Path) -> io::Result<
         let Some(name) = child_path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
+
+        if !matches!(name, "new" | "old") {
+            copy_category_new_estimate(&child_path)?;
+        }
 
         if child_path != category_root {
             if matches!(name, "new" | "old") {
@@ -209,7 +231,7 @@ fn bench_dpdp(c: &mut Criterion) {
 
     group.bench_function("key_gen", |b| {
         b.iter(|| {
-            let params = DPDP::key_gen();
+            let params = record_single_step(["bench", "dPDP", "key_gen"], || DPDP::key_gen());
             black_box(params);
         });
     });
@@ -218,7 +240,9 @@ fn bench_dpdp(c: &mut Criterion) {
     let chunks = fixture.chunks.clone();
     group.bench_function("tag_file", |b| {
         b.iter(|| {
-            let tags = DPDP::tag_file(black_box(&params), black_box(&chunks));
+            let tags = record_single_step(["bench", "dPDP", "tag_file"], || {
+                DPDP::tag_file(black_box(&params), black_box(&chunks))
+            });
             black_box(tags);
         });
     });
@@ -229,23 +253,27 @@ fn bench_dpdp(c: &mut Criterion) {
     let challenge_len = challenge.len();
     group.bench_function("gen_chal", |b| {
         b.iter(|| {
-            let chal = DPDP::gen_chal(
-                black_box("bench-fixture"),
-                black_box(1),
-                black_box(&tags_for_proof),
-                Some(challenge_len),
-            );
+            let chal = record_single_step(["bench", "dPDP", "gen_chal"], || {
+                DPDP::gen_chal(
+                    black_box("bench-fixture"),
+                    black_box(1),
+                    black_box(&tags_for_proof),
+                    Some(challenge_len),
+                )
+            });
             black_box(chal);
         });
     });
 
     group.bench_function("gen_proof", |b| {
         b.iter(|| {
-            let proof = DPDP::gen_proof(
-                black_box(&tags_for_proof),
-                black_box(&chunk_map),
-                black_box(&challenge),
-            );
+            let proof = record_single_step(["bench", "dPDP", "gen_proof"], || {
+                DPDP::gen_proof(
+                    black_box(&tags_for_proof),
+                    black_box(&chunk_map),
+                    black_box(&challenge),
+                )
+            });
             black_box(proof);
         });
     });
@@ -254,11 +282,13 @@ fn bench_dpdp(c: &mut Criterion) {
     let proof_for_check = fixture.proof.clone();
     group.bench_function("check_proof", |b| {
         b.iter(|| {
-            let valid = DPDP::check_proof(
-                black_box(&params_for_check),
-                black_box(&proof_for_check),
-                black_box(&challenge),
-            );
+            let valid = record_single_step(["bench", "dPDP", "check_proof"], || {
+                DPDP::check_proof(
+                    black_box(&params_for_check),
+                    black_box(&proof_for_check),
+                    black_box(&challenge),
+                )
+            });
             black_box(valid);
         });
     });
@@ -285,11 +315,13 @@ fn bench_folding(c: &mut Criterion) {
     let challenge = fixture.challenge.clone();
     group.bench_function("dpdp_relaxed_r1cs", |b| {
         b.iter(|| {
-            let result = dpdp_verification_relaxed_r1cs(
-                black_box(&params),
-                black_box(&proof),
-                black_box(&challenge),
-            );
+            let result = record_single_step(["bench", "Folding", "dpdp_relaxed_r1cs"], || {
+                dpdp_verification_relaxed_r1cs(
+                    black_box(&params),
+                    black_box(&proof),
+                    black_box(&challenge),
+                )
+            });
             black_box(result);
         });
     });
@@ -297,7 +329,10 @@ fn bench_folding(c: &mut Criterion) {
     let circuit = fixture.circuit.clone();
     group.bench_function("relaxed_is_satisfied", |b| {
         b.iter(|| {
-            let satisfied = circuit.is_satisfied();
+            let satisfied =
+                record_single_step(["bench", "Folding", "relaxed_is_satisfied"], || {
+                    circuit.is_satisfied()
+                });
             black_box(satisfied);
         });
     });
@@ -319,7 +354,10 @@ fn bench_folding(c: &mut Criterion) {
                 (cycle, circuits)
             },
             |(mut cycle, circuits)| {
-                let result = cycle.absorb_round(circuits).unwrap();
+                let result =
+                    record_single_step(["bench", "Folding", "Nova", "absorb_round"], || {
+                        cycle.absorb_round(circuits).unwrap()
+                    });
                 black_box(result);
             },
             BatchSize::SmallInput,
@@ -339,7 +377,9 @@ fn bench_folding(c: &mut Criterion) {
                 cycle
             },
             |mut cycle| {
-                let proof = cycle.finalize().unwrap().unwrap();
+                let proof = record_single_step(["bench", "Folding", "Nova", "finalize"], || {
+                    cycle.finalize().unwrap().unwrap()
+                });
                 black_box(proof);
             },
             BatchSize::SmallInput,
@@ -359,12 +399,15 @@ fn bench_folding(c: &mut Criterion) {
                 cycle.finalize().unwrap().unwrap()
             },
             |proof| {
-                let accumulator = NovaFoldingCycle::verify_final_accumulator(
-                    proof.steps,
-                    &proof.compressed_snark,
-                    &proof.verifier_key,
-                )
-                .unwrap();
+                let accumulator =
+                    record_single_step(["bench", "Folding", "Nova", "verify_final"], || {
+                        NovaFoldingCycle::verify_final_accumulator(
+                            proof.steps,
+                            &proof.compressed_snark,
+                            &proof.verifier_key,
+                        )
+                        .unwrap()
+                    });
                 black_box(accumulator);
             },
             BatchSize::SmallInput,
@@ -380,8 +423,44 @@ fn bench_folding(c: &mut Criterion) {
         println!("  {label}: {share:.2}%");
     }
     copy_function_estimates_to_category_level();
+    copy_new_estimates_for_category("Folding");
+    copy_new_estimates_for_category("Folding/Nova");
     criterion::monitor().clear();
 }
 
 criterion_group!(benches, bench_dpdp, bench_folding);
 criterion_main!(benches);
+
+fn record_single_step<F, R, const N: usize>(labels: [&str; N], f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    let span = criterion::span(labels.into_iter());
+    let result = f();
+    drop(span);
+    result
+}
+
+fn copy_new_estimates_for_category(category: &str) {
+    if let Err(err) = copy_new_estimates_for_category_inner(category) {
+        eprintln!(
+            "failed to copy criterion new estimates for {category}: {}",
+            err
+        );
+    }
+}
+
+fn copy_new_estimates_for_category_inner(category: &str) -> io::Result<()> {
+    let mut category_path = Path::new("target/criterion").to_path_buf();
+    for part in category.split('/') {
+        category_path.push(part);
+    }
+
+    let source = category_path.join("new").join("estimates.json");
+    if source.exists() {
+        let destination = category_path.join("new.json");
+        fs::copy(source, destination)?;
+    }
+
+    Ok(())
+}
