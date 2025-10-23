@@ -46,30 +46,30 @@
 
 ## 查看性能监控数据
 
-性能监控通过 `bpst::monitoring::perf` 模块自动采集 Span 信息，并在 Windows 上使用 `QueryThreadCycleTime` 记录 CPU cycle。采集结果可通过以下方式导出：
+性能监控通过 `bpst::monitoring::flamegraph` 模块自动采集 Span 信息，并以 `cargo flamegraph` 兼容的方式展示 CPU 开销。可通过以下方式导出：
 
 1. 设置导出环境变量并启动程序：
    ```bash
-   BPST_PERF_CSV=perf.csv \
-   BPST_PERF_FLAME=perf.svg \
-   BPST_PERF_CLEAR=1 \
+   BPST_FLAME_COLLAPSED=perf.folded \
+   BPST_FLAME_HTML=perf.html \
+   BPST_FLAME_CLEAR=1 \
    cargo run -- node node-1 127.0.0.1 62000 none 1024 2097152 3
    ```
-   - `BPST_PERF_CSV`：导出记录为 CSV。
-   - `BPST_PERF_FLAME`：导出压缩火焰图（SVG）。
-   - `BPST_PERF_CLEAR`：程序退出后是否清空内存数据（默认 `true`）。
-2. 使用 `PerfExportGuard` 会在程序结束时写出文件，并将 CSV 中的 `cpu_cycles` 与 `instructions_est` 列对齐。
-3. `consensus_pressure_report()` 会优先以 CPU cycle 计算各根 Span 的算力占比，当 cycle 不可用时回退到纳秒时长。
+   - `BPST_FLAME_COLLAPSED`：导出折叠栈文本，可直接交给 `cargo flamegraph` 渲染。
+   - `BPST_FLAME_HTML`：导出交互式 HTML 火焰图，便于本地分析。
+   - `BPST_FLAME_CLEAR`：程序退出后是否清空内存数据（默认 `true`）。
+   - 仍向后兼容旧的 `BPST_PERF_*` 环境变量，但建议迁移到新的命名。
+2. 使用 `FlamegraphExportGuard` 会在程序结束时写出上述文件，并在需要时自动清理内存中的采集结果。
+3. `consensus_pressure_report()` 基于采集到的纳秒耗时计算根 Span 的算力占比。
 
 ## 清理监控数据
 
 在需要重新采集数据时，可调用：
 ```rust
-bpst::monitoring::perf::monitor().clear();
+bpst::monitoring::flamegraph::monitor().clear();
 ```
-或直接删除导出的 CSV/SVG 文件。
+或直接删除导出的折叠栈与 HTML 文件。
 
 ## 注意事项
 
-- 在非 Windows 平台上，系统将回退到 `_rdtsc` 指令或执行时间统计，仍可生成压力分布报告。
-- 若在生产环境部署，请确保程序具备写入 `BPST_PERF_*` 路径的权限。
+- 若在生产环境部署，请确保程序具备写入 `BPST_FLAME_*` 路径的权限。
