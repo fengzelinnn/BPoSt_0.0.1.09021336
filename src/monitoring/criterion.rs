@@ -130,6 +130,16 @@ impl CriterionMonitor {
         CriterionSummary::from_records(&records).module_breakdown()
     }
 
+    pub fn total_duration_ns(&self) -> u128 {
+        let records = self.records.lock();
+        CriterionSummary::from_records(&records).total_duration_ns
+    }
+
+    pub fn consensus_operation_stats(&self) -> Vec<ConsensusOperationStat> {
+        let records = self.records.lock();
+        CriterionSummary::from_records(&records).consensus_operation_stats()
+    }
+
     pub fn write_csv_to<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         let path = path.as_ref();
         ensure_parent_directory(path)?;
@@ -257,9 +267,17 @@ impl Drop for CriterionContextGuard {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ConsensusOperationStat {
+    pub operation: String,
+    pub total_duration_ns: u128,
+    pub share_of_total: f64,
+}
+
 pub struct CriterionExportGuard {
     csv_path: Option<PathBuf>,
     summary_path: Option<PathBuf>,
+    estimates_output_dir: Option<PathBuf>,
     clear_after: bool,
 }
 
@@ -270,9 +288,13 @@ impl CriterionExportGuard {
         let clear_after = std::env::var("BPST_CRITERION_CLEAR")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(true);
+        let estimates_output_dir = std::env::var("BPST_CRITERION_ESTIMATES_DIR")
+            .ok()
+            .map(PathBuf::from);
         Self {
             csv_path,
             summary_path,
+            estimates_output_dir,
             clear_after,
         }
     }
@@ -280,11 +302,13 @@ impl CriterionExportGuard {
     pub fn new(
         csv_path: Option<PathBuf>,
         summary_path: Option<PathBuf>,
+        estimates_output_dir: Option<PathBuf>,
         clear_after: bool,
     ) -> Self {
         Self {
             csv_path,
             summary_path,
+            estimates_output_dir,
             clear_after,
         }
     }
@@ -302,6 +326,15 @@ impl Drop for CriterionExportGuard {
                 eprintln!(
                     "failed to write criterion summary {}: {}",
                     path.display(),
+                    err
+                );
+            }
+        }
+        if let Some(dir) = &self.estimates_output_dir {
+            if let Err(err) = copy_estimate_reports(dir) {
+                eprintln!(
+                    "failed to copy criterion estimate reports to {}: {}",
+                    dir.display(),
                     err
                 );
             }
@@ -529,6 +562,27 @@ impl CriterionSummary {
         breakdown.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         breakdown
     }
+
+    fn consensus_operation_stats(&self) -> Vec<ConsensusOperationStat> {
+        let mut totals: BTreeMap<String, u128> = BTreeMap::new();
+        for row in &self.rows {
+            if row.module == "CONSENSUS" {
+                *totals.entry(row.operation.clone()).or_insert(0) += row.total_duration_ns;
+            }
+        }
+
+        let denominator = self.total_duration_ns.max(1) as f64;
+        let mut stats: Vec<ConsensusOperationStat> = totals
+            .into_iter()
+            .map(|(operation, total_duration_ns)| ConsensusOperationStat {
+                operation,
+                total_duration_ns,
+                share_of_total: total_duration_ns as f64 / denominator,
+            })
+            .collect();
+        stats.sort_by(|a, b| b.total_duration_ns.cmp(&a.total_duration_ns));
+        stats
+    }
 }
 
 fn ensure_parent_directory(path: &Path) -> io::Result<()> {
@@ -537,6 +591,47 @@ fn ensure_parent_directory(path: &Path) -> io::Result<()> {
             fs::create_dir_all(parent)?;
         }
     }
+    Ok(())
+}
+
+fn copy_estimate_reports(dest_root: &Path) -> io::Result<()> {
+    let source_root = Path::new("target/criterion");
+    if !source_root.exists() {
+        return Ok(());
+    }
+
+    for group_entry in fs::read_dir(source_root)? {
+        let group_entry = group_entry?;
+        let group_path = group_entry.path();
+        if !group_path.is_dir() {
+            continue;
+        }
+        let Some(group_name) = group_path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+
+        for func_entry in fs::read_dir(&group_path)? {
+            let func_entry = func_entry?;
+            let func_path = func_entry.path();
+            if !func_path.is_dir() {
+                continue;
+            }
+
+            let Some(func_name) = func_path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let source_estimates = func_path.join("new").join("estimates.json");
+            if !source_estimates.exists() {
+                continue;
+            }
+
+            let dest_dir = dest_root.join(group_name);
+            fs::create_dir_all(&dest_dir)?;
+            let dest_file = dest_dir.join(format!("{}.json", func_name));
+            fs::copy(&source_estimates, &dest_file)?;
+        }
+    }
+
     Ok(())
 }
 

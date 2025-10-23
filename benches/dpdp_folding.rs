@@ -61,6 +61,40 @@ fn build_fixture(
     }
 }
 
+fn format_duration(ns: u128) -> String {
+    let seconds = ns as f64 / 1_000_000_000.0;
+    if seconds >= 1.0 {
+        format!("{seconds:.3}s")
+    } else {
+        let millis = ns as f64 / 1_000_000.0;
+        if millis >= 1.0 {
+            format!("{millis:.3}ms")
+        } else {
+            let micros = ns as f64 / 1_000.0;
+            format!("{micros:.3}µs")
+        }
+    }
+}
+
+fn print_runtime_report(label: &str) {
+    let total_ns = criterion::monitor().total_duration_ns();
+    println!("=== {label} total runtime ===");
+    println!("  total: {} ({} ns)", format_duration(total_ns), total_ns);
+
+    let stats = criterion::monitor().consensus_operation_stats();
+    if !stats.is_empty() {
+        println!("=== {label} consensus operations ===");
+        for entry in stats {
+            println!(
+                "  {}: {} ({:.2}% of total)",
+                entry.operation,
+                format_duration(entry.total_duration_ns),
+                entry.share_of_total * 100.0
+            );
+        }
+    }
+}
+
 fn bench_dpdp(c: &mut Criterion) {
     let fixture = build_fixture(64, 1024, 16);
     criterion::monitor().clear();
@@ -124,6 +158,8 @@ fn bench_dpdp(c: &mut Criterion) {
     });
 
     group.finish();
+
+    print_runtime_report("dPDP");
 
     println!("=== dPDP consensus pressure ===");
     for (label, share) in criterion::monitor().consensus_pressure_report() {
@@ -229,6 +265,8 @@ fn bench_folding(c: &mut Criterion) {
     });
 
     nova_group.finish();
+
+    print_runtime_report("Folding");
 
     println!("=== Folding consensus pressure ===");
     for (label, share) in criterion::monitor().consensus_pressure_report() {
