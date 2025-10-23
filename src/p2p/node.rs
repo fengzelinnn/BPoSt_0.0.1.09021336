@@ -1168,22 +1168,26 @@ impl Node {
         match thread::Builder::new()
             .name(format!("mining-{}-{}", node_id, height))
             .spawn(move || {
+                let _ctx = criterion::enter_context(Some(node_id.clone()), None::<String>);
                 let mut next_start = 0u64;
                 let mut best_seen: Option<BigUint> = None;
                 while !thread_flag.load(Ordering::SeqCst) {
                     if mining_window == 0 || next_start == u64::MAX {
                         break;
                     }
-                    let proof_opt = with_cpu_heavy_limit(|| {
-                        miner.mine_window(
-                            &seed,
-                            &storage_root,
-                            &file_roots,
-                            num_files,
-                            next_start,
-                            mining_window,
-                        )
-                    });
+                    let proof_opt = {
+                        let _span = criterion::span(["CONSENSUS", "mining"]);
+                        with_cpu_heavy_limit(|| {
+                            miner.mine_window(
+                                &seed,
+                                &storage_root,
+                                &file_roots,
+                                num_files,
+                                next_start,
+                                mining_window,
+                            )
+                        })
+                    };
                     if thread_flag.load(Ordering::SeqCst) {
                         break;
                     }
@@ -1259,6 +1263,8 @@ impl Node {
 
     /// 检查某个高度的证明池是否满足共识条件
     fn evaluate_consensus_for_height(&mut self, height: usize) {
+        let _ctx = criterion::enter_context(Some(self.node_id.clone()), None::<String>);
+        let _span = criterion::span(["CONSENSUS", "threshold_judgement"]);
         if self.election_concluded_for.contains(&height) {
             return;
         }
@@ -1347,7 +1353,7 @@ impl Node {
     /// 创建新区块（仅由领导者调用）
     fn create_block(&mut self, height: usize, winning_proofs: Vec<BobtailProof>) {
         let _ctx = criterion::enter_context(Some(self.node_id.clone()), None::<String>);
-        let _span = criterion::span(["CONSENSUS", "create_block"]);
+        let _span = criterion::span(["CONSENSUS", "block_production"]);
         log_msg(
             "SUCCESS",
             "CONSENSUS",
@@ -1641,6 +1647,8 @@ impl Node {
         current_work: &BigUint,
         candidate_work: &BigUint,
     ) {
+        let _ctx = criterion::enter_context(Some(self.node_id.clone()), None::<String>);
+        let _span = criterion::span(["CONSENSUS", "fork_handling"]);
         let is_reorg = prefix_len < previous_height;
 
         self.stop_mining_thread();
