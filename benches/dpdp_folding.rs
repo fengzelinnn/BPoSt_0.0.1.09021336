@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::fs;
+use std::io;
+use std::path::Path;
 use std::time::Duration;
 
 use ::criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
@@ -9,6 +12,13 @@ use bpst::common::datastructures::{DPDPParams, DPDPProof, DPDPTags};
 use bpst::crypto::dpdp::DPDP;
 use bpst::crypto::folding::{dpdp_verification_relaxed_r1cs, NovaFoldingCycle, RelaxedR1CS};
 use bpst::monitoring::criterion;
+
+const CONSENSUS_OPERATIONS: &[&str; 4] = [
+    "mining",
+    "fork_handling",
+    "block_production",
+    "threshold_judgement",
+];
 
 #[derive(Clone)]
 struct BenchmarkFixture {
@@ -82,17 +92,113 @@ fn print_runtime_report(label: &str) {
     println!("  total: {} ({} ns)", format_duration(total_ns), total_ns);
 
     let stats = criterion::monitor().consensus_operation_stats();
-    if !stats.is_empty() {
-        println!("=== {label} consensus operations ===");
-        for entry in stats {
+    let consensus_total_ns: u128 = stats.iter().map(|entry| entry.total_duration_ns).sum();
+    let total_denominator = if total_ns == 0 { 1.0 } else { total_ns as f64 };
+
+    println!("=== {label} consensus operations ===");
+    println!(
+        "  total: {} ({} ns, {:.2}% of overall)",
+        format_duration(consensus_total_ns),
+        consensus_total_ns,
+        (consensus_total_ns as f64 / total_denominator) * 100.0
+    );
+
+    for &operation in CONSENSUS_OPERATIONS {
+        if let Some(stat) = stats.iter().find(|entry| entry.operation == operation) {
             println!(
-                "  {}: {} ({:.2}% of total)",
+                "  {operation}: {} ({} ns, {:.2}% of overall)",
+                format_duration(stat.total_duration_ns),
+                stat.total_duration_ns,
+                stat.share_of_total * 100.0
+            );
+        } else {
+            println!(
+                "  {operation}: {} (0 ns, 0.00% of overall)",
+                format_duration(0)
+            );
+        }
+    }
+
+    let mut other_operations: Vec<_> = stats
+        .iter()
+        .filter(|entry| {
+            !CONSENSUS_OPERATIONS
+                .iter()
+                .any(|name| *name == entry.operation)
+        })
+        .collect();
+    if !other_operations.is_empty() {
+        other_operations.sort_by(|a, b| b.total_duration_ns.cmp(&a.total_duration_ns));
+        println!("  other consensus operations:");
+        for entry in other_operations {
+            println!(
+                "    {}: {} ({} ns, {:.2}% of overall)",
                 entry.operation,
                 format_duration(entry.total_duration_ns),
+                entry.total_duration_ns,
                 entry.share_of_total * 100.0
             );
         }
     }
+}
+
+fn copy_function_estimates_to_category_level() {
+    if let Err(err) = copy_function_estimates_to_category_level_inner() {
+        eprintln!(
+            "failed to copy criterion function estimates to category level: {}",
+            err
+        );
+    }
+}
+
+fn copy_function_estimates_to_category_level_inner() -> io::Result<()> {
+    let source_root = Path::new("target/criterion");
+    if !source_root.exists() {
+        return Ok(());
+    }
+
+    for category_entry in fs::read_dir(source_root)? {
+        let category_entry = category_entry?;
+        let category_path = category_entry.path();
+        if !category_path.is_dir() {
+            continue;
+        }
+        copy_estimates_for_category(&category_path, &category_path)?;
+    }
+
+    Ok(())
+}
+
+fn copy_estimates_for_category(path: &Path, category_root: &Path) -> io::Result<()> {
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let child_path = entry.path();
+        if !child_path.is_dir() {
+            continue;
+        }
+
+        let Some(name) = child_path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+
+        if child_path != category_root {
+            if matches!(name, "new" | "old") {
+                continue;
+            }
+
+            let source_estimates = child_path.join("new").join("estimates.json");
+            if source_estimates.exists() {
+                let destination = category_root.join(format!("{name}.json"));
+                fs::copy(&source_estimates, &destination)?;
+            }
+        }
+
+        if !matches!(name, "new" | "old") {
+            copy_estimates_for_category(&child_path, category_root)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn bench_dpdp(c: &mut Criterion) {
@@ -165,6 +271,7 @@ fn bench_dpdp(c: &mut Criterion) {
     for (label, share) in criterion::monitor().consensus_pressure_report() {
         println!("  {label}: {share:.2}%");
     }
+    copy_function_estimates_to_category_level();
     criterion::monitor().clear();
 }
 
@@ -272,6 +379,7 @@ fn bench_folding(c: &mut Criterion) {
     for (label, share) in criterion::monitor().consensus_pressure_report() {
         println!("  {label}: {share:.2}%");
     }
+    copy_function_estimates_to_category_level();
     criterion::monitor().clear();
 }
 
