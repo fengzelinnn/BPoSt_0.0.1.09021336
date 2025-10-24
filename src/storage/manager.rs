@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
+use std::time::Instant;
 
 use ark_bn254::{Fr, G1Projective, G2Projective};
 use ark_ec::PrimeGroup;
@@ -13,7 +14,7 @@ use crate::crypto::folding::{
     state_update_relaxed_r1cs, NovaFinalProof, NovaFoldingCycle, NovaFoldingError, NovaRoundResult,
     RelaxedR1CS,
 };
-use crate::monitoring::criterion;
+use crate::monitoring::{criterion, run_metrics};
 use crate::storage::state::ServerStorage;
 use crate::utils::{h_join, sha256_hex};
 use serde_json::Value as JsonValue;
@@ -718,6 +719,7 @@ impl StorageManager {
                 &format!("准备吸收文件 {} 的第 {} 个折叠轮次。", file_id, next_step),
             );
             let circuits = vec![dpdp_circuit, block_circuit, state_circuit];
+            let fold_start = Instant::now();
             let result = match cycle.nova.absorb_round(circuits.clone()) {
                 Ok(res) => res,
                 Err(NovaFoldingError::CycleComplete) => return None,
@@ -731,6 +733,15 @@ impl StorageManager {
                     return None;
                 }
             };
+            let fold_duration = fold_start.elapsed().as_nanos();
+            run_metrics::metrics().record_folding_round_time(
+                &self.node_id,
+                file_id,
+                block_height,
+                result.step_index,
+                circuits.len(),
+                fold_duration,
+            );
             crate::utils::log_msg(
                 "INFO",
                 "Nova",
@@ -751,6 +762,22 @@ impl StorageManager {
                 circuits,
                 history_leaf_updates,
             );
+            if let Ok(serialized_proof) = bincode::serialize(proof) {
+                run_metrics::metrics().record_folding_proof_size(
+                    &self.node_id,
+                    file_id,
+                    block_height,
+                    result.step_index,
+                    serialized_proof.len(),
+                );
+                run_metrics::metrics().record_dpdp_proof_size(
+                    &self.node_id,
+                    file_id,
+                    Some(block_height),
+                    Some(result.step_index),
+                    serialized_proof.len(),
+                );
+            }
 
             if result.step_index >= cycle.storage_period && cycle.final_artifact.is_none() {
                 crate::utils::log_msg(
@@ -759,8 +786,22 @@ impl StorageManager {
                     Some(self.node_id.clone()),
                     &format!("文件 {} 达到存储周期阈值，尝试生成最终折叠证明。", file_id),
                 );
+                let finalize_start = Instant::now();
                 match cycle.nova.finalize() {
-                    Ok(Some(final_proof)) => cycle.set_final_artifact(final_proof),
+                    Ok(Some(final_proof)) => {
+                        let finalize_duration = finalize_start.elapsed().as_nanos();
+                        let proof_size = final_proof.compressed_snark.len();
+                        let vk_size = final_proof.verifier_key.len();
+                        let steps = final_proof.steps;
+                        run_metrics::metrics().record_final_folding_proof_artifact(
+                            file_id,
+                            steps,
+                            proof_size,
+                            vk_size,
+                            finalize_duration,
+                        );
+                        cycle.set_final_artifact(final_proof)
+                    }
                     Ok(None) | Err(NovaFoldingError::CycleComplete) => {}
                     Err(err) => {
                         crate::utils::log_msg(

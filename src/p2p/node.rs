@@ -29,7 +29,7 @@ use crate::common::datastructures::{
 use crate::consensus::blockchain::Blockchain; // 区块链逻辑
 use crate::crypto::deserialize_g2; // G2点反序列化工具
 use crate::crypto::dpdp::DPDP; // dPDP 密码学逻辑
-use crate::monitoring::criterion;
+use crate::monitoring::{criterion, run_metrics};
 use crate::roles::miner::Miner; // 矿工角色
 use crate::roles::prover::Prover; // 证明者角色
 use crate::storage::manager::{FileDataError, StorageManager}; // 存储管理器
@@ -1564,6 +1564,13 @@ impl Node {
 
         // 领导者首先更新自己的链，避免等待gossip反馈
         let gossip_block = new_block.clone();
+        if let Ok(serialized) = bincode::serialize(&new_block) {
+            run_metrics::metrics().record_block_size(
+                &self.node_id,
+                new_block.height,
+                serialized.len(),
+            );
+        }
         if !matches!(self.accept_block(new_block), BlockHandlingResult::Accepted) {
             log_msg(
                 "ERROR",

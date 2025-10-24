@@ -5,7 +5,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -15,7 +15,7 @@ use serde_json::Value;
 use crate::common::datastructures::FileChunk;
 use crate::config::P2PSimConfig;
 use crate::crypto::{folding::NovaFoldingCycle, serialize_g2};
-use crate::monitoring::criterion;
+use crate::monitoring::{criterion, run_metrics};
 use crate::roles::file_owner::FileOwner;
 use crate::utils::{log_msg, with_cpu_heavy_limit};
 
@@ -537,8 +537,17 @@ impl UserNode {
             Err(_) => return Err(String::from("无法解析最终证明或验证密钥")),
         };
 
-        match NovaFoldingCycle::verify_final_accumulator(args.steps, &compressed_bytes, &vk_bytes) {
+        let verify_start = Instant::now();
+        let verification =
+            NovaFoldingCycle::verify_final_accumulator(args.steps, &compressed_bytes, &vk_bytes);
+        let verify_elapsed = verify_start.elapsed().as_nanos();
+        match verification {
             Ok(proof_acc) => {
+                run_metrics::metrics().record_final_folding_verify_latency(
+                    args.file_id,
+                    args.steps,
+                    verify_elapsed,
+                );
                 if proof_acc == args.accumulator && args.steps == record.required_rounds {
                     if !already_verified {
                         log_msg(
