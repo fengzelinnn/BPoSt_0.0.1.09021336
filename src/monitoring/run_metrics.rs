@@ -371,6 +371,7 @@ impl RunMetricsExportGuard {
             }
             Err(_) => Some(PathBuf::from("target/run_metrics.csv")),
         };
+
         let record_cpu = std::env::var("BPST_RUN_METRICS_CPU")
             .map(|value| !(value == "0" || value.eq_ignore_ascii_case("false")))
             .unwrap_or(true);
