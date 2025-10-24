@@ -46,8 +46,27 @@
 
 ## 查看性能监控数据
 
-性能监控通过 `bpst::monitoring::criterion` 模块采集 span 信息，并使用 Criterion 的 WallTime 计量器对执行时间进行统计分析。采集结果
-可通过以下方式导出：
+### 运行期指标（CSV 导出）
+
+`bpst::monitoring::run_metrics` 模块在**正常运行流程**（`cargo run`、`cargo run -- node ...` 等）中自动采集区块大小、dPDP 吞吐、折叠轮次耗时、最终证明延迟以及系统 CPU/内存快照，并在程序退出时写入 CSV 文件。
+
+- 默认输出位置：`target/run_metrics.csv`。
+- 若要自定义路径，可设置 `BPST_RUN_METRICS_CSV=/path/to/file.csv`。
+- 若暂时不需要该文件，可通过 `BPST_RUN_METRICS_CSV=off`（或 `0`/`false`）禁用写出。
+- CPU/内存快照可通过 `BPST_RUN_METRICS_CPU=false` 关闭。
+
+示例：
+
+```bash
+cargo run
+# 程序结束后在 target/run_metrics.csv 查看统计
+```
+
+CSV 文件包含列 `timestamp, category, metric, value, value_raw, unit, extra`，其中 `extra` 字段存储额外的上下文信息（JSON 格式）。
+
+### Criterion 聚合统计
+
+性能监控通过 `bpst::monitoring::criterion` 模块采集 span 信息，并使用 Criterion 的 WallTime 计量器对执行时间进行统计分析。采集结果可通过以下方式导出：
 
 1. 设置导出环境变量并启动程序：
    ```bash

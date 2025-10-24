@@ -2,6 +2,7 @@
 use bpst::config::{DeploymentConfig, P2PSimConfig};
 // 初始化日志系统
 use bpst::monitoring::criterion::CriterionExportGuard;
+use bpst::monitoring::run_metrics::RunMetricsExportGuard;
 use bpst::utils::init_logging;
 // 引入 bpst 项目中的 simulation 模块，包含运行节点、用户进程和P2P模拟的功能
 use bpst::simulation::{
@@ -12,6 +13,7 @@ use log::error;
 // Rust 程序的主入口函数
 fn main() {
     let _criterion_export_guard = CriterionExportGuard::from_env();
+    let _run_metrics_guard = RunMetricsExportGuard::from_env();
     // 初始化日志系统，确保控制台输出同时写入日志文件
     init_logging();
     // 获取命令行参数的迭代器
