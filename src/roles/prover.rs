@@ -7,8 +7,9 @@ use num_bigint::BigUint;
 // 导入项目内的数据结构和密码学模块
 use crate::common::datastructures::{DPDPProof, DPDPTags};
 use crate::crypto::dpdp::DPDP;
-use crate::monitoring::criterion;
+use crate::monitoring::{criterion, run_metrics};
 use crate::utils::log_msg;
+use std::time::Instant;
 
 /// dPDP 挑战向量类型别名，元素为 (块索引, 挑战系数)。
 pub type ChallengeVector = Vec<(usize, BigUint)>;
@@ -60,7 +61,24 @@ impl Prover {
         let challenge = DPDP::gen_chal(prev_hash, timestamp, file_tags, challenge_size);
 
         // 2. 使用文件块、标签和挑战来生成聚合的 dPDP 证明
+        let prove_start = Instant::now();
         let proof = DPDP::gen_proof(file_tags, file_chunks, &challenge);
+        let prove_elapsed = prove_start.elapsed().as_nanos();
+        run_metrics::metrics().record_dpdp_proof_latency(
+            &self.node_id,
+            file_id,
+            challenge.len(),
+            prove_elapsed,
+        );
+        if let Ok(serialized) = bincode::serialize(&proof) {
+            run_metrics::metrics().record_dpdp_proof_size(
+                &self.node_id,
+                file_id,
+                None,
+                None,
+                serialized.len(),
+            );
+        }
 
         // 3. 生成用于更新文件状态的“贡献值”
         // 这些值是证明过程的副产品，但对于维护文件的版本和状态至关重要

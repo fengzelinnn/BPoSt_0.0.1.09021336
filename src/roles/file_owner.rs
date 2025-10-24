@@ -1,10 +1,11 @@
 // 导入随机数生成器相关的 trait
 use rand::{Rng, RngCore};
+use std::time::Instant;
 
 // 导入项目内的数据结构和密码学模块
 use crate::common::datastructures::{DPDPParams, DPDPTags, FileChunk};
 use crate::crypto::dpdp::DPDP;
-use crate::monitoring::criterion;
+use crate::monitoring::{criterion, run_metrics};
 use crate::utils::log_msg;
 
 /// FileOwner 结构体定义了文件所有者的角色
@@ -75,7 +76,18 @@ impl FileOwner {
         // 1. 将文件字节流分割成原始数据块
         let raw_chunks = self.split_file(file_bytes);
         // 2. 使用 dPDP 私钥为所有数据块生成对应的标签
+        let total_bytes: usize = raw_chunks.iter().map(|chunk| chunk.len()).sum();
+        let start = Instant::now();
         let tags = DPDP::tag_file(&self.params, &raw_chunks);
+        let elapsed = start.elapsed().as_nanos();
+        if total_bytes > 0 {
+            run_metrics::metrics().record_dpdp_tag_throughput(
+                &self.owner_id,
+                &self.file_id,
+                total_bytes,
+                elapsed,
+            );
+        }
         // 3. 将原始数据块和生成的标签打包成 FileChunk 结构体
         let chunks: Vec<FileChunk> = raw_chunks
             .into_iter()
