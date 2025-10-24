@@ -356,9 +356,22 @@ pub struct RunMetricsExportGuard {
 
 impl RunMetricsExportGuard {
     pub fn from_env() -> Self {
-        let csv_path = std::env::var("BPST_RUN_METRICS_CSV")
-            .ok()
-            .map(PathBuf::from);
+        let csv_path = match std::env::var("BPST_RUN_METRICS_CSV") {
+            Ok(value) => {
+                let trimmed = value.trim();
+                if trimmed.is_empty()
+                    || trimmed == "0"
+                    || trimmed.eq_ignore_ascii_case("false")
+                    || trimmed.eq_ignore_ascii_case("off")
+                {
+                    None
+                } else {
+                    Some(PathBuf::from(trimmed.to_owned()))
+                }
+            }
+            Err(_) => Some(PathBuf::from("target/run_metrics.csv")),
+        };
+
         let record_cpu = std::env::var("BPST_RUN_METRICS_CPU")
             .map(|value| !(value == "0" || value.eq_ignore_ascii_case("false")))
             .unwrap_or(true);
