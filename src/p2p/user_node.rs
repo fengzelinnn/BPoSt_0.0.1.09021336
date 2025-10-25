@@ -549,6 +549,17 @@ impl UserNode {
                     verify_elapsed,
                 );
                 if proof_acc == args.accumulator && args.steps == record.required_rounds {
+                    log_msg(
+                        "INFO",
+                        "Nova",
+                        Some(args.owner_id.to_string()),
+                        &format!(
+                            "文件 {} 的最终 Nova 证明验证完成：总折叠轮次 {}，证明大小 {} 字节。",
+                            args.file_id,
+                            args.steps,
+                            compressed_bytes.len()
+                        ),
+                    );
                     if !already_verified {
                         log_msg(
                             "INFO",

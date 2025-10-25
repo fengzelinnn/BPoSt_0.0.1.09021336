@@ -149,7 +149,11 @@ impl FileCycleState {
         self.final_artifact.is_some()
     }
 
-    fn rollback_to_height(&mut self, target_height: u64) -> (Vec<LeafUpdateRecord>, bool) {
+    fn rollback_to_height(
+        &mut self,
+        file_id: &str,
+        target_height: u64,
+    ) -> (Vec<LeafUpdateRecord>, bool) {
         let to_remove: Vec<u64> = self
             .round_history
             .keys()
@@ -187,7 +191,7 @@ impl FileCycleState {
                         "ERROR",
                         "Nova",
                         None,
-                        &format!("回滚后重建 Nova 折叠状态失败: {}", err),
+                        &format!("回滚文件 {} 的 Nova 折叠状态失败: {}", file_id, err),
                     );
                     break;
                 }
@@ -566,7 +570,7 @@ impl StorageManager {
             let mut changed = false;
             if let Some(cycle) = inner.file_cycles.get_mut(&file_id) {
                 let before_steps = cycle.nova.steps_completed();
-                let (updates, did_change) = cycle.rollback_to_height(target_height);
+                let (updates, did_change) = cycle.rollback_to_height(&file_id, target_height);
                 let after_steps = cycle.nova.steps_completed();
                 if did_change {
                     updates_to_apply = updates;
