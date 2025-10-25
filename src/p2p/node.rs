@@ -651,11 +651,20 @@ impl Node {
             );
             (proof, challenge)
         });
+        let challenged_bytes: usize = challenge
+            .iter()
+            .map(|(idx, _)| chunks.get(idx).map(|chunk| chunk.len()).unwrap_or(0))
+            .sum();
         log_msg(
             "INFO",
             "dPDP_PROVE",
             Some(self.node_id.clone()),
-            &format!("为文件 {} 生成了dPDP证明。", file_id),
+            &format!(
+                "为文件 {} 生成了dPDP证明：挑战块数 {}，挑战数据量 {} 字节。",
+                file_id,
+                challenge.len(),
+                challenged_bytes
+            ),
         );
 
         // 构造响应
@@ -1387,6 +1396,7 @@ impl Node {
         }
 
         // 验证所有获胜者提交的dPDP证明
+        let chunk_size = self.storage_manager.chunk_size();
         for nid in &winners_ids {
             if let Some(update) = updates_for_prev.get(nid) {
                 for (fid, pkg_val) in &update.dpdp_proofs {
@@ -1504,14 +1514,16 @@ impl Node {
                             }
                         };
 
+                        let challenge_chunks = challenge.len();
+                        let challenge_bytes = challenge_chunks.saturating_mul(chunk_size);
                         if !DPDP::check_proof(&params, &proof, &challenge) {
                             log_msg(
                                 "CRITICAL",
                                 "CONSENSUS",
                                 Some(self.node_id.clone()),
                                 &format!(
-                                    "dPDP 证明验证失败：节点 {} 文件 {} 轮次 {}，放弃本次出块。",
-                                    nid, fid, round_idx
+                                    "dPDP 证明验证失败：节点 {} 文件 {} 轮次 {}，放弃本次出块。挑战块数 {}，挑战数据量 {} 字节。",
+                                    nid, fid, round_idx, challenge_chunks, challenge_bytes
                                 ),
                             );
                             return;
@@ -1520,7 +1532,10 @@ impl Node {
                                 "DEBUG",
                                 "CONSENSUS",
                                 Some(self.node_id.clone()),
-                                &format!("dPDP 证明验证Pass：节点 {} 文件 {}。", nid, fid),
+                                &format!(
+                                    "dPDP 证明验证Pass：节点 {} 文件 {}。挑战块数 {}，挑战数据量 {} 字节。",
+                                    nid, fid, challenge_chunks, challenge_bytes
+                                ),
                             );
                         }
                     }

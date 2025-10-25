@@ -76,25 +76,31 @@ pub enum FileDataError {
 struct FileCycleState {
     storage_period: usize,
     challenge_size: usize,
+    chunk_size: usize,
     nova: NovaFoldingCycle,
     pending_rounds: VecDeque<StoredRoundRecord>,
     final_artifact: Option<FinalFoldArtifact>,
     final_sent: bool,
     released: bool,
     round_history: BTreeMap<u64, RoundHistoryEntry>,
+    total_challenged_chunks: usize,
+    total_challenged_bytes: usize,
 }
 
 impl FileCycleState {
-    fn new(storage_period: usize, challenge_size: usize) -> Self {
+    fn new(storage_period: usize, challenge_size: usize, chunk_size: usize) -> Self {
         Self {
             storage_period,
             challenge_size,
+            chunk_size,
             nova: NovaFoldingCycle::new(storage_period),
             pending_rounds: VecDeque::new(),
             final_artifact: None,
             final_sent: false,
             released: false,
             round_history: BTreeMap::new(),
+            total_challenged_chunks: 0,
+            total_challenged_bytes: 0,
         }
     }
 
@@ -107,6 +113,10 @@ impl FileCycleState {
         circuits: Vec<RelaxedR1CS<Fr>>,
         leaf_updates: Vec<LeafUpdateRecord>,
     ) {
+        let round_chunks = challenge.len();
+        let round_bytes = round_chunks.saturating_mul(self.chunk_size);
+        self.total_challenged_chunks = self.total_challenged_chunks.saturating_add(round_chunks);
+        self.total_challenged_bytes = self.total_challenged_bytes.saturating_add(round_bytes);
         let record = StoredRoundRecord {
             height,
             round: result.step_index,
@@ -195,7 +205,17 @@ impl FileCycleState {
         }
         self.final_artifact = None;
         self.final_sent = false;
+        self.recompute_challenge_totals();
         (revert_updates, true)
+    }
+
+    fn recompute_challenge_totals(&mut self) {
+        let mut total_chunks = 0usize;
+        for entry in self.round_history.values() {
+            total_chunks = total_chunks.saturating_add(entry.record.challenge.len());
+        }
+        self.total_challenged_chunks = total_chunks;
+        self.total_challenged_bytes = total_chunks.saturating_mul(self.chunk_size);
     }
 }
 
@@ -268,6 +288,11 @@ impl StorageManager {
         inner.used_space + size <= inner.max_storage
     }
 
+    pub fn chunk_size(&self) -> usize {
+        let inner = self.inner.lock();
+        inner.chunk_size
+    }
+
     pub fn receive_chunk(&self, chunk: &FileChunk, total_chunks: Option<usize>) -> bool {
         let mut inner = self.inner.lock();
         if inner.used_space + inner.chunk_size > inner.max_storage {
@@ -334,15 +359,16 @@ impl StorageManager {
         challenge_size: usize,
     ) {
         let mut inner = self.inner.lock();
+        let chunk_size = inner.chunk_size;
         inner
             .file_cycles
             .entry(file_id.to_string())
             .and_modify(|cycle| {
                 if cycle.released {
-                    *cycle = FileCycleState::new(storage_period, challenge_size);
+                    *cycle = FileCycleState::new(storage_period, challenge_size, chunk_size);
                 }
             })
-            .or_insert_with(|| FileCycleState::new(storage_period, challenge_size));
+            .or_insert_with(|| FileCycleState::new(storage_period, challenge_size, chunk_size));
     }
 
     pub fn finalize_commitments(&self) {
@@ -631,16 +657,16 @@ impl StorageManager {
             Some(cycle) => cycle.challenge_size,
             None => return None,
         };
-        if challenge.len() != expected_challenge {
+        let round_chunks = challenge.len();
+        let round_bytes = round_chunks.saturating_mul(inner.chunk_size);
+        if round_chunks != expected_challenge {
             crate::utils::log_msg(
                 "WARN",
                 "Nova",
                 Some(self.node_id.clone()),
                 &format!(
                     "文件 {} 的挑战大小 {} 与预期 {} 不符，忽略本轮。",
-                    file_id,
-                    challenge.len(),
-                    expected_challenge
+                    file_id, round_chunks, expected_challenge
                 ),
             );
             return None;
@@ -700,7 +726,10 @@ impl StorageManager {
                 "ERROR",
                 "Nova",
                 Some(self.node_id.clone()),
-                &format!("dPDP 证明对文件 {} 验证失败，跳过折叠。", file_id),
+                &format!(
+                    "dPDP 证明对文件 {} 验证失败，跳过折叠。本轮挑战块数 {}，挑战数据量 {} 字节。",
+                    file_id, round_chunks, round_bytes
+                ),
             );
             return None;
         }
@@ -712,11 +741,21 @@ impl StorageManager {
         let result = {
             let cycle = inner.file_cycles.get_mut(file_id)?;
             let next_step = cycle.nova.steps_completed() + 1;
+            let cumulative_chunks = cycle.total_challenged_chunks.saturating_add(round_chunks);
+            let cumulative_bytes = cycle.total_challenged_bytes.saturating_add(round_bytes);
             crate::utils::log_msg(
                 "DEBUG",
                 "Nova",
                 Some(self.node_id.clone()),
-                &format!("准备吸收文件 {} 的第 {} 个折叠轮次。", file_id, next_step),
+                &format!(
+                    "准备吸收文件 {} 的第 {} 个折叠轮次。本轮挑战块数 {}，挑战数据量 {} 字节，累计挑战块数 {}，累计数据量 {} 字节。",
+                    file_id,
+                    next_step,
+                    round_chunks,
+                    round_bytes,
+                    cumulative_chunks,
+                    cumulative_bytes
+                ),
             );
             let circuits = vec![dpdp_circuit, block_circuit, state_circuit];
             let fold_start = Instant::now();
@@ -747,10 +786,14 @@ impl StorageManager {
                 "Nova",
                 Some(self.node_id.clone()),
                 &format!(
-                    "文件 {} 完成折叠轮次 {}，累加器 {}。",
+                    "文件 {} 完成折叠轮次 {}，累加器 {}。本轮挑战块数 {}，挑战数据量 {} 字节，累计挑战块数 {}，累计数据量 {} 字节。",
                     file_id,
                     result.step_index,
-                    fr_to_padded_hex(&result.accumulator)
+                    fr_to_padded_hex(&result.accumulator),
+                    round_chunks,
+                    round_bytes,
+                    cumulative_chunks,
+                    cumulative_bytes
                 ),
             );
 
@@ -818,8 +861,12 @@ impl StorageManager {
                         "Nova",
                         Some(self.node_id.clone()),
                         &format!(
-                            "文件 {} 的最终折叠产物已就绪：步数 {}，累加器 {}。",
-                            file_id, artifact.steps, artifact.accumulator
+                            "文件 {} 的最终折叠产物已就绪：步数 {}，累加器 {}。累计挑战块数 {}，累计数据量 {} 字节。",
+                            file_id,
+                            artifact.steps,
+                            artifact.accumulator,
+                            cycle.total_challenged_chunks,
+                            cycle.total_challenged_bytes
                         ),
                     );
                 }

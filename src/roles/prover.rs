@@ -84,11 +84,20 @@ impl Prover {
         // 这些值是证明过程的副产品，但对于维护文件的版本和状态至关重要
         let contributions = DPDP::gen_contributions(file_tags, file_chunks, &challenge);
 
+        let challenged_bytes: usize = challenge
+            .iter()
+            .map(|(idx, _)| file_chunks.get(idx).map(|chunk| chunk.len()).unwrap_or(0))
+            .sum();
         log_msg(
             "DEBUG",
             "dPDP",
             Some(self.node_id.clone()),
-            &format!("为文件 {} 生成了dPDP证明与未聚合贡献", file_id),
+            &format!(
+                "为文件 {} 生成了dPDP证明与未聚合贡献：挑战块数 {}，挑战数据量 {} 字节。",
+                file_id,
+                challenge.len(),
+                challenged_bytes
+            ),
         );
 
         // 返回证明、挑战和贡献值
