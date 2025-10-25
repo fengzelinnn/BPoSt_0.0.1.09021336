@@ -687,12 +687,6 @@ impl Node {
             return;
         }
         let Some(owner_addr) = self.storage_manager.get_file_owner_contact(file_id) else {
-            log_msg(
-                "WARN",
-                "STORE",
-                Some(self.node_id.clone()),
-                &format!("无法请求补发文件 {} 的缺失块：未记录所有者地址。", file_id),
-            );
             return;
         };
         let payload = serde_json::json!({
@@ -704,27 +698,7 @@ impl Node {
                 "provider_addr": [self.host.clone(), self.port],
             }
         });
-        if send_json_line(owner_addr, &payload).is_some() {
-            log_msg(
-                "INFO",
-                "STORE",
-                Some(self.node_id.clone()),
-                &format!(
-                    "已向文件 {} 的所有者请求补发缺失块：{:?}",
-                    file_id, missing_indices
-                ),
-            );
-        } else {
-            log_msg(
-                "WARN",
-                "STORE",
-                Some(self.node_id.clone()),
-                &format!(
-                    "请求文件 {} 缺失块失败，无法联系所有者 {}。",
-                    file_id, owner_addr
-                ),
-            );
-        }
+        let _ = send_json_line(owner_addr, &payload);
     }
 
     fn handle_query_final_proof(&self, data: &Value) -> CommandResponse {
@@ -1397,6 +1371,9 @@ impl Node {
 
         // 验证所有获胜者提交的dPDP证明
         let chunk_size = self.storage_manager.chunk_size();
+        let mut dpdp_verified_rounds = 0usize;
+        let mut dpdp_total_chunks = 0usize;
+        let mut dpdp_total_bytes = 0usize;
         for nid in &winners_ids {
             if let Some(update) = updates_for_prev.get(nid) {
                 for (fid, pkg_val) in &update.dpdp_proofs {
@@ -1537,11 +1514,24 @@ impl Node {
                                     nid, fid, challenge_chunks, challenge_bytes
                                 ),
                             );
+                            dpdp_verified_rounds = dpdp_verified_rounds.saturating_add(1);
+                            dpdp_total_chunks = dpdp_total_chunks.saturating_add(challenge_chunks);
+                            dpdp_total_bytes = dpdp_total_bytes.saturating_add(challenge_bytes);
                         }
                     }
                 }
             }
         }
+
+        log_msg(
+            "INFO",
+            "CONSENSUS",
+            Some(self.node_id.clone()),
+            &format!(
+                "高度 {} dPDP 证明验证完成：挑战轮次 {} 次，挑战块数 {}，挑战数据量 {} 字节。",
+                height, dpdp_verified_rounds, dpdp_total_chunks, dpdp_total_bytes
+            ),
+        );
 
         // 构造区块体
         let body = BlockBody {
@@ -1856,15 +1846,6 @@ impl Node {
             let (chunks, tags) = match self.storage_manager.get_file_data_for_proof(fid) {
                 Ok(data) => data,
                 Err(FileDataError::Incomplete { missing_indices }) => {
-                    log_msg(
-                        "WARN",
-                        "dPDP_PROVE",
-                        Some(self.node_id.clone()),
-                        &format!(
-                            "文件 {} 数据缺失，跳过证明并请求补发缺失块 {:?}。",
-                            fid, missing_indices
-                        ),
-                    );
                     self.request_missing_chunks(fid, &missing_indices);
                     continue;
                 }
