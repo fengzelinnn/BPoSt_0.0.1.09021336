@@ -657,10 +657,21 @@ impl StorageManager {
             return None;
         }
         let pk_bytes = inner.file_pk_beta.get(file_id)?.clone();
-        let expected_challenge = match inner.file_cycles.get(file_id) {
-            Some(cycle) => cycle.challenge_size,
+        let cycle = match inner.file_cycles.get(file_id) {
+            Some(cycle) => cycle,
             None => return None,
         };
+        let total_chunks = inner
+            .file_expected_chunks
+            .get(file_id)
+            .copied()
+            .or_else(|| inner.files.get(file_id).map(|chunks| chunks.len()))
+            .unwrap_or_default();
+        if total_chunks == 0 {
+            return None;
+        }
+        let required = (total_chunks.saturating_mul(3) + 9) / 10;
+        let expected_challenge = required.max(cycle.challenge_size).min(total_chunks);
         let round_chunks = challenge.len();
         let round_bytes = round_chunks.saturating_mul(inner.chunk_size);
         if round_chunks != expected_challenge {
