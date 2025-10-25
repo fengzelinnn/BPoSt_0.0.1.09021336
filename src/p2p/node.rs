@@ -1579,13 +1579,26 @@ impl Node {
 
         // 领导者首先更新自己的链，避免等待gossip反馈
         let gossip_block = new_block.clone();
-        if let Ok(serialized) = bincode::serialize(&new_block) {
+        let serialized_block = bincode::serialize(&gossip_block);
+        let serialized_body = bincode::serialize(&gossip_block.body);
+
+        if let Ok(serialized) = serialized_block.as_ref() {
             run_metrics::metrics().record_block_size(
                 &self.node_id,
-                new_block.height,
+                gossip_block.height,
                 serialized.len(),
             );
         }
+
+        let proof_count = gossip_block.body.selected_k_proofs.len();
+        let block_size_info = match (serialized_block.as_ref(), serialized_body.as_ref()) {
+            (Ok(block_bytes), Ok(body_bytes)) => Some((
+                block_bytes.len().saturating_sub(body_bytes.len()),
+                body_bytes.len(),
+            )),
+            _ => None,
+        };
+
         if !matches!(self.accept_block(new_block), BlockHandlingResult::Accepted) {
             log_msg(
                 "ERROR",
@@ -1594,6 +1607,31 @@ impl Node {
                 &format!("领导者在高度 {} 创建区块失败", height),
             );
             return;
+        }
+
+        match block_size_info {
+            Some((header_size, body_size)) => {
+                log_msg(
+                    "INFO",
+                    "BLOCKCHAIN",
+                    Some(self.node_id.clone()),
+                    &format!(
+                        "高度 {} 出块成功：区块头 {} 字节，区块体 {} 字节，包含证明 {} 份。",
+                        height, header_size, body_size, proof_count
+                    ),
+                );
+            }
+            None => {
+                log_msg(
+                    "INFO",
+                    "BLOCKCHAIN",
+                    Some(self.node_id.clone()),
+                    &format!(
+                        "高度 {} 出块成功，包含证明 {} 份。（区块序列化失败，无法统计大小）",
+                        height, proof_count
+                    ),
+                );
+            }
         }
 
         // 将新区块gossip出去
