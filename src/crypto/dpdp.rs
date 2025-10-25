@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ark_bn254::{Fr, G1Affine, G1Projective, G2Affine, G2Projective};
 use ark_ec::{AffineRepr, PrimeGroup};
@@ -136,28 +136,36 @@ impl DPDP {
             return Vec::new();
         }
         let n = tags.tags.len();
+        let required = ((3 * n) + 9) / 10;
         let count = if let Some(m) = m {
-            m
+            m.max(required)
         } else {
             let mut base = (timestamp as usize) % n;
             if base == 0 {
                 base = 5;
             }
             base = base.max(1);
-            base
-        };
+            base.max(required)
+        }
+        .min(n);
         let order = curve_order();
         let mut challenges = Vec::new();
-        for j in 0..count {
+        let mut seen = HashSet::new();
+        let n_big = n.to_biguint().unwrap();
+        let mut j: usize = 0;
+        while challenges.len() < count {
             let _round_span = span.child(vec![String::from("entry"), format!("index_{}", j)]);
             let seed = format!("{}:{}:{}", prev_hash, timestamp, j);
-            let idx = (hash_to_field(seed.as_bytes()) % n.to_biguint().unwrap())
+            let idx = (hash_to_field(seed.as_bytes()) % &n_big)
                 .to_usize()
                 .unwrap_or(0)
                 % n;
-            let value_seed = format!("chal|{}", seed);
-            let v_i = hash_to_field(value_seed.as_bytes()) % &order;
-            challenges.push((idx, v_i));
+            if seen.insert(idx) {
+                let value_seed = format!("chal|{}", seed);
+                let v_i = hash_to_field(value_seed.as_bytes()) % &order;
+                challenges.push((idx, v_i));
+            }
+            j += 1;
         }
         challenges
     }
